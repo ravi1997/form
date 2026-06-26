@@ -1,0 +1,218 @@
+{
+  "_comment": "Complete reference showing ALL 16 step types. Copy only the steps you need.",
+  "name": "Complete Analysis Reference — All Step Types",
+  "source_collection": "form_responses",
+  "filters": [
+    { "field": "form",            "operator": "eq",  "value": "<your-form-uuid>" },
+    { "field": "organization_id", "operator": "eq",  "value": "<your-org-id>" },
+    { "field": "is_deleted",      "operator": "eq",  "value": false }
+  ],
+  "steps": [
+
+    {
+      "_comment": "──── ORIGINAL STEP TYPES ────────────────────────────────────────────────"
+    },
+
+    {
+      "id": "satisfaction_dist",
+      "type": "frequency",
+      "field": "data.satisfaction_rating",
+      "label": "Satisfaction Distribution"
+    },
+
+    {
+      "id": "preferred_features",
+      "type": "array_frequency",
+      "field": "data.preferred_features",
+      "label": "Preferred Features (Multi-select)"
+    },
+
+    {
+      "id": "avg_rating",
+      "type": "aggregate",
+      "field": "data.overall_rating",
+      "operation": "avg",
+      "label": "Average Overall Rating"
+    },
+
+    {
+      "id": "satisfaction_by_region",
+      "type": "crosstab",
+      "row_field": "data.satisfaction_rating",
+      "col_field": "data.region",
+      "label": "Satisfaction × Region Crosstab"
+    },
+
+    {
+      "id": "top5_issues",
+      "type": "top_n",
+      "field": "data.main_issue",
+      "n": 5,
+      "label": "Top 5 Reported Issues"
+    },
+
+    {
+      "id": "missing_phone",
+      "type": "missing",
+      "field": "data.contact_phone",
+      "label": "Missing Phone Number"
+    },
+
+    {
+      "id": "north_segment",
+      "type": "segment",
+      "label": "North Region Deep-dive",
+      "filter": { "field": "data.region", "operator": "eq", "value": "North" },
+      "sub_steps": [
+        { "id": "north_satisfaction", "type": "frequency",  "field": "data.satisfaction_rating", "label": "Satisfaction (North)" },
+        { "id": "north_avg_rating",   "type": "aggregate",  "field": "data.overall_rating", "operation": "avg", "label": "Avg Rating (North)" },
+        { "id": "north_features",     "type": "array_frequency", "field": "data.preferred_features", "label": "Features (North)" }
+      ]
+    },
+
+    {
+      "_comment": "──── ADVANCED STEP TYPES ────────────────────────────────────────────────"
+    },
+
+    {
+      "id": "submissions_over_time",
+      "type": "time_series",
+      "date_field": "submitted_at",
+      "period": "month",
+      "label": "Submissions per Month"
+    },
+
+    {
+      "id": "avg_rating_over_time",
+      "type": "time_series",
+      "date_field": "submitted_at",
+      "period": "week",
+      "value_field": "data.overall_rating",
+      "operation": "avg",
+      "label": "Average Rating Trend (Weekly)"
+    },
+
+    {
+      "id": "nps_score",
+      "type": "nps",
+      "field": "data.nps_score",
+      "promoter_min": 9,
+      "passive_min": 7,
+      "label": "Net Promoter Score"
+    },
+
+    {
+      "id": "rating_percentiles",
+      "type": "percentile",
+      "field": "data.overall_rating",
+      "percentiles": [10, 25, 50, 75, 90, 95],
+      "label": "Rating Percentile Distribution"
+    },
+
+    {
+      "id": "avg_rating_by_region",
+      "type": "pivot_aggregate",
+      "group_field": "data.region",
+      "value_field": "data.overall_rating",
+      "operation": "avg",
+      "sort_by": "value",
+      "label": "Average Rating by Region"
+    },
+
+    {
+      "id": "count_by_age_group",
+      "type": "pivot_aggregate",
+      "group_field": "data.age_group",
+      "operation": "count",
+      "sort_by": "value",
+      "label": "Response Count by Age Group"
+    },
+
+    {
+      "id": "newsletter_optin",
+      "type": "boolean_summary",
+      "field": "data.opted_in_newsletter",
+      "label": "Newsletter Opt-in (Yes / No)"
+    },
+
+    {
+      "id": "newsletter_optin_string",
+      "type": "boolean_summary",
+      "field": "data.is_returning_customer",
+      "coerce_strings": true,
+      "label": "Returning Customer (Yes / No / Unknown)"
+    },
+
+    {
+      "id": "north_issues",
+      "type": "conditional_frequency",
+      "field": "data.main_issue",
+      "condition_field": "data.region",
+      "condition_value": "North",
+      "label": "Issues Reported by North Region"
+    },
+
+    {
+      "id": "unhappy_issues",
+      "type": "conditional_frequency",
+      "field": "data.main_issue",
+      "condition_field": "data.satisfaction_rating",
+      "condition_value": ["Very Dissatisfied", "Dissatisfied"],
+      "label": "Issues from Unhappy Customers"
+    },
+
+    {
+      "id": "rating_nps_corr",
+      "type": "correlation",
+      "field_a": "data.overall_rating",
+      "field_b": "data.nps_score",
+      "label": "Correlation: Rating vs NPS"
+    },
+
+    {
+      "id": "approval_funnel",
+      "type": "funnel",
+      "mode": "independent",
+      "label": "Approval Pipeline Funnel",
+      "stages": [
+        { "label": "All Submissions",  "filter": null },
+        { "label": "Not Deleted",      "filter": { "field": "is_deleted",      "operator": "eq", "value": false } },
+        { "label": "Processed",        "filter": { "field": "status",          "operator": "eq", "value": "processed" } },
+        { "label": "Approved",         "filter": { "field": "review_status",   "operator": "eq", "value": "approved" } }
+      ]
+    },
+
+    {
+      "id": "satisfaction_funnel",
+      "type": "funnel",
+      "mode": "cumulative",
+      "label": "Progressive Satisfaction Filter",
+      "stages": [
+        { "label": "Answered survey",       "filter": { "field": "data.satisfaction_rating", "operator": "exists", "value": true } },
+        { "label": "Rated 3+",             "filter": { "field": "data.overall_rating",      "operator": "gte",    "value": 3 } },
+        { "label": "Promoters (NPS 9-10)", "filter": { "field": "data.nps_score",           "operator": "gte",    "value": 9 } }
+      ]
+    },
+
+    {
+      "id": "region_ranking",
+      "type": "rank",
+      "group_field": "data.region",
+      "value_field": "data.overall_rating",
+      "operation": "avg",
+      "order": "desc",
+      "min_count": 5,
+      "label": "Regions Ranked by Average Rating"
+    },
+
+    {
+      "id": "issue_frequency_ranking",
+      "type": "rank",
+      "group_field": "data.main_issue",
+      "operation": "count",
+      "order": "desc",
+      "limit": 10,
+      "label": "Most Common Issues (Top 10)"
+    }
+  ]
+}
