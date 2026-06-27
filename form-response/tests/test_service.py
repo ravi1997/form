@@ -91,6 +91,73 @@ class FormResponseServiceTest(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertTrue(payload["database"])
 
+    def test_form_versioning_increments_on_change(self):
+        # Version 1
+        resp = self.client.post(
+            "/forms/ingest",
+            json={"id": "versioned-form", "title": "First Version", "sections": []}
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.get_json()["form"]["snapshot_version"], 1)
+
+        # Same structure should not increment
+        resp = self.client.post(
+            "/forms/ingest",
+            json={"id": "versioned-form", "title": "First Version", "sections": []}
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.get_json()["form"]["snapshot_version"], 1)
+
+        # Changed structure should increment to version 2
+        resp = self.client.post(
+            "/forms/ingest",
+            json={"id": "versioned-form", "title": "Second Version", "sections": []}
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.get_json()["form"]["snapshot_version"], 2)
+
+        # Get specific version
+        resp_v1 = self.client.get("/forms/versioned-form?version=1")
+        self.assertEqual(resp_v1.status_code, 200)
+        self.assertEqual(resp_v1.get_json()["form"]["title"], "First Version")
+
+        resp_v2 = self.client.get("/forms/versioned-form?version=2")
+        self.assertEqual(resp_v2.status_code, 200)
+        self.assertEqual(resp_v2.get_json()["form"]["title"], "Second Version")
+
+    def test_strict_type_and_choice_validation(self):
+        self.client.post(
+            "/forms/ingest",
+            json={
+                "id": "strict-form",
+                "sections": [
+                    {
+                        "id": "s1",
+                        "questions": [
+                            {"id": "q_num", "type": "number", "required": False},
+                            {"id": "q_choice", "type": "choice", "choices": ["A", "B"], "required": False},
+                            {"id": "q_bool", "type": "boolean", "required": False},
+                        ]
+                    }
+                ]
+            }
+        )
+
+        # Valid payload
+        resp = self.client.post("/forms/strict-form/responses", json={"answers": {"q_num": 42, "q_choice": "A", "q_bool": True}})
+        self.assertEqual(resp.status_code, 201)
+
+        # Invalid number type
+        resp = self.client.post("/forms/strict-form/responses", json={"answers": {"q_num": "not-a-number"}})
+        self.assertEqual(resp.status_code, 400)
+
+        # Invalid choice value
+        resp = self.client.post("/forms/strict-form/responses", json={"answers": {"q_choice": "C"}})
+        self.assertEqual(resp.status_code, 400)
+
+        # Invalid boolean type
+        resp = self.client.post("/forms/strict-form/responses", json={"answers": {"q_bool": "yes"}})
+        self.assertEqual(resp.status_code, 400)
 
 
 if __name__ == "__main__":

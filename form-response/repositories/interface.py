@@ -7,7 +7,7 @@ from models.core import FormSnapshot, ResponseRecord
 
 class RepositoryInterface(ABC):
     @abstractmethod
-    def get_form(self, form_id: str) -> FormSnapshot | None:
+    def get_form(self, form_id: str, snapshot_version: int | None = None) -> FormSnapshot | None:
         raise NotImplementedError
 
     @abstractmethod

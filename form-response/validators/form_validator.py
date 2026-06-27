@@ -43,8 +43,38 @@ def validate_response_payload(form_snapshot: dict, answers: dict) -> tuple[bool,
     errors: dict[str, str] = {}
     index = build_question_index(form_snapshot)
     for qid, meta in index.items():
-        if meta["required"] and qid not in answers:
+        if meta["required"] and (qid not in answers or answers[qid] is None or answers[qid] == ""):
             errors[qid] = "This field is required."
+            continue
+        
+        if qid in answers:
+            val = answers[qid]
+            if val is None:
+                continue
+            
+            qtype = meta.get("type")
+            choices = meta.get("choices") or []
+            
+            if qtype == "number":
+                if not isinstance(val, (int, float)):
+                    errors[qid] = "Value must be a number."
+            elif qtype in ("choice", "single_choice", "select"):
+                if choices and val not in choices:
+                    errors[qid] = f"Value must be one of the allowed choices: {choices}."
+            elif qtype in ("multiple_choice", "multi_select"):
+                if not isinstance(val, list):
+                    errors[qid] = "Value must be a list of choices."
+                elif choices:
+                    invalid_choices = [v for v in val if v not in choices]
+                    if invalid_choices:
+                        errors[qid] = f"Values {invalid_choices} are not in the allowed choices: {choices}."
+            elif qtype in ("boolean", "checkbox"):
+                if not isinstance(val, bool):
+                    errors[qid] = "Value must be a boolean."
+            elif qtype == "text":
+                if not isinstance(val, str):
+                    errors[qid] = "Value must be a string."
+
     unknown = sorted(set(answers) - set(index))
     for key in unknown:
         errors[key] = "Unknown question id."

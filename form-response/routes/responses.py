@@ -22,6 +22,7 @@ def create_response(form_id: str):
         answers=answers,
         status=body.get("status", "draft"),
         submitted_at=now_utc() if body.get("status", "draft") != "draft" else None,
+        form_snapshot_version=form.snapshot_version,
     )
     store.upsert_response(response)
     return jsonify({"status": "success", "response": response.__dict__}), 201
@@ -48,7 +49,9 @@ def patch_response(response_id: str):
         return jsonify({"error": "Response not found"}), 404
     body = request.get_json(silent=True) or {}
     if "answers" in body:
-        form = store.get_form(response.form_id)
+        form = store.get_form(response.form_id, snapshot_version=response.form_snapshot_version)
+        if not form:
+            form = store.get_form(response.form_id)
         valid, errors = validate_response_payload(form.__dict__, body["answers"])
         if not valid:
             return jsonify({"error": "Validation failed", "details": errors}), 400

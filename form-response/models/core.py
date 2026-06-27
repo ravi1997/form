@@ -27,4 +27,5 @@ class ResponseRecord:
     response_id: str = field(default_factory=lambda: str(uuid4()))
     submitted_at: str | None = None
     updated_at: str = field(default_factory=now_utc)
+    form_snapshot_version: int = 1
 
