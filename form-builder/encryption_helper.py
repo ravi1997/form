@@ -98,16 +98,91 @@ class EncryptionHelper:
             return encrypted_str
 
     @classmethod
-    def process_sensitive_fields(cls, answers, sensitive_fields, action="encrypt"):
+    def generate_dek(cls):
+        return Fernet.generate_key().decode()
+
+    @classmethod
+    def encrypt_dek(cls, dek):
+        cipher = cls.get_cipher(CURRENT_VERSION)
+        if not cipher:
+            raise ValueError("Master encryption cipher is not configured.")
+        # Store with version prefix
+        ciphertext = cipher.encrypt(dek.encode()).decode()
+        return f"{CURRENT_VERSION}:{ciphertext}"
+
+    @classmethod
+    def decrypt_dek(cls, encrypted_dek):
+        if not encrypted_dek or not isinstance(encrypted_dek, str):
+            raise ValueError("Invalid encrypted DEK format")
+        version = "v1"
+        ciphertext = encrypted_dek
+        if ":" in encrypted_dek:
+            parts = encrypted_dek.split(":", 1)
+            if parts[0].startswith("v") and parts[0][1:].isdigit():
+                version = parts[0]
+                ciphertext = parts[1]
+        
+        cipher = cls.get_cipher(version)
+        if not cipher:
+            raise ValueError(f"Master encryption cipher version {version} not found.")
+        return cipher.decrypt(ciphertext.encode()).decode()
+
+    @classmethod
+    def encrypt_with_dek(cls, val, dek):
+        if val is None:
+            return None
+        try:
+            cipher = Fernet(dek.encode())
+            return cipher.encrypt(str(val).encode()).decode()
+        except Exception as e:
+            logger.error(f"Failed to encrypt with DEK: {str(e)}")
+            return str(val)
+
+    @classmethod
+    def decrypt_with_dek(cls, encrypted_str, dek):
+        if not encrypted_str or not isinstance(encrypted_str, str):
+            return encrypted_str
+        try:
+            cipher = Fernet(dek.encode())
+            return cipher.decrypt(encrypted_str.encode()).decode()
+        except Exception:
+            return encrypted_str
+
+    @classmethod
+    def process_sensitive_fields(cls, answers, sensitive_fields, action="encrypt", dek=None):
         """
         Encrypts or decrypts sensitive fields in place.
+        If a DEK is provided, uses envelope encryption; otherwise falls back to global key.
         """
         processed = dict(answers)
         for field in sensitive_fields:
             if field in processed:
                 val = processed[field]
                 if action == "encrypt":
-                    processed[field] = cls.encrypt_value(val)
+                    if dek:
+                        processed[field] = cls.encrypt_with_dek(val, dek)
+                    else:
+                        processed[field] = cls.encrypt_value(val)
                 elif action == "decrypt":
-                    processed[field] = cls.decrypt_value(val)
+                    if dek:
+                        processed[field] = cls.decrypt_with_dek(val, dek)
+                    else:
+                        processed[field] = cls.decrypt_value(val)
         return processed
+
+    @classmethod
+    def resolve_form_dek(cls, forms_col, form):
+        if not form:
+            return None
+        if "encrypted_dek" not in form:
+            dek = cls.generate_dek()
+            encrypted_dek = cls.encrypt_dek(dek)
+            if forms_col is not None:
+                try:
+                    forms_col.update_one({"_id": form["_id"]}, {"$set": {"encrypted_dek": encrypted_dek}})
+                except Exception:
+                    pass
+            form["encrypted_dek"] = encrypted_dek
+            return dek
+        else:
+            return cls.decrypt_dek(form["encrypted_dek"])

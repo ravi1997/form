@@ -102,6 +102,25 @@ class FormSubmissionValidator:
             self.errors["form"] = "This form is currently paused and not accepting responses."
             return False, {}, self.errors
 
+        # --- 1.1 Unresolved Merge Conflicts Check ---
+        sections = self.get_active_sections()
+        def check_conflicts(sects):
+            if not sects:
+                return False
+            for sec in sects:
+                for q in sec.get("questions", []):
+                    if q.get("type") == "conflict":
+                        return True
+                    if "properties" in q and "questions" in q["properties"]:
+                        for nested_q in q["properties"]["questions"]:
+                            if nested_q.get("type") == "conflict":
+                                return True
+            return False
+
+        if check_conflicts(sections):
+            self.errors["form"] = "Cannot submit responses to a form version with unresolved merge conflicts."
+            return False, {}, self.errors
+
         # --- 2. Password Protection Check ---
         if self.form.get("password_protected", False) and not self.is_draft:
             submitted_pwd = self.headers.get("X-Form-Password")
@@ -337,10 +356,13 @@ class FormSubmissionValidator:
 
         # 7. Apply Encryption on Sensitive Fields (PII)
         if sensitive_fields and not self.is_draft:
+            forms_col = self.db["forms"] if self.db is not None else None
+            dek = EncryptionHelper.resolve_form_dek(forms_col, self.form)
             self.validated_answers = EncryptionHelper.process_sensitive_fields(
                 self.validated_answers,
                 sensitive_fields,
-                action="encrypt"
+                action="encrypt",
+                dek=dek
             )
 
         is_valid = len(self.errors) == 0

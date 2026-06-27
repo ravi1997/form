@@ -65,6 +65,14 @@ class TestAuthAndACL(unittest.TestCase):
         self.assertEqual(res_refresh.status_code, 200)
         self.assertIn("access_token", json.loads(res_refresh.data))
 
+        # Access tokens must not be accepted by the refresh endpoint.
+        res_refresh_with_access = self.client.post(
+            "/api/auth/refresh",
+            json={"refresh_token": access_token}
+        )
+        self.assertEqual(res_refresh_with_access.status_code, 401)
+        self.assertIn("error", json.loads(res_refresh_with_access.data))
+
         # 5. Reset password check
         reset_payload = {
             "email": "owner@company.com",

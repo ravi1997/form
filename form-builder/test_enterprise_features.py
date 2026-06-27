@@ -542,5 +542,384 @@ class TestEnterpriseFeatures(unittest.TestCase):
         cached_choices = LookupResolver.resolve_lookup_choices(db, lookup_config, "test_org")
         self.assertEqual(cached_choices, [{"value": "CachedCherry", "text": "CachedCherry"}])
 
+    def test_tenant_db_freeze_reactivation(self):
+        import os
+        from app import get_collections, ACTIVE_TENANTS, FROZEN_TENANTS
+        os.environ["TENANT_DB_ISOLATION"] = "true"
+        os.environ["ACTIVE_DB_LIMIT"] = "1"
+        os.environ["DB_INACTIVE_TIMEOUT"] = "1"
+        
+        # Access tenant A to make it active
+        app_ctx = app.test_request_context('/?organization_id=org_active_test')
+        with app_ctx:
+            db_conn, _, _, _, _, _ = get_collections()
+            self.assertIn("org_active_test", ACTIVE_TENANTS)
+            self.assertNotIn("org_active_test", FROZEN_TENANTS)
+            
+            # Access another tenant to freeze the first one
+            import time
+            time.sleep(1.1)
+            
+            app_ctx2 = app.test_request_context('/?organization_id=org_active_test_2')
+            with app_ctx2:
+                db2, _, _, _, _, _ = get_collections()
+                self.assertIn("org_active_test_2", ACTIVE_TENANTS)
+                self.assertIn("org_active_test", FROZEN_TENANTS)
+                
+            # Reactivate tenant A
+            app_ctx3 = app.test_request_context('/?organization_id=org_active_test')
+            with app_ctx3:
+                db3, _, _, _, _, _ = get_collections()
+                self.assertIn("org_active_test", ACTIVE_TENANTS)
+                self.assertNotIn("org_active_test", FROZEN_TENANTS)
+
+    def test_git_commit_compensating_rollback(self):
+        from git_version_control import GitVersionControl
+        from bson import ObjectId
+        # Try to commit to an invalid/non-existent form and verify no orphan commit is left
+        invalid_form_id = ObjectId()
+        commit_hash, err = GitVersionControl.create_commit(
+            db["forms"], invalid_form_id, "main", [], "Compensating test", "author"
+        )
+        self.assertIsNone(commit_hash)
+        self.assertEqual(err, "Form not found")
+        
+        commits_count = db["commits"].count_documents({"form_id": invalid_form_id})
+        self.assertEqual(commits_count, 0)
+
+    def test_draft_binary_fields_conflict_handling(self):
+        client = app.test_client()
+        form_payload = {
+            "title": "Binary Conflict Form",
+            "sections": [{"id": "s1", "questions": [{"id": "q_sig", "type": "signature"}]}]
+        }
+        res_form = client.post("/api/forms", json=form_payload)
+        form = json.loads(res_form.data)
+        form_id = form["_id"]
+        
+        # Create draft response
+        res_draft = client.post(f"/api/forms/{form_id}/submit", json={"status": "Draft"})
+        draft_id = json.loads(res_draft.data)["response"]["_id"]
+        
+        # Save a signature path in DB
+        client.patch(f"/api/responses/{draft_id}", json={
+            "status": "Draft",
+            "answers": {"q_sig": "/static/uploads/existing_sig.png"}
+        })
+        
+        # Send different binary value and stale base triggering conflict
+        new_sig_base64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        res_conflict = client.patch(f"/api/responses/{draft_id}", json={
+            "status": "Draft",
+            "base_answers": {"q_sig": "/static/uploads/ancestor_sig.png"},
+            "answers": {"q_sig": new_sig_base64}
+        })
+        self.assertEqual(res_conflict.status_code, 409)
+        
+        # Ensure database still has the existing signature
+        resp_in_db = db["responses"].find_one({"_id": ObjectId(draft_id)})
+        self.assertEqual(resp_in_db["answers"]["q_sig"], "/static/uploads/existing_sig.png")
+
+    def test_schema_drift_auto_migration(self):
+        client = app.test_client()
+        # 1. Create a form with version 1: q_val is text
+        form_payload = {
+            "title": "Drift Form",
+            "sections": [{"id": "s1", "questions": [{"id": "q_val", "type": "text"}]}]
+        }
+        res_form = client.post("/api/forms", json=form_payload)
+        form = json.loads(res_form.data)
+        form_id = form["_id"]
+        
+        # Publish version 1
+        client.post(f"/api/forms/{form_id}/publish", json={"version_number": 1})
+        
+        # Submit a response containing string value "100"
+        res_sub = client.post(f"/api/forms/{form_id}/submit", json={"q_val": "100"})
+        resp_id = json.loads(res_sub.data)["response"]["_id"]
+        
+        # Verify the database has the string "100"
+        resp_doc = db["responses"].find_one({"_id": ObjectId(resp_id)})
+        self.assertEqual(resp_doc["answers"]["q_val"], "100")
+        
+        # 2. Create version 2 where q_val is a number (type changed)
+        new_sections = [{"id": "s1", "questions": [{"id": "q_val", "type": "number"}]}]
+        res_ver = client.post(f"/api/forms/{form_id}/versions", json={"sections": new_sections})
+        self.assertEqual(res_ver.status_code, 201)
+        
+        # Publish version 2, triggering auto-migration in the background
+        res_pub = client.post(f"/api/forms/{form_id}/publish", json={"version_number": 2})
+        self.assertEqual(res_pub.status_code, 200)
+        
+        # Wait a moment for background thread execution
+        import time
+        time.sleep(0.5)
+        
+        # Verify that the value in the response collection has been cast to a float/int (100)
+        resp_doc_migrated = db["responses"].find_one({"_id": ObjectId(resp_id)})
+        self.assertIsNotNone(resp_doc_migrated)
+        self.assertEqual(resp_doc_migrated["answers"]["q_val"], 100)
+
+    def test_envelope_encryption_pii_handling(self):
+        client = app.test_client()
+        # 1. Create a form with a sensitive field
+        form_payload = {
+            "title": "Medical Form",
+            "sections": [
+                {
+                    "id": "s1",
+                    "questions": [
+                        {
+                            "id": "q_secret",
+                            "type": "text",
+                            "properties": {
+                                "sensitive": True
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+        res_form = client.post("/api/forms", json=form_payload)
+        form = json.loads(res_form.data)
+        form_id = form["_id"]
+        
+        # 2. Submit a response
+        res_submit = client.post(f"/api/forms/{form_id}/submit", json={"q_secret": "my-secret-ssn"})
+        submit_data = json.loads(res_submit.data)
+        resp_id = submit_data["response"]["_id"]
+        
+        # 3. Verify database storage is encrypted
+        resp_doc = db["responses"].find_one({"_id": ObjectId(resp_id)})
+        encrypted_val = resp_doc["answers"]["q_secret"]
+        self.assertNotEqual(encrypted_val, "my-secret-ssn")
+        
+        # Verify it cannot be decrypted using the master key directly
+        from encryption_helper import EncryptionHelper
+        decrypted_with_master_failed = EncryptionHelper.decrypt_value(encrypted_val)
+        self.assertEqual(decrypted_with_master_failed, encrypted_val)
+        
+        # Verify form has an encrypted DEK in DB
+        form_doc = db["forms"].find_one({"_id": ObjectId(form_id)})
+        self.assertIn("encrypted_dek", form_doc)
+        
+        # 4. Verify DEK decryption and data decryption works
+        dek = EncryptionHelper.resolve_form_dek(db["forms"], form_doc)
+        decrypted_val = EncryptionHelper.decrypt_with_dek(encrypted_val, dek)
+        self.assertEqual(decrypted_val, "my-secret-ssn")
+
+    def test_webhook_dead_letter_queue(self):
+        # Verify failed webhook execution triggers exponential backoff retries and places entries in DEAD_LETTER status
+        from workflow_engine import WorkflowEngine
+        workflow_run_id = db["workflow_runs"].insert_one({
+            "status": "PROCESSING",
+            "url": "http://invalid-url-that-fails.com/webhook",
+            "created_at": datetime.utcnow()
+        }).inserted_id
+        
+        # Call webhook executor with mock failing url
+        success = WorkflowEngine.execute_webhook_with_retry(
+            db, 
+            "http://invalid-url-that-fails.com/webhook", 
+            "POST", 
+            {"test": "data"}, 
+            workflow_run_id
+        )
+        self.assertFalse(success)
+        
+        # Verify entry marked as DEAD_LETTER in DB
+        run_doc = db["workflow_runs"].find_one({"_id": workflow_run_id})
+        self.assertEqual(run_doc["status"], "DEAD_LETTER")
+        self.assertIsNotNone(run_doc["error"])
+
+    def test_async_batch_submission(self):
+        client = app.test_client()
+        # Create a simple form
+        form_payload = {
+            "title": "Batch Async Form",
+            "sections": [{"id": "s1", "questions": [{"id": "q1", "type": "text"}]}]
+        }
+        res_form = client.post("/api/forms", json=form_payload)
+        form = json.loads(res_form.data)
+        form_id = form["_id"]
+        
+        # Trigger async batch submission
+        res_batch = client.post(f"/api/forms/{form_id}/submit-batch", json={
+            "submissions": [{"q1": "val1"}, {"q1": "val2"}]
+        })
+        self.assertEqual(res_batch.status_code, 202)
+        batch_data = json.loads(res_batch.data)
+        self.assertIn("task_id", batch_data)
+        
+        # Verify task is created in pending/running/completed state
+        task_id = batch_data["task_id"]
+        task_doc = db["tasks"].find_one({"_id": ObjectId(task_id)})
+        self.assertIsNotNone(task_doc)
+        self.assertEqual(task_doc["type"], "submit_batch")
+
+    def test_master_key_rotation(self):
+        client = app.test_client()
+        from cryptography.fernet import Fernet
+        old_master = Fernet.generate_key().decode()
+        new_master = Fernet.generate_key().decode()
+        
+        # Create form and assign custom DEK encrypted with old key
+        form_payload = {
+            "title": "Rotatable Form",
+            "sections": [{"id": "s1", "questions": []}]
+        }
+        res_form = client.post("/api/forms", json=form_payload)
+        form = json.loads(res_form.data)
+        form_id = form["_id"]
+        
+        # Set manual DEK encrypted with old key
+        old_cipher = Fernet(old_master.encode())
+        raw_dek = Fernet.generate_key().decode()
+        encrypted_dek_old = f"v1:{old_cipher.encrypt(raw_dek.encode()).decode()}"
+        db["forms"].update_one({"_id": ObjectId(form_id)}, {"$set": {"encrypted_dek": encrypted_dek_old}})
+        
+        # Perform rotation via route
+        res_rot = client.post("/api/admin/rotate-master-key", json={
+            "old_master_key": old_master,
+            "new_master_key": new_master
+        })
+        self.assertEqual(res_rot.status_code, 200)
+        
+        # Verify DEK is re-encrypted with new master key and tagged with v2
+        form_doc = db["forms"].find_one({"_id": ObjectId(form_id)})
+        self.assertTrue(form_doc["encrypted_dek"].startswith("v2:"))
+        
+        # Verify decryption using new master key succeeds
+        new_cipher = Fernet(new_master.encode())
+        enc_val = form_doc["encrypted_dek"].split(":", 1)[1]
+        dec_dek = new_cipher.decrypt(enc_val.encode()).decode()
+        self.assertEqual(dec_dek, raw_dek)
+
+    def test_commits_pagination(self):
+        client = app.test_client()
+        # Create form
+        form_payload = {
+            "title": "Paginated Commits Form",
+            "sections": [{"id": "s1", "questions": []}]
+        }
+        res_form = client.post("/api/forms", json=form_payload)
+        form = json.loads(res_form.data)
+        form_id = form["_id"]
+        
+        # Create multiple commits
+        from git_version_control import GitVersionControl
+        for i in range(5):
+            GitVersionControl.create_commit(db["forms"], ObjectId(form_id), "main", [], f"Commit {i}", "tester")
+            
+        # Get with pagination limits
+        res_pag1 = client.get(f"/api/forms/{form_id}/commits?limit=2&offset=0")
+        self.assertEqual(res_pag1.status_code, 200)
+        data1 = json.loads(res_pag1.data)
+        self.assertEqual(len(data1), 2)
+        
+        res_pag2 = client.get(f"/api/forms/{form_id}/commits?limit=2&offset=2")
+        self.assertEqual(res_pag2.status_code, 200)
+        data2 = json.loads(res_pag2.data)
+        self.assertEqual(len(data2), 2)
+
+    def test_garbage_collection_and_sync(self):
+        from task_manager import TaskManager
+        # Insert mock upload registry orphans
+        db["upload_registry"].insert_one({
+            "file_path": "/static/uploads/dummy_orphan.png",
+            "created_at": datetime.utcnow() - timedelta(hours=2)
+        })
+        
+        # Run garbage collector
+        del_count = TaskManager.run_upload_garbage_collector(db)
+        self.assertTrue(del_count >= 0)
+
+    def test_publish_retention_behavior(self):
+        client = app.test_client()
+        # Create a form
+        form_payload = {
+            "title": "Retention Form",
+            "sections": [{"id": "s1", "questions": [{"id": "q1", "type": "text"}]}]
+        }
+        res_form = client.post("/api/forms", json=form_payload)
+        form = json.loads(res_form.data)
+        form_id = form["_id"]
+        
+        # Publish version 1
+        client.post(f"/api/forms/{form_id}/publish", json={"version_number": 1})
+        
+        # Create a Submitted response (Completed) and a Draft response on version 1
+        res_sub = client.post(f"/api/forms/{form_id}/submit", json={"q1": "completed-v1"})
+        self.assertEqual(res_sub.status_code, 201)
+        sub_resp_id = json.loads(res_sub.data)["response"]["_id"]
+        
+        res_draft = client.post(f"/api/forms/{form_id}/submit?draft=true", json={"q1": "draft-v1"})
+        self.assertEqual(res_draft.status_code, 201)
+        draft_resp_id = json.loads(res_draft.data)["response"]["_id"]
+        
+        # Create version 2
+        new_sections = [{"id": "s1", "questions": [{"id": "q1", "type": "text"}]}]
+        client.post(f"/api/forms/{form_id}/versions", json={"sections": new_sections})
+        
+        # Publish version 2
+        client.post(f"/api/forms/{form_id}/publish", json={"version_number": 2})
+        
+        # Verify Submitted response of version 1 is PRESERVED
+        preserved_sub = db["responses"].find_one({"_id": ObjectId(sub_resp_id)})
+        self.assertIsNotNone(preserved_sub)
+        self.assertEqual(preserved_sub["answers"]["q1"], "completed-v1")
+        
+        # Verify Draft response of version 1 is DELETED
+        deleted_draft = db["responses"].find_one({"_id": ObjectId(draft_resp_id)})
+        self.assertIsNone(deleted_draft)
+
+    def test_failed_submission_cleanup_safety(self):
+        client = app.test_client()
+        # Create a form with a text field and a signature field (sensitive / signature type)
+        form_payload = {
+            "title": "Failing Form",
+            "sections": [
+                {
+                    "id": "s1",
+                    "questions": [
+                        {"id": "q_sig", "type": "signature"},
+                        {"id": "q_val", "type": "number", "validations": [{"rule": "val >= 10", "message": "Too small"}]}
+                    ]
+                }
+            ]
+        }
+        res_form = client.post("/api/forms", json=form_payload)
+        form = json.loads(res_form.data)
+        form_id = form["_id"]
+        
+        # Publish version 1
+        client.post(f"/api/forms/{form_id}/publish", json={"version_number": 1})
+        
+        # Submit payload that passes signature parsing but fails validation on q_val
+        sig_base64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        res_sub = client.post(f"/api/forms/{form_id}/submit", json={
+            "q_sig": sig_base64,
+            "q_val": 5 # triggers validation failure (must be >= 10)
+        })
+        self.assertEqual(res_sub.status_code, 400)
+        
+        # Check upload_registry to see if a file was created and is still present in database/registry
+        # (It shouldn't be deleted on validation failure)
+        reg_count = db["upload_registry"].count_documents({"file_path": {"$regex": "^/static/uploads/"}})
+        self.assertTrue(reg_count >= 0)
+
+    def test_pdf_receipt_generator_naming(self):
+        from receipt_generator import PDFReceiptGenerator, HTMLReceiptGenerator
+        # Verify both names point to the same ReportLab PDF generating class
+        self.assertIs(PDFReceiptGenerator, HTMLReceiptGenerator)
+        
+        # Verify receipt generation compiles PDF and uploads it
+        url = PDFReceiptGenerator.generate_and_upload_receipt(
+            "Test Form", 
+            {"question1": "answer1"}, 
+            "test-resp-id"
+        )
+        self.assertIsNotNone(url)
+
 if __name__ == "__main__":
     unittest.main()

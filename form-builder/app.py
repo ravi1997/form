@@ -18,7 +18,7 @@ from s3_helper import S3Helper
 from encryption_helper import EncryptionHelper
 from anonymizer import DataAnonymizer
 from drift_detector import SchemaDriftDetector
-from pdf_generator import PDFGenerator
+from receipt_generator import PDFReceiptGenerator
 from task_manager import TaskManager
 
 # Import auth helpers
@@ -75,41 +75,74 @@ def rate_limit(limit=5, window=60):
 # Multi-Tenant dynamic database resolver
 ACTIVE_TENANTS = {}  # org_id -> datetime
 FROZEN_TENANTS = set()
+TENANT_CLIENTS = {}
+
+def get_tenant_client(org_id):
+    if org_id not in TENANT_CLIENTS:
+        if os.getenv("TENANT_DB_ISOLATION") == "true":
+            tenant_uri = os.getenv(f"MONGO_URI_{org_id}", MONGO_URI)
+            c = MongoClient(tenant_uri, maxPoolSize=10, minPoolSize=1, waitQueueTimeoutMS=5000)
+            TENANT_CLIENTS[org_id] = c
+        else:
+            return client
+    return TENANT_CLIENTS[org_id]
+
+def create_index_safe(col, keys, **kwargs):
+    try:
+        existing = col.index_information()
+    except Exception:
+        existing = {}
+    for info in existing.values():
+        if info.get("key") == keys:
+            return
+    col.create_index(keys, **kwargs)
 
 def ensure_db_indexes(db):
     try:
-        db["projects"].create_index([("organization_id", 1)])
-        db["projects"].create_index([("created_at", -1)])
-        db["forms"].create_index([("project_id", 1)])
-        db["forms"].create_index([("organization_id", 1)])
-        db["forms"].create_index([("theme_id", 1)])
-        db["themes"].create_index([("organization_id", 1)])
-        db["responses"].create_index([("form_id", 1), ("submitted_at", -1)])
-        db["responses"].create_index([("organization_id", 1)])
-        db["responses"].create_index([("form_id", 1), ("status", 1)])
-        db["commits"].create_index([("form_id", 1), ("hash", 1)], unique=True)
-        db["commits"].create_index([("timestamp", -1)])
+        create_index_safe(db["projects"], [("organization_id", 1)])
+        create_index_safe(db["projects"], [("created_at", -1)])
+        create_index_safe(db["forms"], [("project_id", 1)])
+        create_index_safe(db["forms"], [("organization_id", 1)])
+        create_index_safe(db["forms"], [("theme_id", 1)])
+        create_index_safe(db["themes"], [("organization_id", 1)])
+        create_index_safe(db["responses"], [("form_id", 1), ("submitted_at", -1)])
+        create_index_safe(db["responses"], [("organization_id", 1)])
+        create_index_safe(db["responses"], [("form_id", 1), ("status", 1)])
+        create_index_safe(db["commits"], [("form_id", 1), ("hash", 1)], unique=True)
+        create_index_safe(db["commits"], [("timestamp", -1)])
+        create_index_safe(db["idempotency_keys"], [("created_at", 1)], expireAfterSeconds=86400)
     except Exception as e:
         logger.warning(f"Error ensuring indexes on DB {db.name}: {str(e)}")
 
 def freeze_db_indexes(db):
-    for col_name in ["projects", "forms", "themes", "responses", "commits"]:
+    # Only drop indexes on responses and commits collections (heavy data).
+    # Keep projects, forms, themes indexed to prevent cold-start query spikes.
+    for col_name in ["responses", "commits"]:
         try:
             db[col_name].drop_indexes()
         except Exception:
             pass
 
+    # Evict PyMongo references and close idle/unreferenced database cursors
+    try:
+        import gc
+        gc.collect()
+    except Exception as e:
+        logger.warning(f"Failed to evict client references: {str(e)}")
+
 def get_collections():
     org_id = get_organization_id()
     if os.getenv("TENANT_DB_ISOLATION") == "true":
         db_name = f"form_db_{org_id}"
-        database = client[db_name]
+        tenant_client = get_tenant_client(org_id)
+        database = tenant_client[db_name]
         
         now = datetime.utcnow()
         is_first_access = org_id not in ACTIVE_TENANTS
         ACTIVE_TENANTS[org_id] = now
         
         if is_first_access or org_id in FROZEN_TENANTS:
+            # Synchronously warm up the database to prevent running queries against unindexed collections
             ensure_db_indexes(database)
             FROZEN_TENANTS.discard(org_id)
             
@@ -124,11 +157,17 @@ def get_collections():
                 to_keep_active.add(oid)
             else:
                 if oid not in FROZEN_TENANTS:
-                    freeze_db_indexes(client[f"form_db_{oid}"])
+                    freeze_db_indexes(get_tenant_client(oid)[f"form_db_{oid}"])
                     FROZEN_TENANTS.add(oid)
                     
         for oid in list(ACTIVE_TENANTS.keys()):
             if oid not in to_keep_active:
+                if oid in TENANT_CLIENTS:
+                    try:
+                        TENANT_CLIENTS[oid].close()
+                    except Exception:
+                        pass
+                    TENANT_CLIENTS.pop(oid, None)
                 ACTIVE_TENANTS.pop(oid, None)
     else:
         database = client[DB_NAME]
@@ -191,6 +230,11 @@ def get_user_roles():
             return []
     return ["Admin"] if os.getenv("REQUIRE_AUTH") != "true" else []
 
+def is_binary_value(val):
+    if not isinstance(val, str):
+        return False
+    return val.startswith("data:") or "/static/uploads/" in val or "s3" in val
+
 def merge_response_answers(ancestor_answers, current_answers, client_answers):
     """
     Merges concurrent response edits using a 3-way merge strategy.
@@ -208,6 +252,30 @@ def merge_response_answers(ancestor_answers, current_answers, client_answers):
         val_anc = ancestor_answers.get(key)
         val_curr = current_answers.get(key)
         val_cli = client_answers.get(key)
+        
+        # Check if it's a binary field (base64 string or file path)
+        is_bin_curr = is_binary_value(val_curr)
+        is_bin_cli = is_binary_value(val_cli)
+        is_bin_anc = is_binary_value(val_anc)
+
+        if is_bin_curr or is_bin_cli or is_bin_anc:
+            modified_curr = in_curr and val_curr != val_anc
+            modified_cli = in_cli and val_cli != val_anc
+            deleted_curr = not in_curr
+            deleted_cli = not in_cli
+            
+            # Explicit conflict cases for binary fields:
+            # 1. Both modified/added differently and not identical
+            # 2. One modified, one deleted
+            if (modified_curr and modified_cli and val_curr != val_cli) or \
+               (modified_curr and deleted_cli) or \
+               (modified_cli and deleted_curr):
+                conflicts[key] = {
+                    "ancestor": val_anc,
+                    "current_in_db": val_curr,
+                    "submitted": val_cli
+                }
+                continue
         
         if in_anc:
             modified_curr = in_curr and val_curr != val_anc
@@ -248,6 +316,7 @@ def merge_response_answers(ancestor_answers, current_answers, client_answers):
                 merged[key] = val_cli
                 
     return merged, conflicts
+
 
 def record_audit_log(action, form_id=None, project_id=None, details=None):
     user_id = get_user_id()
@@ -622,7 +691,7 @@ def refresh():
     if not refresh_token:
         return jsonify({"error": "Refresh token is required"}), 400
 
-    payload = AuthManager.verify_token(refresh_token)
+    payload = AuthManager.verify_token_type(refresh_token, "refresh")
     if not payload:
         return jsonify({"error": "Invalid or expired refresh token"}), 401
 
@@ -1082,6 +1151,23 @@ def create_form_version(form_id):
     if not sections:
         return jsonify({"error": "Sections are required for version schemas"}), 400
 
+    # Check for unresolved merge conflicts
+    def has_unresolved_conflicts(sects):
+        if not sects:
+            return False
+        for sec in sects:
+            for q in sec.get("questions", []):
+                if q.get("type") == "conflict":
+                    return True
+                if "properties" in q and "questions" in q["properties"]:
+                    for nested_q in q["properties"]["questions"]:
+                        if nested_q.get("type") == "conflict":
+                            return True
+        return False
+
+    if has_unresolved_conflicts(sections):
+        return jsonify({"error": "Cannot create version with unresolved merge conflicts"}), 400
+
     # --- SCHEMA DRIFT WARNING DETECTION ---
     drift_warnings = SchemaDriftDetector.detect_drift(form, sections)
 
@@ -1133,15 +1219,32 @@ def publish_version(form_id):
     if not version_num:
         return jsonify({"error": "version_number is required"}), 400
 
-    _, _, forms_col, _, _, _ = get_collections()
+    db_ctx, _, forms_col, _, _, _ = get_collections()
     form = forms_col.find_one({"_id": obj_id, "deleted": {"$ne": True}})
     if not form:
         return jsonify({"error": "Form not found"}), 404
 
     versions = form.get("versions", [])
-    version_exists = any([v.get("version_number") == version_num for v in versions])
-    if not version_exists:
+    target_version = next((v for v in versions if v.get("version_number") == version_num), None)
+    if not target_version:
         return jsonify({"error": "Version number not found"}), 404
+
+    # Check for unresolved merge conflicts
+    def has_unresolved_conflicts(sects):
+        if not sects:
+            return False
+        for sec in sects:
+            for q in sec.get("questions", []):
+                if q.get("type") == "conflict":
+                    return True
+                if "properties" in q and "questions" in q["properties"]:
+                    for nested_q in q["properties"]["questions"]:
+                        if nested_q.get("type") == "conflict":
+                            return True
+        return False
+
+    if has_unresolved_conflicts(target_version.get("sections", [])):
+        return jsonify({"error": "Cannot publish version containing unresolved merge conflicts"}), 400
 
     forms_col.update_one(
         {"_id": obj_id},
@@ -1155,9 +1258,30 @@ def publish_version(form_id):
         {"$set": {"versions": versions}}
     )
 
-    # Delete responses/drafts on versions of the form that are not published
+    # Generate and execute schema drift auto-migration plan
+    try:
+        from drift_detector import SchemaDriftDetector
+        import threading
+        new_sections = target_version.get("sections", [])
+        plan = SchemaDriftDetector.generate_migration_plan(form, new_sections)
+        if plan and plan.get("actions"):
+            from auth import is_test_environment
+            if is_test_environment():
+                SchemaDriftDetector.execute_migration_plan(db_ctx, plan)
+            else:
+                threading.Thread(
+                    target=SchemaDriftDetector.execute_migration_plan,
+                    args=(db_ctx, plan)
+                ).start()
+    except Exception as me:
+        logger.error(f"Failed to generate/start auto-migration: {str(me)}")
+        from auth import is_test_environment
+        if is_test_environment():
+            raise me
+
+    # Delete only drafts on versions of the form that are not published (keep submitted historical responses)
     db_ctx, _, _, _, responses_col, _ = get_collections()
-    responses_col.delete_many({"form_id": obj_id, "version": {"$ne": version_num}})
+    responses_col.delete_many({"form_id": obj_id, "status": "Draft", "version": {"$ne": version_num}})
 
     record_audit_log("publish_version", form_id=obj_id, details={"version": version_num})
     return jsonify({"message": f"Version {version_num} is now active"}), 200
@@ -1383,12 +1507,10 @@ def submit_response(form_id):
                         filepath = save_base64_image(base64_val)
                         answers[q_id] = filepath
                     except Exception as e:
-                        cleanup_discarded_uploads(answers, {})
                         return jsonify({"error": f"Invalid camera or signature file content on {q_id}: {str(e)}"}), 400
 
     is_valid, validated_answers, errors = validator.validate_and_compute(answers)
     if not is_valid:
-        cleanup_discarded_uploads(answers, {})
         return jsonify({"error": "Validation failed", "details": errors}), 400
 
     cleanup_discarded_uploads(answers, validated_answers)
@@ -1404,7 +1526,7 @@ def submit_response(form_id):
                 theme_data = db_ctx["themes"].find_one({"_id": ObjectId(form["theme_id"])})
             except Exception:
                 pass
-        receipt_url = PDFGenerator.generate_and_upload_receipt(form.get("title"), validated_answers, temp_resp_id, theme_data)
+        receipt_url = PDFReceiptGenerator.generate_and_upload_receipt(form.get("title"), validated_answers, temp_resp_id, theme_data)
 
     response_doc = {
         "form_id": obj_id,
@@ -1487,7 +1609,7 @@ def update_draft_response(response_id):
     if base_answers is not None:
         merged_answers, conflicts = merge_response_answers(base_answers, updated_answers, new_answers)
         if conflicts:
-            cleanup_discarded_uploads(new_answers, {})
+            # We do NOT call cleanup_discarded_uploads here to prevent premature deletion of newly uploaded files during conflict resolution
             return jsonify({
                 "error": "Merge conflict detected on concurrent edits.",
                 "conflicts": conflicts
@@ -1511,15 +1633,19 @@ def update_draft_response(response_id):
                         filepath = save_base64_image(base64_val)
                         updated_answers[q_id] = filepath
                     except Exception as e:
-                        cleanup_discarded_uploads(new_answers, {})
+                        # We do NOT call cleanup_discarded_uploads here to prevent deleting already valid uploads
                         return jsonify({"error": f"Invalid camera or signature file content on {q_id}: {str(e)}"}), 400
 
     is_valid, validated_answers, errors = validator.validate_and_compute(updated_answers)
     if not is_valid:
-        cleanup_discarded_uploads(new_answers, {})
+        # We do NOT call cleanup_discarded_uploads here to let users fix other fields and resubmit
         return jsonify({"error": "Validation failed", "details": errors}), 400
 
-    cleanup_discarded_uploads(new_answers, validated_answers)
+    # Successful update: clean up uploads discarded relative to the union of db answers and new request
+    all_original = {}
+    all_original.update(existing_resp.get("answers", {}))
+    all_original.update(new_answers)
+    cleanup_discarded_uploads(all_original, validated_answers)
 
     receipt_url = existing_resp.get("receipt_url")
     if new_status == "Submitted" and existing_resp.get("status") == "Draft" and not receipt_url:
@@ -1529,7 +1655,7 @@ def update_draft_response(response_id):
                 theme_data = db_ctx["themes"].find_one({"_id": ObjectId(form["theme_id"])})
             except Exception:
                 pass
-        receipt_url = PDFGenerator.generate_and_upload_receipt(form.get("title"), validated_answers, str(obj_id), theme_data)
+        receipt_url = PDFReceiptGenerator.generate_and_upload_receipt(form.get("title"), validated_answers, str(obj_id), theme_data)
 
     update_data = {
         "status": new_status,
@@ -1568,6 +1694,74 @@ def update_draft_response(response_id):
 # ⚡ DRAFT BATCH SUBMISSION ENDPOINT
 # ==========================================
 
+def process_batch_task(task_id, form_id, org_id, submissions):
+    try:
+        db_ctx = client[DB_NAME]
+        if os.getenv("TENANT_DB_ISOLATION") == "true":
+            tenant_client = get_tenant_client(org_id)
+            db_ctx = tenant_client[f"form_db_{org_id}"]
+            
+        forms_col = db_ctx["forms"]
+        responses_col = db_ctx["responses"]
+        tasks_col = db_ctx["tasks"]
+        
+        tasks_col.update_one({"_id": task_id}, {"$set": {"status": "Running", "updated_at": datetime.utcnow()}})
+        
+        form = forms_col.find_one({"_id": ObjectId(form_id), "deleted": {"$ne": True}})
+        if not form:
+            tasks_col.update_one({"_id": task_id}, {"$set": {"status": "Failed", "error": "Form not found", "updated_at": datetime.utcnow()}})
+            return
+            
+        version_num = form.get("current_version", 1)
+        batch_responses = []
+        batch_errors = {}
+        
+        for idx, ans_dict in enumerate(submissions):
+            validator = FormSubmissionValidator(form, version_num, is_draft=False, db=db_ctx, org_id=org_id)
+            is_ok, validated_ans, errors = validator.validate_and_compute(ans_dict)
+            if not is_ok:
+                batch_errors[f"index_{idx}"] = errors
+            else:
+                response_doc = {
+                    "form_id": ObjectId(form_id),
+                    "version": version_num,
+                    "status": "Submitted",
+                    "organization_id": org_id,
+                    "submitted_at": datetime.utcnow(),
+                    "answers": validated_ans
+                }
+                batch_responses.append(response_doc)
+                
+        inserted_ids = []
+        if batch_responses:
+            res = responses_col.insert_many(batch_responses)
+            inserted_ids = [str(x) for x in res.inserted_ids]
+            
+            for resp in batch_responses:
+                if "_id" in resp:
+                    link_uploads_to_response(resp["_id"], resp["answers"])
+                    trigger_lookup_mv_update(db_ctx, ObjectId(form_id), org_id, resp["answers"])
+                    
+        status = "Completed" if not batch_errors else "Partial"
+        tasks_col.update_one({"_id": task_id}, {"$set": {
+            "status": status,
+            "processed_count": len(submissions),
+            "inserted_count": len(batch_responses),
+            "inserted_ids": inserted_ids,
+            "errors": batch_errors,
+            "updated_at": datetime.utcnow()
+        }})
+        
+    except Exception as e:
+        logger.error(f"Async batch task {task_id} failed: {str(e)}")
+        try:
+            db_ctx = client[DB_NAME]
+            if os.getenv("TENANT_DB_ISOLATION") == "true":
+                db_ctx = get_tenant_client(org_id)[f"form_db_{org_id}"]
+            db_ctx["tasks"].update_one({"_id": task_id}, {"$set": {"status": "Failed", "error": str(e), "updated_at": datetime.utcnow()}})
+        except Exception:
+            pass
+
 @app.route("/api/forms/<form_id>/submit-batch", methods=["POST"])
 @login_required
 def submit_batch_responses(form_id):
@@ -1580,7 +1774,7 @@ def submit_batch_responses(form_id):
     except Exception:
         return jsonify({"error": "Invalid form ID format"}), 400
 
-    db_ctx, _, forms_col, _, responses_col, _ = get_collections()
+    db_ctx, _, forms_col, _, _, _ = get_collections()
     form = forms_col.find_one({"_id": obj_id, "deleted": {"$ne": True}})
     if not form:
         return jsonify({"error": "Form not found"}), 404
@@ -1591,81 +1785,32 @@ def submit_batch_responses(form_id):
         return jsonify({"error": "Submissions must be a list of answers."}), 400
 
     org_id = get_organization_id()
-    version_num = form.get("current_version", 1)
-
-    batch_responses = []
-    batch_errors = {}
-
-    for idx, ans_dict in enumerate(submissions):
-        validator = FormSubmissionValidator(form, version_num, is_draft=False, db=db_ctx, org_id=org_id)
-        is_ok, validated_ans, errors = validator.validate_and_compute(ans_dict)
-        if not is_ok:
-            batch_errors[f"index_{idx}"] = errors
-        else:
-            response_doc = {
-                "form_id": obj_id,
-                "version": version_num,
-                "status": "Submitted",
-                "organization_id": org_id,
-                "submitted_at": datetime.utcnow(),
-                "answers": validated_ans
-            }
-            batch_responses.append(response_doc)
-
-    inserted_ids = []
-    if batch_responses:
-        session = None
-        try:
-            session = client.start_session()
-            session.start_transaction()
-            res = responses_col.insert_many(batch_responses, session=session)
-            inserted_ids = res.inserted_ids
-            session.commit_transaction()
-        except Exception as e:
-            if session:
-                try:
-                    session.abort_transaction()
-                except Exception:
-                    pass
-                try:
-                    session.end_session()
-                except Exception:
-                    pass
-                session = None
-            
-            from pymongo.errors import OperationFailure
-            if isinstance(e, OperationFailure) and ("replica set" in str(e) or "Transaction numbers" in str(e)):
-                res = responses_col.insert_many(batch_responses)
-                inserted_ids = res.inserted_ids
-            else:
-                raise e
-        finally:
-            if session:
-                try:
-                    session.end_session()
-                except Exception:
-                    pass
-
-        for resp in batch_responses:
-            if "_id" in resp:
-                link_uploads_to_response(resp["_id"], resp["answers"])
-                trigger_lookup_mv_update(db_ctx, obj_id, org_id, resp["answers"])
-
-        record_audit_log("submit_batch", form_id=obj_id, details={"count": len(batch_responses)})
-
-    if batch_errors:
-        return jsonify(json_util_serialize({
-            "message": "Some submissions failed validation",
-            "inserted_count": len(batch_responses),
-            "inserted_ids": [str(x) for x in inserted_ids],
-            "details": batch_errors
-        })), 207
-
+    task_id = ObjectId()
+    task_doc = {
+        "_id": task_id,
+        "type": "submit_batch",
+        "form_id": obj_id,
+        "organization_id": org_id,
+        "status": "Pending",
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+        "total_submissions": len(submissions),
+        "processed_count": 0,
+        "inserted_count": 0,
+        "errors": {}
+    }
+    db_ctx["tasks"].insert_one(task_doc)
+    
+    import threading
+    threading.Thread(
+        target=process_batch_task,
+        args=(task_id, form_id, org_id, submissions)
+    ).start()
+    
     return jsonify(json_util_serialize({
-        "message": "Batch processed successfully",
-        "inserted_count": len(batch_responses),
-        "inserted_ids": [str(x) for x in inserted_ids]
-    })), 201
+        "message": "Batch submission task scheduled successfully",
+        "task_id": task_id
+    })), 202
 
 
 
@@ -1804,7 +1949,8 @@ def export_form_csv(form_id):
     for r in responses:
         answers = r.get("answers", {})
         if sensitive_keys:
-            answers = EncryptionHelper.process_sensitive_fields(answers, sensitive_keys, action="decrypt")
+            dek = EncryptionHelper.resolve_form_dek(forms_col, form)
+            answers = EncryptionHelper.process_sensitive_fields(answers, sensitive_keys, action="decrypt", dek=dek)
         if anonymize and sensitive_keys:
             answers = DataAnonymizer.anonymize_answers(answers, sensitive_keys)
 
@@ -1860,7 +2006,8 @@ def export_form_json(form_id):
     for r in responses:
         answers = r.get("answers", {})
         if sensitive_keys:
-            answers = EncryptionHelper.process_sensitive_fields(answers, sensitive_keys, action="decrypt")
+            dek = EncryptionHelper.resolve_form_dek(forms_col, form)
+            answers = EncryptionHelper.process_sensitive_fields(answers, sensitive_keys, action="decrypt", dek=dek)
         if anonymize and sensitive_keys:
             answers = DataAnonymizer.anonymize_answers(answers, sensitive_keys)
         
@@ -1929,8 +2076,88 @@ def git_get_commits(form_id):
     if not form:
         return jsonify({"error": "Form not found"}), 404
 
-    commits = list(db_ctx["commits"].find({"form_id": obj_id}).sort("timestamp", -1))
+    limit = request.args.get("limit", default=10, type=int)
+    offset = request.args.get("offset", default=0, type=int)
+    
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+
+    commits = list(db_ctx["commits"].find({"form_id": obj_id}).sort("timestamp", -1).skip(offset).limit(limit))
     return jsonify(json_util_serialize(commits)), 200
+
+@app.route("/api/forms/<form_id>/resolve-conflicts", methods=["POST"])
+@login_required
+def resolve_conflicts(form_id):
+    permission_ok, err_res = check_permission("form", form_id, ["Editor", "Admin"])
+    if not permission_ok:
+        return err_res
+        
+    try:
+        obj_id = ObjectId(form_id)
+    except Exception:
+        return jsonify({"error": "Invalid form ID format"}), 400
+        
+    data = request.json or {}
+    branch_name = data.get("branch_name", "main")
+    resolutions = data.get("resolutions", {})
+    
+    db_ctx, _, forms_col, _, _, _ = get_collections()
+    form = forms_col.find_one({"_id": obj_id, "deleted": {"$ne": True}})
+    if not form:
+        return jsonify({"error": "Form not found"}), 404
+        
+    branches = form.get("vcs_branches", {})
+    if branch_name not in branches:
+        return jsonify({"error": f"Branch '{branch_name}' not found"}), 404
+        
+    current_hash = branches[branch_name]
+    commits_col = forms_col.database["commits"]
+    current_commit = commits_col.find_one({"form_id": obj_id, "hash": current_hash})
+    if not current_commit:
+        return jsonify({"error": "No commits found on this branch"}), 404
+        
+    sections = current_commit.get("sections", [])
+    resolved_sections = []
+    
+    for sec in sections:
+        sec_copy = dict(sec)
+        resolved_qs = []
+        for q in sec.get("questions", []):
+            if q.get("type") == "conflict":
+                q_id = q.get("id")
+                choice = resolutions.get(q_id)
+                if not choice:
+                    resolved_qs.append(q)
+                    continue
+                
+                if choice == "ours":
+                    resolved_val = q.get("conflict_ours")
+                elif choice == "theirs":
+                    resolved_val = q.get("conflict_theirs")
+                elif choice == "ancestor":
+                    resolved_val = q.get("conflict_ancestor")
+                else:
+                    return jsonify({"error": f"Invalid resolution choice '{choice}' for question '{q_id}'"}), 400
+                
+                if resolved_val:
+                    resolved_qs.append(resolved_val)
+            else:
+                resolved_qs.append(q)
+        sec_copy["questions"] = resolved_qs
+        resolved_sections.append(sec_copy)
+        
+    user_id = get_user_id()
+    commit_msg = f"Resolve conflicts on branch '{branch_name}'"
+    new_hash, err = GitVersionControl.create_commit(
+        forms_col, obj_id, branch_name, resolved_sections, commit_msg, user_id
+    )
+    if err:
+        return jsonify({"error": err}), 400
+        
+    return jsonify({
+        "message": "Conflicts resolved successfully",
+        "commit_hash": new_hash
+    }), 200
 
 @app.route("/api/forms/<form_id>/branches", methods=["POST"])
 @login_required
@@ -2431,7 +2658,8 @@ def get_response(response_id):
 
     user_roles = get_user_roles()
     if any(role in user_roles for role in ["Analyst", "Editor", "Admin"]):
-        answers = EncryptionHelper.process_sensitive_fields(answers, sensitive_fields, action="decrypt")
+        dek = EncryptionHelper.resolve_form_dek(forms_col, form)
+        answers = EncryptionHelper.process_sensitive_fields(answers, sensitive_fields, action="decrypt", dek=dek)
 
     if view_version and view_version != response.get("version", 1):
         target_questions = {}
@@ -2488,12 +2716,72 @@ def get_form_responses(form_id):
                 sensitive_fields.append(q.get("id"))
                 
     for r in responses:
-        r["answers"] = EncryptionHelper.process_sensitive_fields(r.get("answers", {}), sensitive_fields, action="decrypt")
+        dek = EncryptionHelper.resolve_form_dek(forms_col, form)
+        r["answers"] = EncryptionHelper.process_sensitive_fields(r.get("answers", {}), sensitive_fields, action="decrypt", dek=dek)
         
     return jsonify(json_util_serialize(responses)), 200
+
+@app.route("/api/admin/rotate-master-key", methods=["POST"])
+@login_required
+@roles_required(["Admin"])
+def rotate_master_key():
+    data = request.json or {}
+    old_key = data.get("old_master_key")
+    new_key = data.get("new_master_key")
+    
+    if not old_key or not new_key:
+        return jsonify({"error": "old_master_key and new_master_key are required"}), 400
+        
+    try:
+        from cryptography.fernet import Fernet
+        old_cipher = Fernet(old_key.encode())
+        new_cipher = Fernet(new_key.encode())
+    except Exception as e:
+        return jsonify({"error": f"Invalid key format: {str(e)}"}), 400
+        
+    # Get all active databases
+    db_names = [DB_NAME]
+    if os.getenv("TENANT_DB_ISOLATION") == "true":
+        orgs_col = client[DB_NAME]["organizations"]
+        for org in orgs_col.find():
+            db_names.append(f"form_db_{str(org['_id'])}")
+            
+    rotated_count = 0
+    errors = []
+    
+    for db_name in set(db_names):
+        db_conn = client[db_name]
+        try:
+            forms_col = db_conn["forms"]
+            for form in forms_col.find({"encrypted_dek": {"$exists": True}}):
+                enc_dek = form["encrypted_dek"]
+                ciphertext = enc_dek
+                if ":" in enc_dek:
+                    parts = enc_dek.split(":", 1)
+                    ciphertext = parts[1]
+                
+                try:
+                    raw_dek = old_cipher.decrypt(ciphertext.encode()).decode()
+                    # Encrypt with new cipher, tag as v2
+                    new_enc_dek = f"v2:{new_cipher.encrypt(raw_dek.encode()).decode()}"
+                    
+                    forms_col.update_one(
+                        {"_id": form["_id"]},
+                        {"$set": {"encrypted_dek": new_enc_dek}}
+                    )
+                    rotated_count += 1
+                except Exception as fe:
+                    errors.append(f"Form {form['_id']} decryption failed: {str(fe)}")
+        except Exception as de:
+            errors.append(f"Database {db_name} access failed: {str(de)}")
+            
+    return jsonify({
+        "message": "Key rotation process completed",
+        "rotated_forms_count": rotated_count,
+        "errors": errors
+    }), 200
 
 
 if __name__ == "__main__":
     resume_running_workflows()
     app.run(host="0.0.0.0", port=5000, debug=True)
-

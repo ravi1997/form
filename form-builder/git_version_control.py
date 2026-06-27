@@ -45,19 +45,46 @@ class GitVersionControl:
 
         # Add commit to dedicated commits collection
         commits_col = forms_col.database["commits"]
-        commits_col.insert_one(commit_doc)
 
-        # Update branch pointer in form
-        forms_col.update_one(
-            {"_id": form_id},
-            {
-                "$set": {
-                    f"vcs_branches.{branch_name}": commit_hash,
-                    "updated_at": datetime.utcnow()
-                }
-            }
-        )
-        return commit_hash, None
+        # Try using MongoDB session transaction (supported on Replica Sets)
+        client = forms_col.database.client
+        try:
+            with client.start_session() as session:
+                with session.start_transaction():
+                    commits_col.insert_one(commit_doc, session=session)
+                    res = forms_col.update_one(
+                        {"_id": form_id},
+                        {
+                            "$set": {
+                                f"vcs_branches.{branch_name}": commit_hash,
+                                "updated_at": datetime.utcnow()
+                            }
+                        },
+                        session=session
+                    )
+                    if res.matched_count == 0:
+                        raise ValueError("Form not found during update")
+            return commit_hash, None
+        except Exception:
+            # Fallback compensating strategy for standalone/non-replica-set deployments
+            commits_col.insert_one(commit_doc)
+            try:
+                result = forms_col.update_one(
+                    {"_id": form_id},
+                    {
+                        "$set": {
+                            f"vcs_branches.{branch_name}": commit_hash,
+                            "updated_at": datetime.utcnow()
+                        }
+                    }
+                )
+                if result.matched_count == 0:
+                    commits_col.delete_one({"hash": commit_hash})
+                    return None, "Form not found"
+            except Exception as e:
+                commits_col.delete_one({"hash": commit_hash})
+                raise e
+            return commit_hash, None
 
     @staticmethod
     def create_branch(forms_col, form_id, new_branch, source_branch="main"):

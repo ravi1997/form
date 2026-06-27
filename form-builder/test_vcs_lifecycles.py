@@ -258,5 +258,73 @@ class TestVCSLifecyclesAndWorkflows(unittest.TestCase):
         )
         self.assertEqual(res_notif.status_code, 200)
 
+    def test_strict_vcs_gate_unresolved_conflicts(self):
+        from bson import ObjectId
+        from datetime import datetime
+        # 1. Create a version containing a conflict object
+        conflict_sections = [{
+            "id": "s1",
+            "questions": [{
+                "id": "q1",
+                "type": "conflict",
+                "conflict_ours": {"type": "text", "title": "Ours"},
+                "conflict_theirs": {"type": "text", "title": "Theirs"},
+                "conflict_ancestor": None
+            }]
+        }]
+        
+        # Creating a version with unresolved conflict should fail (400)
+        res_ver = self.client.post(
+            f"/api/forms/{self.form_id}/versions",
+            headers=self.auth_headers,
+            json={"sections": conflict_sections}
+        )
+        self.assertEqual(res_ver.status_code, 400)
+        self.assertIn("unresolved merge conflicts", json.loads(res_ver.data)["error"])
+        
+        # 2. Directly insert a version node containing a conflict in MongoDB
+        db = client[DB_NAME]
+        db["forms"].update_one(
+            {"_id": ObjectId(self.form_id)},
+            {"$push": {"versions": {
+                "version_number": 99,
+                "published": False,
+                "created_at": datetime.utcnow(),
+                "sections": conflict_sections
+            }}}
+        )
+        
+        # Attempting to publish this version should fail (400)
+        res_pub = self.client.post(
+            f"/api/forms/{self.form_id}/publish",
+            headers=self.auth_headers,
+            json={"version_number": 99}
+        )
+        self.assertEqual(res_pub.status_code, 400)
+        self.assertIn("unresolved merge conflicts", json.loads(res_pub.data)["error"])
+        
+        # Set this version as current in DB manually to check submit validation
+        db["forms"].update_one(
+            {"_id": ObjectId(self.form_id)},
+            {"$set": {"current_version": 99}}
+        )
+        form_doc = db["forms"].find_one({"_id": ObjectId(self.form_id)})
+        versions = form_doc["versions"]
+        for v in versions:
+            v["published"] = (v["version_number"] == 99)
+        db["forms"].update_one(
+            {"_id": ObjectId(self.form_id)},
+            {"$set": {"versions": versions}}
+        )
+        
+        # Attempting to submit should fail (400) due to unresolved conflicts
+        res_submit = self.client.post(
+            f"/api/forms/{self.form_id}/submit",
+            headers=self.auth_headers,
+            json={"q1": "val"}
+        )
+        self.assertEqual(res_submit.status_code, 400)
+        self.assertIn("unresolved merge conflicts", json.loads(res_submit.data)["details"]["form"])
+
 if __name__ == "__main__":
     unittest.main()

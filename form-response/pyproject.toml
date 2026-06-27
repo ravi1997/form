@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "form-response-service"
+version = "0.1.0"
+description = "Backend-only response service and analyser middleware for form responses."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["flask>=3.0,<4.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
