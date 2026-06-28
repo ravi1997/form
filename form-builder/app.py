@@ -1774,7 +1774,7 @@ def submit_batch_responses(form_id):
     except Exception:
         return jsonify({"error": "Invalid form ID format"}), 400
 
-    db_ctx, _, forms_col, _, _, _ = get_collections()
+    db_ctx, _, forms_col, _, responses_col, _ = get_collections()
     form = forms_col.find_one({"_id": obj_id, "deleted": {"$ne": True}})
     if not form:
         return jsonify({"error": "Form not found"}), 404
@@ -1785,32 +1785,92 @@ def submit_batch_responses(form_id):
         return jsonify({"error": "Submissions must be a list of answers."}), 400
 
     org_id = get_organization_id()
-    task_id = ObjectId()
-    task_doc = {
-        "_id": task_id,
-        "type": "submit_batch",
-        "form_id": obj_id,
-        "organization_id": org_id,
-        "status": "Pending",
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
-        "total_submissions": len(submissions),
-        "processed_count": 0,
-        "inserted_count": 0,
-        "errors": {}
-    }
-    db_ctx["tasks"].insert_one(task_doc)
     
-    import threading
-    threading.Thread(
-        target=process_batch_task,
-        args=(task_id, form_id, org_id, submissions)
-    ).start()
-    
-    return jsonify(json_util_serialize({
-        "message": "Batch submission task scheduled successfully",
-        "task_id": task_id
-    })), 202
+    # Check if run asynchronously
+    run_async = request.args.get("async") == "true" or request.json.get("async") == True
+
+    if run_async:
+        task_id = ObjectId()
+        task_doc = {
+            "_id": task_id,
+            "type": "submit_batch",
+            "form_id": obj_id,
+            "organization_id": org_id,
+            "status": "Pending",
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+            "total_submissions": len(submissions),
+            "processed_count": 0,
+            "inserted_count": 0,
+            "errors": {}
+        }
+        db_ctx["tasks"].insert_one(task_doc)
+        
+        import threading
+        threading.Thread(
+            target=process_batch_task,
+            args=(task_id, form_id, org_id, submissions)
+        ).start()
+        
+        return jsonify(json_util_serialize({
+            "message": "Batch submission task scheduled successfully",
+            "task_id": task_id
+        })), 202
+    else:
+        # Run synchronously
+        version_num = form.get("current_version", 1)
+        batch_responses = []
+        batch_errors = {}
+        
+        for idx, ans_dict in enumerate(submissions):
+            validator = FormSubmissionValidator(form, version_num, is_draft=False, db=db_ctx, org_id=org_id)
+            is_ok, validated_ans, errors = validator.validate_and_compute(ans_dict)
+            if not is_ok:
+                batch_errors[f"index_{idx}"] = errors
+            else:
+                response_doc = {
+                    "form_id": obj_id,
+                    "version": version_num,
+                    "status": "Submitted",
+                    "organization_id": org_id,
+                    "submitted_at": datetime.utcnow(),
+                    "answers": validated_ans
+                }
+                batch_responses.append(response_doc)
+                
+        inserted_ids = []
+        if batch_responses:
+            res = responses_col.insert_many(batch_responses)
+            inserted_ids = [str(x) for x in res.inserted_ids]
+            
+            for resp in batch_responses:
+                if "_id" in resp:
+                    try:
+                        link_uploads_to_response(resp["_id"], resp["answers"])
+                    except Exception:
+                        pass
+                    try:
+                        trigger_lookup_mv_update(db_ctx, obj_id, org_id, resp["answers"])
+                    except Exception:
+                        pass
+
+        if batch_errors:
+            # Some failed (Partial Success) or all failed
+            return jsonify(json_util_serialize({
+                "status": "Partial",
+                "processed_count": len(submissions),
+                "inserted_count": len(batch_responses),
+                "inserted_ids": inserted_ids,
+                "errors": batch_errors
+            })), 207
+        else:
+            # All succeeded
+            return jsonify(json_util_serialize({
+                "status": "Completed",
+                "processed_count": len(submissions),
+                "inserted_count": len(batch_responses),
+                "inserted_ids": inserted_ids
+            })), 201
 
 
 

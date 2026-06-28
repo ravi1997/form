@@ -15,7 +15,13 @@ class SafeFormulaEvaluator:
         ast.Mult: operator.mul,
         ast.Div: operator.truediv,
         ast.USub: operator.neg,
-        ast.UAdd: operator.pos
+        ast.UAdd: operator.pos,
+        ast.Gt: operator.gt,
+        ast.GtE: operator.ge,
+        ast.Lt: operator.lt,
+        ast.LtE: operator.le,
+        ast.Eq: operator.eq,
+        ast.NotEq: operator.ne,
     }
 
     @classmethod
@@ -55,6 +61,18 @@ class SafeFormulaEvaluator:
                 operand = cls._eval_node(node.operand, variables)
                 return cls.operators[op_type](operand)
             raise TypeError(f"Unsupported unary operator: {op_type}")
+        elif isinstance(node, ast.Compare):
+            left_val = cls._eval_node(node.left, variables)
+            for op, comparator in zip(node.ops, node.comparators):
+                op_type = type(op)
+                if op_type in cls.operators:
+                    right_val = cls._eval_node(comparator, variables)
+                    if not cls.operators[op_type](left_val, right_val):
+                        return False
+                    left_val = right_val
+                else:
+                    raise TypeError(f"Unsupported comparison operator: {op_type}")
+            return True
         else:
             raise TypeError(f"Unsupported element in formula: {type(node)}")
 
@@ -450,6 +468,17 @@ class FormSubmissionValidator:
                 return False, None, f"Value must be at least {min_val}."
             if max_val is not None and num_val > max_val:
                 return False, None, f"Value must not exceed {max_val}."
+                
+            for rule in validations:
+                rule_expr = rule.get("rule")
+                if rule_expr:
+                    expr = rule_expr.replace("val", str(num_val))
+                    try:
+                        result = SafeFormulaEvaluator.evaluate(expr, {})
+                        if not result:
+                            return False, None, rule.get("message", rule.get("error_message", "Validation failed."))
+                    except Exception:
+                        pass
             return True, num_val, None
 
         elif q_type == "date":

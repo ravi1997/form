@@ -1,6 +1,7 @@
 import unittest
 import json
 from datetime import datetime, timedelta
+from bson import ObjectId
 from app import app, db
 from encryption_helper import EncryptionHelper
 from anonymizer import DataAnonymizer
@@ -42,7 +43,9 @@ class TestEnterpriseFeatures(unittest.TestCase):
         self.assertNotEqual(encrypted_val, "123-456-7890")
         
         # Verify it can be decrypted back
-        decrypted_val = EncryptionHelper.decrypt_value(encrypted_val)
+        form_doc = db["forms"].find_one({"_id": ObjectId(form_id)})
+        dek = EncryptionHelper.resolve_form_dek(db["forms"], form_doc)
+        decrypted_val = EncryptionHelper.decrypt_with_dek(encrypted_val, dek)
         self.assertEqual(decrypted_val, "123-456-7890")
 
         # 3. Test Export JSON with decryption
@@ -194,19 +197,19 @@ class TestEnterpriseFeatures(unittest.TestCase):
             
             # Verify org1 indexes are dropped (only default _id_ index should remain)
             db_org1 = mongo_client["form_db_org1"]
-            indexes_org1 = db_org1["projects"].index_information()
+            indexes_org1 = db_org1["responses"].index_information()
             self.assertEqual(list(indexes_org1.keys()), ["_id_"])
             
             # Verify org3 indexes exist (since it's active)
             db_org3 = mongo_client["form_db_org3"]
-            indexes_org3 = db_org3["projects"].index_information()
-            self.assertIn("organization_id_1", indexes_org3)
+            indexes_org3 = db_org3["responses"].index_information()
+            self.assertIn("form_id_1_status_1", indexes_org3)
             
             # Access org1 again (re-activates it and recreates indexes)
             with app.test_request_context('/?organization_id=org1'):
                 get_collections()
-            indexes_org1_recreated = db_org1["projects"].index_information()
-            self.assertIn("organization_id_1", indexes_org1_recreated)
+            indexes_org1_recreated = db_org1["responses"].index_information()
+            self.assertIn("form_id_1_status_1", indexes_org1_recreated)
             
         finally:
             if orig_isolation is not None:
@@ -232,7 +235,7 @@ class TestEnterpriseFeatures(unittest.TestCase):
         form_id = form["_id"]
         
         # Submit response to version 1
-        client.post(f"/api/forms/{form_id}/submit?version=1", json={"q1": "v1 response"})
+        client.post(f"/api/forms/{form_id}/submit?version=1", json={"q1": "v1 response", "status": "Draft"})
         
         # Create version 2
         res_v2 = client.post(f"/api/forms/{form_id}/versions", json={
@@ -545,33 +548,52 @@ class TestEnterpriseFeatures(unittest.TestCase):
     def test_tenant_db_freeze_reactivation(self):
         import os
         from app import get_collections, ACTIVE_TENANTS, FROZEN_TENANTS
-        os.environ["TENANT_DB_ISOLATION"] = "true"
-        os.environ["ACTIVE_DB_LIMIT"] = "1"
-        os.environ["DB_INACTIVE_TIMEOUT"] = "1"
         
-        # Access tenant A to make it active
-        app_ctx = app.test_request_context('/?organization_id=org_active_test')
-        with app_ctx:
-            db_conn, _, _, _, _, _ = get_collections()
-            self.assertIn("org_active_test", ACTIVE_TENANTS)
-            self.assertNotIn("org_active_test", FROZEN_TENANTS)
+        orig_isolation = os.environ.get("TENANT_DB_ISOLATION")
+        orig_limit = os.environ.get("ACTIVE_DB_LIMIT")
+        orig_timeout = os.environ.get("DB_INACTIVE_TIMEOUT")
+        
+        try:
+            os.environ["TENANT_DB_ISOLATION"] = "true"
+            os.environ["ACTIVE_DB_LIMIT"] = "1"
+            os.environ["DB_INACTIVE_TIMEOUT"] = "1"
             
-            # Access another tenant to freeze the first one
-            import time
-            time.sleep(1.1)
-            
-            app_ctx2 = app.test_request_context('/?organization_id=org_active_test_2')
-            with app_ctx2:
-                db2, _, _, _, _, _ = get_collections()
-                self.assertIn("org_active_test_2", ACTIVE_TENANTS)
-                self.assertIn("org_active_test", FROZEN_TENANTS)
-                
-            # Reactivate tenant A
-            app_ctx3 = app.test_request_context('/?organization_id=org_active_test')
-            with app_ctx3:
-                db3, _, _, _, _, _ = get_collections()
+            # Access tenant A to make it active
+            app_ctx = app.test_request_context('/?organization_id=org_active_test')
+            with app_ctx:
+                db_conn, _, _, _, _, _ = get_collections()
                 self.assertIn("org_active_test", ACTIVE_TENANTS)
                 self.assertNotIn("org_active_test", FROZEN_TENANTS)
+                
+                # Access another tenant to freeze the first one
+                import time
+                time.sleep(1.1)
+                
+                app_ctx2 = app.test_request_context('/?organization_id=org_active_test_2')
+                with app_ctx2:
+                    db2, _, _, _, _, _ = get_collections()
+                    self.assertIn("org_active_test_2", ACTIVE_TENANTS)
+                    self.assertIn("org_active_test", FROZEN_TENANTS)
+                    
+                # Reactivate tenant A
+                app_ctx3 = app.test_request_context('/?organization_id=org_active_test')
+                with app_ctx3:
+                    db3, _, _, _, _, _ = get_collections()
+                    self.assertIn("org_active_test", ACTIVE_TENANTS)
+                    self.assertNotIn("org_active_test", FROZEN_TENANTS)
+        finally:
+            if orig_isolation is not None:
+                os.environ["TENANT_DB_ISOLATION"] = orig_isolation
+            else:
+                os.environ.pop("TENANT_DB_ISOLATION", None)
+            if orig_limit is not None:
+                os.environ["ACTIVE_DB_LIMIT"] = orig_limit
+            else:
+                os.environ.pop("ACTIVE_DB_LIMIT", None)
+            if orig_timeout is not None:
+                os.environ["DB_INACTIVE_TIMEOUT"] = orig_timeout
+            else:
+                os.environ.pop("DB_INACTIVE_TIMEOUT", None)
 
     def test_git_commit_compensating_rollback(self):
         from git_version_control import GitVersionControl
@@ -744,7 +766,7 @@ class TestEnterpriseFeatures(unittest.TestCase):
         form_id = form["_id"]
         
         # Trigger async batch submission
-        res_batch = client.post(f"/api/forms/{form_id}/submit-batch", json={
+        res_batch = client.post(f"/api/forms/{form_id}/submit-batch?async=true", json={
             "submissions": [{"q1": "val1"}, {"q1": "val2"}]
         })
         self.assertEqual(res_batch.status_code, 202)
@@ -853,7 +875,7 @@ class TestEnterpriseFeatures(unittest.TestCase):
         self.assertEqual(res_sub.status_code, 201)
         sub_resp_id = json.loads(res_sub.data)["response"]["_id"]
         
-        res_draft = client.post(f"/api/forms/{form_id}/submit?draft=true", json={"q1": "draft-v1"})
+        res_draft = client.post(f"/api/forms/{form_id}/submit", json={"q1": "draft-v1", "status": "Draft"})
         self.assertEqual(res_draft.status_code, 201)
         draft_resp_id = json.loads(res_draft.data)["response"]["_id"]
         
