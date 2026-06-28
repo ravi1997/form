@@ -90,6 +90,46 @@ docker-logs: ## Tail logs from running Docker Compose stack
 .PHONY: docker-restart
 docker-restart: docker-down docker-up ## Restart the full Docker stack
 
+# ─── Docker Dev (Hot-Reload + Full Tooling) ────────────────────────────────────
+.PHONY: dev
+dev: ## 🔥 Start the full DEV stack (hot-reload + Mongo GUI + Redis GUI + Mailhog)
+	@echo "→ Starting dev stack with hot-reload..."
+	docker compose -f docker-compose.dev.yml up --build
+
+.PHONY: dev-d
+dev-d: ## Start dev stack in background (detached)
+	docker compose -f docker-compose.dev.yml up --build -d
+	@echo ""
+	@echo "  ┌────────────────────────────────────────────────────┐"
+	@echo "  │  Dev Stack Running                                 │"
+	@echo "  │  App:            http://localhost:5000             │"
+	@echo "  │  MongoDB GUI:    http://localhost:8081             │"
+	@echo "  │  Redis GUI:      http://localhost:8082             │"
+	@echo "  │  Mailhog:        http://localhost:8025             │"
+	@echo "  └────────────────────────────────────────────────────┘"
+
+.PHONY: dev-down
+dev-down: ## Stop the dev Docker stack
+	docker compose -f docker-compose.dev.yml down
+
+.PHONY: dev-logs
+dev-logs: ## Tail dev stack logs
+	docker compose -f docker-compose.dev.yml logs -f app
+
+.PHONY: dev-shell
+dev-shell: ## Open a bash shell inside the running dev app container
+	docker compose -f docker-compose.dev.yml exec app bash
+
+.PHONY: dev-seed
+dev-seed: ## Seed demo data inside the running dev container
+	docker compose -f docker-compose.dev.yml exec app python seed_all.py --all
+
+.PHONY: dev-test
+dev-test: ## Run tests inside the running dev container
+	docker compose -f docker-compose.dev.yml exec app python -m pytest \
+		test_response_gateway.py test_rate_limiter.py \
+		test_exception_handling.py test_more_types.py -v
+
 # ─── Testing ───────────────────────────────────────────────────────────────────
 .PHONY: test
 test: ## Run all unified-service tests

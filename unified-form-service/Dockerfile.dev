@@ -1,0 +1,33 @@
+FROM python:3.12-slim
+
+# Prevent .pyc files and enable unbuffered logs
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    FLASK_ENV=development \
+    FLASK_DEBUG=1
+
+WORKDIR /app
+
+# System deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install dependencies first (layer-cached unless requirements.txt changes)
+COPY requirements.txt /app/
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install watchdog for fast filesystem change detection
+RUN pip install --no-cache-dir watchdog[watchmedo]
+
+# Do NOT copy source — it will be bind-mounted from host at runtime
+# COPY . /app/   ← intentionally omitted for dev
+
+EXPOSE 5000
+
+# Use werkzeug's reloader via watchdog for fast hot-reload
+CMD ["python", "-m", "watchdog.watchmedo", "auto-restart", \
+     "--directory=.", "--pattern=*.py", "--recursive", \
+     "--", "python", "app.py"]

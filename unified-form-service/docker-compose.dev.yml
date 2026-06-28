@@ -1,0 +1,144 @@
+# =============================================================================
+#  docker-compose.dev.yml  —  Development stack with hot-reload + full tooling
+#
+#  Usage:
+#    docker compose -f docker-compose.dev.yml up --build
+#
+#  Services:
+#    app            Flask (hot-reload via watchdog, bind-mounted source)
+#    mongodb        MongoDB with persistent volume
+#    mongo-express  MongoDB GUI at http://localhost:8081
+#    redis          Redis cache
+#    redis-commander Redis GUI at http://localhost:8082
+#    mailhog        SMTP catcher (view emails at http://localhost:8025)
+# =============================================================================
+
+version: '3.8'
+
+services:
+
+  # ── Flask Application (Hot-Reload Dev) ──────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5000:5000"
+      - "5678:5678"        # debugpy port for VS Code / PyCharm remote debugging
+    volumes:
+      - .:/app             # Bind-mount entire source for instant hot-reload
+      - /app/.venv         # Exclude host venv if present (keep container's)
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      - SECRET_KEY=dev-secret-key
+      - JWT_SECRET=dev-jwt-secret
+      - DATABASE_URL=mongodb://mongodb:27017/form_response
+      - RESPONSE_DATABASE_URL=mongodb://mongodb:27017/form_response
+      - MONGO_URI=mongodb://mongodb:27017/
+      - MONGO_DB_NAME=form_analyser
+      - DB_NAME=form_builder_db
+      - REDIS_URL=redis://redis:6379/0
+      - AUTH_ENABLED=False
+      - REQUIRE_AUTH=false
+      - ANALYSER_SYNC_MODE=local
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    env_file:
+      - .env               # Overrides above with your local .env values
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - formnet
+
+  # ── MongoDB ──────────────────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - ./docker/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    environment:
+      MONGO_INITDB_DATABASE: form_builder_db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - formnet
+
+  # ── Mongo Express (MongoDB GUI) ───────────────────────────────────────────
+  mongo-express:
+    image: mongo-express:latest
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_MONGODB_PORT: 27017
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: devpassword
+      ME_CONFIG_OPTIONS_EDITORTHEME: dracula
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - formnet
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - formnet
+
+  # ── Redis Commander (Redis GUI) ───────────────────────────────────────────
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    ports:
+      - "8082:8081"
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - formnet
+
+  # ── Mailhog (SMTP Catcher) ────────────────────────────────────────────────
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "1025:1025"   # SMTP port — point your app's MAIL_SERVER here
+      - "8025:8025"   # Web UI — view caught emails
+    restart: unless-stopped
+    networks:
+      - formnet
+
+# ─── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  mongodb_data:
+  redis_data:
+
+# ─── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  formnet:
+    driver: bridge
