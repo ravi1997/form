@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 
 from repositories.memory import store
 from models.core import FormSnapshot
-from validators.form_validator import minimal_form_snapshot, build_question_index
+from validator import minimal_form_snapshot, build_question_index
 from auth import login_required
 
 forms_bp = Blueprint("gateway_forms", __name__)

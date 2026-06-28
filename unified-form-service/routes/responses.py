@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 
 from models.core import ResponseRecord, now_utc
 from routes.forms import store
-from validators.form_validator import validate_response_payload
+from validator import validate_response_payload
 from auth import login_required
 
 responses_bp = Blueprint("gateway_responses", __name__)

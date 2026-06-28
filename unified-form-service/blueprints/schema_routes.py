@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from flask import Blueprint, current_app, jsonify, request, g
 
-from auth import require_auth
+from analyser_auth import require_auth
 from schema_detector import detect_schema, get_field_list
 from rate_limiter import rate_limit
 

@@ -16,7 +16,7 @@ from bson import ObjectId
 from bson.errors import InvalidId
 from flask import Blueprint, current_app, jsonify, request
 
-from auth import require_api_key
+from analyser_auth import require_api_key
 
 responses_bp = Blueprint("responses", __name__, url_prefix="/api/v1/responses")
 

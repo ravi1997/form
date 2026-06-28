@@ -41,7 +41,7 @@ from bson.errors import InvalidId
 from flask import Blueprint, Response, current_app, jsonify, request, g
 
 from analysis_engine import run_analysis
-from auth import require_api_key, require_auth
+from analyser_auth import require_api_key, require_auth
 from exporter import export_to_csv, export_to_pdf, stream_csv_generator
 from scheduler import (
     deregister_schedule,

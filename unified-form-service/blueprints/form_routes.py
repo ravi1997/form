@@ -19,7 +19,7 @@ from bson import ObjectId
 from flask import Blueprint, Response, current_app, jsonify, request
 
 from analysis_engine import run_analysis
-from auth import require_api_key
+from analyser_auth import require_api_key
 
 forms_bp = Blueprint("forms", __name__, url_prefix="/api/v1/forms")
 
