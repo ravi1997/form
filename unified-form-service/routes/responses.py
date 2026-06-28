@@ -1,3 +1,6 @@
+import logging
+logger = logging.getLogger(__name__)
+
 from flask import Blueprint, jsonify, request
 
 from models.core import ResponseRecord, now_utc

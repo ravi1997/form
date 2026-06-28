@@ -8,6 +8,10 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
+# Setup structured JSON logging globally
+from json_logger import setup_json_logging
+setup_json_logging()
+
 # 1. Import builder app to inherit its collections, variables, and routes
 from builder_app import app
 

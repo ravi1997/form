@@ -26,6 +26,8 @@ from auth import AuthManager, login_required, roles_required
 from git_version_control import GitVersionControl
 
 import logging
+from json_logger import setup_json_logging
+setup_json_logging()
 logger = logging.getLogger("FormBuilderApp")
 
 app = Flask(__name__)
