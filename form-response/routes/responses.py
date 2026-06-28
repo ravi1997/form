@@ -3,11 +3,13 @@ from flask import Blueprint, jsonify, request
 from models.core import ResponseRecord, now_utc
 from routes.forms import store
 from validators.form_validator import validate_response_payload
+from auth import login_required
 
 responses_bp = Blueprint("responses", __name__)
 
 
 @responses_bp.post("/forms/<form_id>/responses")
+@login_required
 def create_response(form_id: str):
     form = store.get_form(form_id)
     if not form:
@@ -29,12 +31,14 @@ def create_response(form_id: str):
 
 
 @responses_bp.get("/forms/<form_id>/responses")
+@login_required
 def list_responses(form_id: str):
     data = [r.__dict__ for r in store.list_responses_by_form_id(form_id)]
     return jsonify({"status": "success", "responses": data}), 200
 
 
 @responses_bp.get("/responses/<response_id>")
+@login_required
 def get_response(response_id: str):
     response = store.get_response(response_id)
     if not response:
@@ -43,6 +47,7 @@ def get_response(response_id: str):
 
 
 @responses_bp.patch("/responses/<response_id>")
+@login_required
 def patch_response(response_id: str):
     response = store.get_response(response_id)
     if not response:

@@ -2,12 +2,14 @@ from flask import Blueprint, jsonify, request
 
 import routes.forms as forms_routes
 from services.analyser_adapter import AnalyserSyncService
+from auth import login_required
 
 sync_bp = Blueprint("sync", __name__)
 adapter = AnalyserSyncService()
 
 
 @sync_bp.post("/sync/analyser")
+@login_required
 def sync_analyser():
     body = request.get_json(silent=True) or {}
     response_id = body.get("response_id")

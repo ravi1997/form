@@ -3,11 +3,13 @@ from flask import Blueprint, jsonify, request
 from repositories.memory import store
 from models.core import FormSnapshot
 from validators.form_validator import minimal_form_snapshot, build_question_index
+from auth import login_required
 
 forms_bp = Blueprint("forms", __name__)
 
 
 @forms_bp.post("/forms/ingest")
+@login_required
 def ingest_form():
     body = request.get_json(silent=True) or {}
     form_id = str(body.get("id") or body.get("_id") or "")
@@ -42,6 +44,7 @@ def ingest_form():
 
 
 @forms_bp.get("/forms/<form_id>")
+@login_required
 def get_form(form_id: str):
     version_str = request.args.get("version")
     version = int(version_str) if version_str and version_str.isdigit() else None

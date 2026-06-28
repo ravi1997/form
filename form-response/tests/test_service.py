@@ -1,22 +1,31 @@
 import unittest
-import os
-import tempfile
+from unittest.mock import patch
+import mongomock
 
+# Patch pymongo.MongoClient with a shared mongomock.MongoClient globally for tests
+shared_client = mongomock.MongoClient()
+patcher = patch("repositories.mongodb.MongoClient", return_value=shared_client)
+patcher.start()
+
+import os
 from app import create_app
-from bootstrap import bootstrap_repository, resolve_sqlite_path
+from bootstrap import bootstrap_repository
 from routes.forms import store
-from repositories.sqlite import SQLiteRepository
+from repositories.mongodb import MongoDBRepository
 
 
 class FormResponseServiceTest(unittest.TestCase):
     def setUp(self):
-        self.tmpdir = tempfile.TemporaryDirectory()
-        os.environ["DATABASE_URL"] = f"sqlite:///{self.tmpdir.name}/form-response.db"
+        os.environ["DATABASE_URL"] = "mongodb://localhost:27017/form_response_test"
         self.app = create_app()
         self.client = self.app.test_client()
 
     def tearDown(self):
-        self.tmpdir.cleanup()
+        # Clear collections after each test to keep tests isolated
+        from routes.forms import store as current_store
+        if isinstance(current_store, MongoDBRepository):
+            current_store.clear_forms()
+            current_store.clear_responses()
 
     def test_ingest_form_and_validate_required_fields(self):
         form = {
@@ -70,15 +79,14 @@ class FormResponseServiceTest(unittest.TestCase):
         self.assertEqual(payload["response_id"], response_id)
 
     def test_bootstrap_initializes_schema_and_health(self):
-        db_url = f"sqlite:///{self.tmpdir.name}/boot.db"
+        db_url = "mongodb://localhost:27017/boot_test"
         repo = bootstrap_repository(db_url)
         self.assertTrue(repo.health_check())
-        self.assertTrue(resolve_sqlite_path(db_url).exists())
         repo_again = bootstrap_repository(db_url)
         self.assertTrue(repo_again.health_check())
 
     def test_repository_contract_round_trip(self):
-        repo = SQLiteRepository(f"sqlite:///{self.tmpdir.name}/contract.db")
+        repo = MongoDBRepository("mongodb://localhost:27017/contract_test")
         repo.initialize()
         self.assertTrue(repo.health_check())
         self.assertIsNone(repo.get_form("missing"))

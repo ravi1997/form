@@ -2,14 +2,9 @@ services:
   form-response-service:
     build: .
     ports:
-      - "5000:5000"
+      - "5002:5000"
     environment:
       SERVICE_NAME: form-response-service
       ANALYSER_SYNC_MODE: local
-      DATABASE_URL: sqlite:///data/form_response.db
-    volumes:
-      - form_response_data:/app/data
-
-volumes:
-  form_response_data:
+      DATABASE_URL: mongodb://host.docker.internal:27017/form_response
 

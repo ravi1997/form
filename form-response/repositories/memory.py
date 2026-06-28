@@ -1,4 +1,4 @@
-from repositories.sqlite import SQLiteRepository as Repository
+from repositories.mongodb import MongoDBRepository as Repository
 
 
 store = Repository()

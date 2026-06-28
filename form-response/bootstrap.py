@@ -1,39 +1,27 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
-from repositories.sqlite import SQLiteRepository
-
-
-def resolve_sqlite_path(database_url: str) -> Path:
-    if not database_url.startswith("sqlite:///"):
-        raise ValueError("DATABASE_URL must use sqlite:///")
-    raw_path = database_url.removeprefix("sqlite:///")
-    if not raw_path:
-        raise ValueError("DATABASE_URL must include a file path")
-    return Path(raw_path).expanduser().resolve()
+from repositories.mongodb import MongoDBRepository
+from repositories.interface import RepositoryInterface
 
 
-def ensure_parent_directory(database_url: str) -> Path:
-    db_path = resolve_sqlite_path(database_url)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    return db_path
-
-
-def bootstrap_repository(database_url: str) -> SQLiteRepository:
-    db_path = ensure_parent_directory(database_url)
-    repo = SQLiteRepository(f"sqlite:///{db_path}")
+def bootstrap_repository(database_url: str) -> RepositoryInterface:
+    if not (database_url.startswith("mongodb://") or database_url.startswith("mongodb+srv://")):
+        raise ValueError("DATABASE_URL must start with mongodb:// or mongodb+srv://")
+    repo = MongoDBRepository(database_url)
     repo.initialize()
     return repo
 
 
 def main() -> int:
-    database_url = os.getenv("DATABASE_URL", "sqlite:///form_response.db")
+    database_url = os.getenv("DATABASE_URL", "mongodb://localhost:27017/form_response")
     repo = bootstrap_repository(database_url)
-    print(f"SQLite schema initialized at {repo.db_path}")
+    print(f"MongoDB repository initialized at {database_url}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+

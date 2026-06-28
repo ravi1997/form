@@ -57,22 +57,20 @@ python -m unittest discover -s tests -v
 flask --app wsgi:app run --debug
 ```
 
-The service stores data in SQLite by default. Set `DATABASE_URL` to point at a different
-local file if needed.
+The service stores data in MongoDB by default. Set `DATABASE_URL` to point at a different
+connection string if needed.
 
 ## Bootstrap
 
-Initialize or verify the SQLite schema explicitly:
+Initialize or verify the MongoDB database indexes explicitly:
 
 ```bash
 python bootstrap.py
 ```
 
-This will create the parent directory for `DATABASE_URL`, initialize tables, and
-ensure the file is writable before app startup.
+This will connect to the MongoDB instance and initialize the forms and responses collections and indexes.
 
-The bootstrap step is idempotent. Running it multiple times only reasserts the schema
-and indexes.
+The bootstrap step is idempotent. Running it multiple times only reasserts the collections and indexes.
 
 ## Health check
 
@@ -82,7 +80,7 @@ The app exposes a simple readiness endpoint:
 GET /healthz
 ```
 
-It returns whether the SQLite database can be opened and queried.
+It returns whether the MongoDB database is reachable and indexes are ready.
 
 ## Container run
 
@@ -90,8 +88,7 @@ It returns whether the SQLite database can be opened and queried.
 docker compose up --build
 ```
 
-The container uses `sqlite:///data/form_response.db` by default, so the database file
-is mounted on a volume and survives restarts.
+The container uses `mongodb://host.docker.internal:27017/form_response` by default.
 
 ## API
 

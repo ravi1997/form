@@ -7,4 +7,4 @@ class Config:
 
     @property
     def DATABASE_URL(self) -> str:
-        return os.getenv("DATABASE_URL", "sqlite:///form_response.db")
+        return os.getenv("DATABASE_URL", "mongodb://localhost:27017/form_response")
