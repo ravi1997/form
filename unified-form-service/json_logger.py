@@ -40,6 +40,13 @@ def setup_json_logging():
     root_logger.addHandler(handler)
     root_logger.setLevel(logging.INFO)
     
+    # Ensure Flask logger propagates to the root logger properly
+    flask_logger = logging.getLogger("flask.app")
+    for h in list(flask_logger.handlers):
+        flask_logger.removeHandler(h)
+    flask_logger.propagate = True
+    flask_logger.setLevel(logging.INFO)
+    
     # Optional: silence noisy third-party libraries slightly
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("apscheduler").setLevel(logging.WARNING)
