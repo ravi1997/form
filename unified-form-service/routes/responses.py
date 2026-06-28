@@ -7,11 +7,13 @@ from models.core import ResponseRecord, now_utc
 from routes.forms import store
 from validator import validate_response_payload
 from auth import login_required
+from rate_limiter import rate_limit
 
 responses_bp = Blueprint("gateway_responses", __name__)
 
 
 @responses_bp.post("/forms/<form_id>/responses")
+@rate_limit(limit=10, period=60)
 @login_required
 def create_response(form_id: str):
     form = store.get_form(form_id)
@@ -50,6 +52,7 @@ def get_response(response_id: str):
 
 
 @responses_bp.patch("/responses/<response_id>")
+@rate_limit(limit=10, period=60)
 @login_required
 def patch_response(response_id: str):
     response = store.get_response(response_id)

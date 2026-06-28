@@ -50,29 +50,7 @@ from collections import defaultdict
 import time
 from functools import wraps
 
-rate_limit_store = defaultdict(list)
-
-def rate_limit(limit=5, window=60):
-    def decorator(f):
-        @wraps(f)
-        def decorated(*args, **kwargs):
-            import sys
-            if "pytest" in sys.modules or os.getenv("REQUIRE_AUTH") != "true":
-                return f(*args, **kwargs)
-
-
-            ip = request.remote_addr
-            now = time.time()
-            rate_limit_store[ip] = [t for t in rate_limit_store[ip] if now - t < window]
-            
-            if len(rate_limit_store[ip]) >= limit:
-                return jsonify({"error": "Too many requests. Please try again later."}), 429
-                
-            rate_limit_store[ip].append(now)
-            return f(*args, **kwargs)
-        return decorated
-    return decorator
-
+from rate_limiter import rate_limit
 
 
 # Multi-Tenant dynamic database resolver

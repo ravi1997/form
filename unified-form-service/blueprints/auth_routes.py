@@ -16,6 +16,7 @@ from flask import Blueprint, current_app, jsonify, request, g
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from analyser_auth import generate_api_key, hash_key, require_auth, generate_token
+from rate_limiter import rate_limit
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/v1/auth")
 
@@ -44,6 +45,7 @@ def _err(message, status=400):
 # ---------------------------------------------------------------------------
 
 @auth_bp.post("/register")
+@rate_limit(limit=5, period=60)
 def register():
     """Register a new user inside an organization."""
     body = request.get_json(silent=True) or {}
@@ -84,6 +86,7 @@ def register():
 
 
 @auth_bp.post("/login")
+@rate_limit(limit=5, period=60)
 def login():
     """Authenticate user and return a JWT token."""
     body = request.get_json(silent=True) or {}
