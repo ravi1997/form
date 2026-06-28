@@ -2,8 +2,7 @@ __pycache__/
 *.pyc
 venv/
 .pytest_cache/
-unified-form-service/static/uploads/receipt_*.pdf
-unified-form-service/static/uploads/receipt_*.png
+unified-form-service/static/uploads/
 unified-form-service/validators/__pycache__/
 unified-form-service/routes/__pycache__/
 unified-form-service/repositories/__pycache__/
