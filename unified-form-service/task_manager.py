@@ -4,7 +4,7 @@ import io
 import threading
 import logging
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timezone
 from encryption_helper import EncryptionHelper
 from anonymizer import DataAnonymizer
 from s3_helper import S3Helper
@@ -27,7 +27,7 @@ class TaskManager:
             "status": "PENDING",
             "download_url": None,
             "error": None,
-            "created_at": datetime.utcnow()
+            "created_at": datetime.now(timezone.utc)
         }
         db["tasks"].insert_one(task_doc)
 
@@ -105,7 +105,7 @@ class TaskManager:
                         "message": f"Your data export for form '{form.get('title')}' is ready for download.",
                         "type": "export_completed",
                         "read": False,
-                        "created_at": datetime.utcnow(),
+                        "created_at": datetime.now(timezone.utc),
                         "details": {"task_id": str(task_id), "download_url": download_url}
                     })
                 except Exception as ne:
@@ -140,7 +140,7 @@ class TaskManager:
             for entry in registry_entries:
                 file_path = entry["file_path"]
                 from datetime import timedelta
-                age = datetime.utcnow() - entry.get("created_at", datetime.utcnow())
+                age = datetime.now(timezone.utc) - entry.get("created_at", datetime.now(timezone.utc))
                 if file_path not in active_urls and age > timedelta(hours=1):
                     try:
                         if file_path.startswith("/static/"):

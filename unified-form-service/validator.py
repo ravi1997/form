@@ -1,7 +1,7 @@
 import ast
 import operator
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from condition_evaluator import ConditionEvaluator
 from block_script_engine import BlockScriptEngine
 from lookup_resolver import LookupResolver
@@ -150,7 +150,7 @@ class FormSubmissionValidator:
         # --- 3. Operational Time Access Windows ---
         access_window = self.form.get("access_window")
         if access_window and not self.is_draft:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             # In Python, weekday is 0 (Monday) to 6 (Sunday)
             current_day = now.weekday()
             current_hour = now.hour
@@ -167,7 +167,7 @@ class FormSubmissionValidator:
         if not self.is_draft:
             start_date_str = self.form.get("start_date")
             end_date_str = self.form.get("end_date")
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             
             if start_date_str:
                 try:

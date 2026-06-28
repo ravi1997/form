@@ -3,7 +3,7 @@ import urllib.request
 import json
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from bson import ObjectId
 from script_sandbox import ScriptSandbox
 
@@ -31,7 +31,7 @@ class WorkflowEngine:
                 if db is not None and workflow_run_id:
                     db["workflow_runs"].update_one(
                         {"_id": ObjectId(workflow_run_id)},
-                        {"$set": {"status": "SUCCESS", "last_attempt_at": datetime.utcnow()}}
+                        {"$set": {"status": "SUCCESS", "last_attempt_at": datetime.now(timezone.utc)}}
                     )
                 return True
             except Exception as e:
@@ -46,7 +46,7 @@ class WorkflowEngine:
                             {"_id": ObjectId(workflow_run_id)},
                             {"$set": {
                                 "status": "DEAD_LETTER", 
-                                "last_attempt_at": datetime.utcnow(),
+                                "last_attempt_at": datetime.now(timezone.utc),
                                 "error": str(e)
                             }}
                         )
@@ -85,7 +85,7 @@ class WorkflowEngine:
                             "method": method,
                             "payload": payload,
                             "status": "PROCESSING",
-                            "created_at": datetime.utcnow()
+                            "created_at": datetime.now(timezone.utc)
                         })
                         workflow_run_id = res_wr.inserted_id
                     

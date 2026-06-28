@@ -4,7 +4,7 @@ import uuid
 import random
 import csv
 import io
-from datetime import datetime
+from datetime import datetime, timezone
 from bson import ObjectId
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
@@ -137,7 +137,7 @@ def get_collections():
         tenant_client = get_tenant_client(org_id)
         database = tenant_client[db_name]
         
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         is_first_access = org_id not in ACTIVE_TENANTS
         ACTIVE_TENANTS[org_id] = now
         
@@ -330,7 +330,7 @@ def record_audit_log(action, form_id=None, project_id=None, details=None):
         "form_id": ObjectId(form_id) if isinstance(form_id, str) else form_id,
         "project_id": ObjectId(project_id) if isinstance(project_id, str) else project_id,
         "details": details or {},
-        "timestamp": datetime.utcnow()
+        "timestamp": datetime.now(timezone.utc)
     }
     audit_col.insert_one(log_doc)
 
@@ -339,7 +339,7 @@ def record_audit_log(action, form_id=None, project_id=None, details=None):
     if random.randint(1, 100) == 1:
         try:
             from datetime import timedelta
-            cutoff = datetime.utcnow() - timedelta(days=90)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=90)
             audit_col.delete_many({"timestamp": {"$lt": cutoff}})
         except Exception as e:
             logger.warning(f"Failed to auto-prune audit logs: {str(e)}")
@@ -392,14 +392,14 @@ def register_upload(filepath, response_id=None):
         db_ctx["upload_registry"].insert_one({
             "file_path": filepath,
             "response_id": response_id,
-            "created_at": datetime.utcnow()
+            "created_at": datetime.now(timezone.utc)
         })
         
         # 1 in 10 chance to prune orphaned uploads older than 24 hours
         if random.randint(1, 10) == 1:
             try:
                 from datetime import timedelta
-                cutoff = datetime.utcnow() - timedelta(hours=24)
+                cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
                 orphans = list(db_ctx["upload_registry"].find({
                     "created_at": {"$lt": cutoff},
                     "$or": [
@@ -598,7 +598,7 @@ def register_user():
         "settings": {
             "allowed_email_domains": allowed_email_domains
         },
-        "created_at": datetime.utcnow()
+        "created_at": datetime.now(timezone.utc)
     }
     orgs_col.insert_one(org_doc)
     org_id = str(org_doc["_id"])
@@ -613,8 +613,8 @@ def register_user():
         "last_name": last_name,
         "roles": ["Admin"],
         "status": "Active",
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc)
     }
     users_col.insert_one(user_doc)
     user_id = str(user_doc["_id"])
@@ -732,7 +732,7 @@ def reset_password():
     pwd_hash = AuthManager.hash_password(new_password)
     users_col.update_one(
         {"_id": user["_id"]},
-        {"$set": {"password_hash": pwd_hash, "updated_at": datetime.utcnow()}}
+        {"$set": {"password_hash": pwd_hash, "updated_at": datetime.now(timezone.utc)}}
     )
     
     record_audit_log("reset_password", details={"email": email})
@@ -781,8 +781,8 @@ def add_org_user():
         "last_name": last_name,
         "roles": roles,
         "status": "Active",
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc)
     }
     users_col.insert_one(user_doc)
     user_doc["_id"] = str(user_doc["_id"])
@@ -817,7 +817,7 @@ def update_org_user(user_id):
         updates["last_name"] = data["last_name"]
 
     if updates:
-        updates["updated_at"] = datetime.utcnow()
+        updates["updated_at"] = datetime.now(timezone.utc)
         users_col.update_one({"_id": user_obj_id}, {"$set": updates})
 
     record_audit_log("update_org_user", details={"target_user_id": user_id, "updates": list(updates.keys())})
@@ -839,7 +839,7 @@ def delete_org_user(user_id):
         return jsonify({"error": "User not found in organization"}), 404
 
     # Soft delete / Suspend
-    users_col.update_one({"_id": user_obj_id}, {"$set": {"status": "Suspended", "updated_at": datetime.utcnow()}})
+    users_col.update_one({"_id": user_obj_id}, {"$set": {"status": "Suspended", "updated_at": datetime.now(timezone.utc)}})
     
     record_audit_log("suspend_org_user", details={"target_user_id": user_id})
     return jsonify({"message": "User account suspended successfully"}), 200
@@ -863,7 +863,7 @@ def create_project():
         "description": data.get("description", ""),
         "deleted": False,
         "shares": [],
-        "created_at": datetime.utcnow()
+        "created_at": datetime.now(timezone.utc)
     }
     result = projects_col.insert_one(project_doc)
     project_doc["_id"] = result.inserted_id
@@ -1074,13 +1074,13 @@ def create_form():
             {
                 "version_number": 1,
                 "published": True,
-                "created_at": datetime.utcnow(),
+                "created_at": datetime.now(timezone.utc),
                 "sections": sections,
                 "block_script": data.get("block_script")
             }
         ],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc)
     }
     
     result = forms_col.insert_one(form_doc)
@@ -1184,7 +1184,7 @@ def create_form_version(form_id):
     new_version_node = {
         "version_number": next_ver,
         "published": False,
-        "created_at": datetime.utcnow(),
+        "created_at": datetime.now(timezone.utc),
         "sections": sections,
         "block_script": data.get("block_script"),
         "drift_warnings": drift_warnings
@@ -1194,7 +1194,7 @@ def create_form_version(form_id):
         {"_id": obj_id},
         {
             "$push": {"versions": new_version_node},
-            "$set": {"updated_at": datetime.utcnow()}
+            "$set": {"updated_at": datetime.now(timezone.utc)}
         }
     )
     
@@ -1248,7 +1248,7 @@ def publish_version(form_id):
 
     forms_col.update_one(
         {"_id": obj_id},
-        {"$set": {"current_version": version_num, "updated_at": datetime.utcnow()}}
+        {"$set": {"current_version": version_num, "updated_at": datetime.now(timezone.utc)}}
     )
     for v in versions:
         v["published"] = (v["version_number"] == version_num)
@@ -1533,7 +1533,7 @@ def submit_response(form_id):
         "version": version_num,
         "status": status,
         "organization_id": org_id,
-        "submitted_at": datetime.utcnow(),
+        "submitted_at": datetime.now(timezone.utc),
         "answers": validated_answers,
         "receipt_url": receipt_url
     }
@@ -1567,7 +1567,7 @@ def submit_response(form_id):
             "key": idem_key,
             "org_id": org_id,
             "response_data": success_payload,
-            "created_at": datetime.utcnow()
+            "created_at": datetime.now(timezone.utc)
         })
 
     return jsonify(json_util_serialize(success_payload)), 201
@@ -1660,7 +1660,7 @@ def update_draft_response(response_id):
     update_data = {
         "status": new_status,
         "answers": validated_answers,
-        "submitted_at": datetime.utcnow(),
+        "submitted_at": datetime.now(timezone.utc),
         "receipt_url": receipt_url
     }
     
@@ -1705,11 +1705,11 @@ def process_batch_task(task_id, form_id, org_id, submissions):
         responses_col = db_ctx["responses"]
         tasks_col = db_ctx["tasks"]
         
-        tasks_col.update_one({"_id": task_id}, {"$set": {"status": "Running", "updated_at": datetime.utcnow()}})
+        tasks_col.update_one({"_id": task_id}, {"$set": {"status": "Running", "updated_at": datetime.now(timezone.utc)}})
         
         form = forms_col.find_one({"_id": ObjectId(form_id), "deleted": {"$ne": True}})
         if not form:
-            tasks_col.update_one({"_id": task_id}, {"$set": {"status": "Failed", "error": "Form not found", "updated_at": datetime.utcnow()}})
+            tasks_col.update_one({"_id": task_id}, {"$set": {"status": "Failed", "error": "Form not found", "updated_at": datetime.now(timezone.utc)}})
             return
             
         version_num = form.get("current_version", 1)
@@ -1727,7 +1727,7 @@ def process_batch_task(task_id, form_id, org_id, submissions):
                     "version": version_num,
                     "status": "Submitted",
                     "organization_id": org_id,
-                    "submitted_at": datetime.utcnow(),
+                    "submitted_at": datetime.now(timezone.utc),
                     "answers": validated_ans
                 }
                 batch_responses.append(response_doc)
@@ -1749,7 +1749,7 @@ def process_batch_task(task_id, form_id, org_id, submissions):
             "inserted_count": len(batch_responses),
             "inserted_ids": inserted_ids,
             "errors": batch_errors,
-            "updated_at": datetime.utcnow()
+            "updated_at": datetime.now(timezone.utc)
         }})
         
     except Exception as e:
@@ -1758,7 +1758,7 @@ def process_batch_task(task_id, form_id, org_id, submissions):
             db_ctx = client[DB_NAME]
             if os.getenv("TENANT_DB_ISOLATION") == "true":
                 db_ctx = get_tenant_client(org_id)[f"form_db_{org_id}"]
-            db_ctx["tasks"].update_one({"_id": task_id}, {"$set": {"status": "Failed", "error": str(e), "updated_at": datetime.utcnow()}})
+            db_ctx["tasks"].update_one({"_id": task_id}, {"$set": {"status": "Failed", "error": str(e), "updated_at": datetime.now(timezone.utc)}})
         except Exception:
             pass
 
@@ -1797,8 +1797,8 @@ def submit_batch_responses(form_id):
             "form_id": obj_id,
             "organization_id": org_id,
             "status": "Pending",
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
             "total_submissions": len(submissions),
             "processed_count": 0,
             "inserted_count": 0,
@@ -1833,7 +1833,7 @@ def submit_batch_responses(form_id):
                     "version": version_num,
                     "status": "Submitted",
                     "organization_id": org_id,
-                    "submitted_at": datetime.utcnow(),
+                    "submitted_at": datetime.now(timezone.utc),
                     "answers": validated_ans
                 }
                 batch_responses.append(response_doc)
@@ -2350,7 +2350,7 @@ def git_revert_form(form_id):
 
     forms_col.update_one(
         {"_id": obj_id},
-        {"$set": {f"vcs_branches.{branch}": commit_hash, "updated_at": datetime.utcnow()}}
+        {"$set": {f"vcs_branches.{branch}": commit_hash, "updated_at": datetime.now(timezone.utc)}}
     )
 
     record_audit_log("git_revert", form_id=obj_id, details={"branch": branch, "commit_hash": commit_hash})
@@ -2392,7 +2392,7 @@ def git_create_tag(form_id):
         {"_id": obj_id},
         {
             "$push": {"vcs_tags": {"name": tag_name, "commit_hash": commit_hash}},
-            "$set": {"updated_at": datetime.utcnow()}
+            "$set": {"updated_at": datetime.now(timezone.utc)}
         }
     )
 
@@ -2491,7 +2491,7 @@ def update_form_lifecycle(form_id):
     db_ctx, _, forms_col, _, _, _ = get_collections()
     forms_col.update_one(
         {"_id": obj_id},
-        {"$set": {"lifecycle": status, "updated_at": datetime.utcnow()}}
+        {"$set": {"lifecycle": status, "updated_at": datetime.now(timezone.utc)}}
     )
 
     record_audit_log("update_form_lifecycle", form_id=obj_id, details={"lifecycle": status})
@@ -2538,7 +2538,7 @@ def update_user_lifecycle(user_id):
 
     users_col.update_one(
         {"_id": user_obj_id},
-        {"$set": {"status": status, "updated_at": datetime.utcnow()}}
+        {"$set": {"status": status, "updated_at": datetime.now(timezone.utc)}}
     )
 
     record_audit_log("update_user_lifecycle", details={"user_id": user_id, "status": status})

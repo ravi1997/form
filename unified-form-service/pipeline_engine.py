@@ -3,7 +3,7 @@ import json
 import logging
 import urllib.request
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from bson import ObjectId
 from condition_evaluator import ConditionEvaluator
 
@@ -42,7 +42,7 @@ class PipelineEngine:
                     "workflow_id": workflow.get("id"),
                     "status": "RUNNING",
                     "steps": {},
-                    "created_at": datetime.utcnow()
+                    "created_at": datetime.now(timezone.utc)
                 })
             except Exception as e:
                 logger.warning(f"Failed to initialize workflow run document: {str(e)}")
@@ -125,7 +125,7 @@ class PipelineEngine:
                             "step_type": step_type,
                             "error": output_data.get("error", "Unknown error"),
                             "variables_context": variables_context,
-                            "timestamp": datetime.utcnow()
+                            "timestamp": datetime.now(timezone.utc)
                         })
                         org_id = form_data.get("organization_id")
                         db["notifications"].insert_one({
@@ -134,7 +134,7 @@ class PipelineEngine:
                             "message": f"Step '{step_id}' failed in workflow '{workflow.get('id')}' for form '{form_data.get('title')}'",
                             "type": "workflow_failed",
                             "read": False,
-                            "created_at": datetime.utcnow(),
+                            "created_at": datetime.now(timezone.utc),
                             "details": {
                                 "pipeline_run_id": str(pipeline_run_id),
                                 "form_id": str(form_data.get("_id")),
@@ -205,7 +205,7 @@ class PipelineEngine:
             try:
                 db["workflow_runs"].update_one(
                     {"_id": ObjectId(pipeline_run_id)},
-                    {"$set": {"status": final_status, "updated_at": datetime.utcnow()}}
+                    {"$set": {"status": final_status, "updated_at": datetime.now(timezone.utc)}}
                 )
             except Exception as e:
                 logger.warning(f"Failed to finalize workflow run document status: {str(e)}")

@@ -1,5 +1,5 @@
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from bson import ObjectId
 
 class GitVersionControl:
@@ -13,7 +13,7 @@ class GitVersionControl:
         sha.update(str(sections).encode('utf-8'))
         sha.update(str(message).encode('utf-8'))
         sha.update(str(author_id).encode('utf-8'))
-        sha.update(str(datetime.utcnow().timestamp()).encode('utf-8'))
+        sha.update(str(datetime.now(timezone.utc).timestamp()).encode('utf-8'))
         return sha.hexdigest()
 
     @staticmethod
@@ -40,7 +40,7 @@ class GitVersionControl:
             "author_id": author_id,
             "message": message,
             "sections": sections,
-            "timestamp": datetime.utcnow()
+            "timestamp": datetime.now(timezone.utc)
         }
 
         # Add commit to dedicated commits collection
@@ -57,7 +57,7 @@ class GitVersionControl:
                         {
                             "$set": {
                                 f"vcs_branches.{branch_name}": commit_hash,
-                                "updated_at": datetime.utcnow()
+                                "updated_at": datetime.now(timezone.utc)
                             }
                         },
                         session=session
@@ -74,7 +74,7 @@ class GitVersionControl:
                     {
                         "$set": {
                             f"vcs_branches.{branch_name}": commit_hash,
-                            "updated_at": datetime.utcnow()
+                            "updated_at": datetime.now(timezone.utc)
                         }
                     }
                 )
@@ -105,7 +105,7 @@ class GitVersionControl:
         commit_hash = branches[source_branch]
         forms_col.update_one(
             {"_id": form_id},
-            {"$set": {f"vcs_branches.{new_branch}": commit_hash, "updated_at": datetime.utcnow()}}
+            {"$set": {f"vcs_branches.{new_branch}": commit_hash, "updated_at": datetime.now(timezone.utc)}}
         )
         return True, None
 
@@ -230,7 +230,7 @@ class GitVersionControl:
         if common_ancestor == target_hash:
             forms_col.update_one(
                 {"_id": form_id},
-                {"$set": {f"vcs_branches.{target_branch}": source_hash, "updated_at": datetime.utcnow()}}
+                {"$set": {f"vcs_branches.{target_branch}": source_hash, "updated_at": datetime.now(timezone.utc)}}
             )
             return {"merged": True, "type": "fast_forward", "commit_hash": source_hash}, None
 
@@ -359,7 +359,7 @@ class GitVersionControl:
         Also skips commits where 'keep' is True.
         """
         from datetime import timedelta
-        cutoff = datetime.utcnow() - timedelta(days=3)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=3)
         commits_col = forms_col.database["commits"]
         
         query = {"timestamp": {"$lt": cutoff}}

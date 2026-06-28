@@ -105,13 +105,13 @@ class LookupResolver:
             
             choices.sort(key=lambda x: str(x["value"]))
 
-            from datetime import datetime
+            from datetime import datetime, timezone
             db["lookup_materialized_views"].update_one(
                 {"form_id": form_id, "field_id": field_id},
                 {"$set": {
                     "organization_id": org_id,
                     "choices": choices,
-                    "updated_at": datetime.utcnow()
+                    "updated_at": datetime.now(timezone.utc)
                 }},
                 upsert=True
             )
@@ -152,13 +152,13 @@ class LookupResolver:
                 })
             choices.sort(key=lambda x: str(x["value"]))
             
-            from datetime import datetime
+            from datetime import datetime, timezone
             db["lookup_materialized_views"].update_one(
                 {"form_id": form_id, "field_id": field_id},
                 {"$set": {
                     "organization_id": org_id,
                     "choices": choices,
-                    "updated_at": datetime.utcnow()
+                    "updated_at": datetime.now(timezone.utc)
                 }},
                 upsert=True
             )

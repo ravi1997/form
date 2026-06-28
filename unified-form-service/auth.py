@@ -2,7 +2,7 @@ import os
 import hashlib
 import hmac
 import jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from flask import request, jsonify
 from pymongo import MongoClient
@@ -44,14 +44,14 @@ class AuthManager:
             "organization_id": str(organization_id),
             "roles": roles,
             "token_type": "access",
-            "exp": datetime.utcnow() + timedelta(minutes=15)
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=15)
         }
         
         refresh_payload = {
             "user_id": str(user_id),
             "organization_id": str(organization_id),
             "token_type": "refresh",
-            "exp": datetime.utcnow() + timedelta(days=7)
+            "exp": datetime.now(timezone.utc) + timedelta(days=7)
         }
 
         access_token = jwt.encode(access_payload, JWT_SECRET, algorithm="HS256")

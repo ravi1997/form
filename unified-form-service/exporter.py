@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 # ===========================================================================
@@ -28,7 +28,7 @@ def export_to_csv(analysis_result: dict) -> bytes:
     writer.writerow(["Description", analysis_result.get("description", "")])
     writer.writerow(["Source Collection", analysis_result.get("source_collection", "")])
     writer.writerow(["Total Matching Responses", analysis_result.get("total_matching_responses", "")])
-    writer.writerow(["Exported At", datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")])
+    writer.writerow(["Exported At", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")])
     writer.writerow([])
 
     for step_id, step_result in analysis_result.get("results", {}).items():
@@ -61,7 +61,7 @@ def stream_csv_generator(analysis_result: dict):
     writer.writerow(["Description", analysis_result.get("description", "")])
     writer.writerow(["Source Collection", analysis_result.get("source_collection", "")])
     writer.writerow(["Total Matching Responses", analysis_result.get("total_matching_responses", "")])
-    writer.writerow(["Exported At", datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")])
+    writer.writerow(["Exported At", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")])
     writer.writerow([])
     yield queue.get_and_clear().encode("utf-8")
 
@@ -346,7 +346,7 @@ def export_to_pdf(analysis_result: dict) -> bytes:
     story.append(Spacer(1, 0.2 * cm))
     story.append(Paragraph(
         f"Total matching responses: <b>{analysis_result.get('total_matching_responses', 0)}</b> &nbsp;&nbsp;|&nbsp;&nbsp;"
-        f"Generated: <b>{datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}</b>",
+        f"Generated: <b>{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}</b>",
         meta_style,
     ))
 
