@@ -575,3 +575,102 @@ class FormSubmissionValidator:
             return True, val, None
 
         return False, None, f"Unsupported question type: {q_type}"
+
+
+def build_question_index(form_json: dict) -> dict[str, dict]:
+    index: dict[str, dict] = {}
+    for section in form_json.get("sections", []):
+        for question in section.get("questions", []):
+            qid = question.get("id")
+            if qid:
+                index[qid] = {
+                    "id": qid,
+                    "type": question.get("type"),
+                    "required": bool(question.get("required", False)),
+                    "choices": question.get("choices", []),
+                }
+    return index
+
+
+def minimal_form_snapshot(form_json: dict) -> dict:
+    return {
+        "form_id": str(form_json.get("id") or form_json.get("_id")),
+        "title": form_json.get("title", "Untitled Form"),
+        "sections": [
+            {
+                "id": section.get("id"),
+                "title": section.get("title"),
+                "questions": [
+                    {
+                        "id": q.get("id"),
+                        "type": q.get("type"),
+                        "required": bool(q.get("required", False)),
+                        "choices": q.get("choices", []),
+                    }
+                    for q in section.get("questions", [])
+                ],
+            }
+            for section in form_json.get("sections", [])
+        ],
+    }
+
+
+def validate_response_payload(form_snapshot: dict, answers: dict) -> tuple[bool, dict]:
+    errors: dict[str, str] = {}
+    index = build_question_index(form_snapshot)
+    
+    unknown = sorted(set(answers) - set(index))
+    for key in unknown:
+        errors[key] = "Unknown question id."
+        
+    mapped_form = {
+        "id": form_snapshot.get("form_id") or form_snapshot.get("id"),
+        "title": form_snapshot.get("title", "Untitled Form"),
+        "sections": [
+            {
+                "id": sec.get("id"),
+                "title": sec.get("title"),
+                "questions": [
+                    {
+                        "id": q.get("id"),
+                        "type": "multiple_choice" if q.get("type") in ("multiple_choice", "multi_select") else
+                                ("dropdown" if q.get("type") in ("choice", "single_choice", "select") else
+                                 ("boolean" if q.get("type") in ("boolean", "checkbox") else q.get("type"))),
+                        "required": bool(q.get("required", False)),
+                        "properties": {
+                            "choices": q.get("choices", []),
+                            "multiselect": q.get("type") in ("multiple_choice", "multi_select")
+                        }
+                    }
+                    for q in sec.get("questions", [])
+                ]
+            }
+            for sec in form_snapshot.get("sections", [])
+        ]
+    }
+    
+    validator = FormSubmissionValidator(mapped_form, is_draft=False)
+    is_valid, _, val_errors = validator.validate_and_compute(answers)
+    
+    for qid, err in val_errors.items():
+        if err == "Value must be a boolean (true/false).":
+            errors[qid] = "Value must be a boolean."
+        elif err.startswith("Value must be a list"):
+            errors[qid] = "Value must be a list of choices."
+        elif err.startswith("Invalid selections:"):
+            meta = index.get(qid)
+            choices = meta.get("choices") if meta else []
+            val = answers.get(qid)
+            if isinstance(val, list):
+                invalid_choices = [v for v in val if v not in choices]
+                errors[qid] = f"Values {invalid_choices} are not in the allowed choices: {choices}."
+            else:
+                errors[qid] = err
+        elif err.startswith("Value '") and "is not a valid choice" in err:
+            meta = index.get(qid)
+            choices = meta.get("choices") if meta else []
+            errors[qid] = f"Value must be one of the allowed choices: {choices}."
+        else:
+            errors[qid] = err
+            
+    return (len(errors) == 0), errors

@@ -15,7 +15,7 @@ from bson.errors import InvalidId
 from flask import Blueprint, current_app, jsonify, request, g
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from auth import generate_api_key, hash_key, require_auth, generate_token
+from analyser_auth import generate_api_key, hash_key, require_auth, generate_token
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/v1/auth")
 
