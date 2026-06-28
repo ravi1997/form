@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=development
+      - SECRET_KEY=super-secret-key-change-in-prod
+      - JWT_SECRET=super-secret-key-change-in-prod
+      - DATABASE_URL=mongodb://mongodb:27017/form_response
+      - RESPONSE_DATABASE_URL=mongodb://mongodb:27017/form_response
+      - MONGO_URI=mongodb://mongodb:27017/form_analyser
+      - MONGO_DB_NAME=form_analyser
+      - REDIS_URL=redis://redis:6379/0
+      - AUTH_ENABLED=True
+    depends_on:
+      - mongodb
+      - redis
+    restart: always
+
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    restart: always
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    restart: always
+
+volumes:
+  mongodb_data:
