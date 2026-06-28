@@ -90,5 +90,76 @@ def healthz():
         }
     }), 200
 
+# Centralized HTTP Exception Handler Setup
+from pymongo.errors import PyMongoError
+from werkzeug.exceptions import HTTPException
+
+class ValidationFailure(Exception):
+    """Exception raised for validation failures."""
+    def __init__(self, message, details=None):
+        super().__init__(message)
+        self.message = message
+        self.details = details
+
+@app.errorhandler(ValidationFailure)
+def handle_validation_failure(e):
+    return jsonify({
+        "status": "error",
+        "error": "ValidationFailure",
+        "message": e.message,
+        "details": e.details
+    }), 400
+
+@app.errorhandler(ValueError)
+def handle_value_error(e):
+    return jsonify({
+        "status": "error",
+        "error": "ValueError",
+        "message": str(e)
+    }), 400
+
+@app.errorhandler(KeyError)
+def handle_key_error(e):
+    key_name = e.args[0] if e.args else "unknown"
+    return jsonify({
+        "status": "error",
+        "error": "KeyError",
+        "message": f"Missing required key/field: {key_name}"
+    }), 400
+
+@app.errorhandler(TypeError)
+def handle_type_error(e):
+    return jsonify({
+        "status": "error",
+        "error": "TypeError",
+        "message": str(e)
+    }), 400
+
+@app.errorhandler(PyMongoError)
+def handle_pymongo_error(e):
+    return jsonify({
+        "status": "error",
+        "error": "DatabaseError",
+        "message": "A database error occurred.",
+        "details": str(e)
+    }), 500
+
+@app.errorhandler(HTTPException)
+def handle_http_exception(e):
+    return jsonify({
+        "status": "error",
+        "error": e.name,
+        "message": e.description
+    }), e.code
+
+@app.errorhandler(Exception)
+def handle_generic_exception(e):
+    app.logger.error(f"Unhandled exception: {e}", exc_info=True)
+    return jsonify({
+        "status": "error",
+        "error": "InternalServerError",
+        "message": "An unexpected error occurred."
+    }), 500
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
