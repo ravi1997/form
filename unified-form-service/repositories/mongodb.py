@@ -8,9 +8,9 @@ from repositories.interface import RepositoryInterface
 
 
 class MongoDBRepository(RepositoryInterface):
-    def __init__(self, database_url: str = "mongodb://localhost:27017/form_response"):
+    def __init__(self, database_url: str = "mongodb://localhost:27017/form_response", client: MongoClient | None = None):
         self.database_url = database_url
-        self.client: MongoClient = MongoClient(database_url)
+        self.client: MongoClient = client if client is not None else MongoClient(database_url)
         # Extract db name from database_url or default to form_response
         db_name = "form_response"
         if "/" in database_url.replace("mongodb://", ""):

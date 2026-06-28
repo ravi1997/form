@@ -20,7 +20,7 @@ import routes.sync as response_sync_routes
 
 # Initialize response repository on the same or distinct Mongo DB
 response_db_url = os.getenv("RESPONSE_DATABASE_URL", "mongodb://localhost:27017/form_response")
-response_repo = bootstrap_repository(response_db_url)
+response_repo = bootstrap_repository(response_db_url, client=app.extensions.get("mongo_client"))
 response_forms_routes.store = response_repo
 response_responses_routes.store = response_repo
 response_sync_routes.store = response_repo
@@ -41,8 +41,8 @@ from blueprints.webhook_routes import webhooks_bp
 from metrics_manager import setup_metrics
 from scheduler import load_all_schedules, start_scheduler
 
-# Connect analyser MongoDB
-analyser_client = MongoClient(analyser_cfg.MONGO_URI)
+# Connect analyser MongoDB using the shared MongoClient instance
+analyser_client = app.extensions.get("mongo_client") or MongoClient(analyser_cfg.MONGO_URI)
 analyser_db = analyser_client[analyser_cfg.MONGO_DB_NAME]
 
 # Populate app extensions for analyser blueprints
