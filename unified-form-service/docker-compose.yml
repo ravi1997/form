@@ -1,38 +1,79 @@
 version: '3.8'
 
-services:
-  app:
-    build: .
-    ports:
-      - "5000:5000"
-    environment:
-      - FLASK_ENV=development
-      - SECRET_KEY=super-secret-key-change-in-prod
-      - JWT_SECRET=super-secret-key-change-in-prod
-      - DATABASE_URL=mongodb://mongodb:27017/form_response
-      - RESPONSE_DATABASE_URL=mongodb://mongodb:27017/form_response
-      - MONGO_URI=mongodb://mongodb:27017/form_analyser
-      - MONGO_DB_NAME=form_analyser
-      - REDIS_URL=redis://redis:6379/0
-      - AUTH_ENABLED=True
-    depends_on:
-      - mongodb
-      - redis
-    restart: always
+# =============================================================================
+#  docker-compose.yml  —  Production stack
+#
+#  ALL configuration is loaded from .env file.
+#  Copy .env.example → .env and fill in your values before running.
+#
+#  Usage:
+#    docker compose up --build
+# =============================================================================
 
-  mongodb:
-    image: mongo:latest
+services:
+
+  # ── Flask Application ────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
-      - "27017:27017"
+      - "${APP_PORT:-5000}:5000"
+    env_file:
+      - .env
+    # Override only Docker-internal service hostnames
+    environment:
+      MONGO_URI: "mongodb://mongodb:27017/"
+      DATABASE_URL: "mongodb://mongodb:27017/form_response"
+      RESPONSE_DATABASE_URL: "mongodb://mongodb:27017/form_response"
+      REDIS_URL: "redis://redis:6379/0"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: always
+    networks:
+      - formnet
+
+  # ── MongoDB ──────────────────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:7
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
     volumes:
       - mongodb_data:/data/db
+      - ./docker/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: always
+    networks:
+      - formnet
 
+  # ── Redis ────────────────────────────────────────────────────────────────────
   redis:
-    image: redis:alpine
+    image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: always
+    networks:
+      - formnet
 
 volumes:
   mongodb_data:
+  redis_data:
+
+networks:
+  formnet:
+    driver: bridge
