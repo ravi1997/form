@@ -14,7 +14,25 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 DB_NAME = os.getenv("DB_NAME", "form_builder_db")
 
 # Setup db client within auth to avoid circular dependencies with app.py
-client = MongoClient(MONGO_URI)
+class SharedClientProxy:
+    def _get_client(self):
+        if current_app:
+            shared_client = current_app.extensions.get("mongo_client")
+            if shared_client:
+                return shared_client
+        global _fallback_client
+        if '_fallback_client' not in globals() or _fallback_client is None:
+            from pymongo import MongoClient
+            _fallback_client = MongoClient(MONGO_URI)
+        return _fallback_client
+
+    def __getattr__(self, name):
+        return getattr(self._get_client(), name)
+
+    def __getitem__(self, item):
+        return self._get_client()[item]
+
+client = SharedClientProxy()
 db = client[DB_NAME]
 
 ROLE_PERMISSIONS = {

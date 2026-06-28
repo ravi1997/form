@@ -43,6 +43,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # DB client (limiting pool sizes to prevent descriptor leaks)
 client = MongoClient(MONGO_URI, maxPoolSize=50, minPoolSize=5, waitQueueTimeoutMS=5000)
+app.extensions["mongo_client"] = client
 db = client[DB_NAME]
 
 from collections import defaultdict

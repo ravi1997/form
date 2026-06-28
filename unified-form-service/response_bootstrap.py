@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import os
 
+from pymongo import MongoClient
 from repositories.mongodb import MongoDBRepository
 from repositories.interface import RepositoryInterface
 
 
-def bootstrap_repository(database_url: str) -> RepositoryInterface:
+def bootstrap_repository(database_url: str, client: MongoClient | None = None) -> RepositoryInterface:
     if not (database_url.startswith("mongodb://") or database_url.startswith("mongodb+srv://")):
         raise ValueError("DATABASE_URL must start with mongodb:// or mongodb+srv://")
-    repo = MongoDBRepository(database_url)
+    repo = MongoDBRepository(database_url, client=client)
     repo.initialize()
     return repo
 
