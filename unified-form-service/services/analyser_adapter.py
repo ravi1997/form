@@ -31,6 +31,25 @@ class AnalyserSyncService:
         payload = to_analyser_payload(form_snapshot, response)
         self.last_payload = payload
         
+        # Try direct database insertion if running inside unified Flask context
+        try:
+            from flask import current_app
+            if current_app and current_app.extensions and "responses_col" in current_app.extensions:
+                from datetime import datetime, timezone
+                db_payload = dict(payload)
+                db_payload["inserted_at"] = datetime.now(timezone.utc)
+                
+                col = current_app.extensions["responses_col"]
+                col.insert_one(db_payload)
+                logger.info("Successfully synced response directly to database analyser collection")
+                return {
+                    "synced": True, 
+                    "payload": payload, 
+                    "response": {"status": "success", "message": "Direct DB Insert"}
+                }
+        except Exception as e:
+            logger.warning(f"Could not perform direct DB insert sync, falling back to HTTP: {str(e)}")
+
         # Real HTTP call to form-analyser
         url = f"{self.analyser_url.rstrip('/')}/api/v1/responses"
         headers = {
