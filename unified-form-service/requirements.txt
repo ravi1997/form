@@ -8,3 +8,15 @@ requests>=2.28.0
 numpy>=1.22.0
 PyJWT>=2.4.0
 mongomock>=4.1.0
+
+# API Documentation
+flasgger>=0.9.7
+
+# Task Queue (Celery)
+celery>=5.3.0
+celery[redis]>=5.3.0
+
+# Distributed Tracing (OpenTelemetry)
+opentelemetry-sdk>=1.20.0
+opentelemetry-instrumentation-flask>=0.41b0
+opentelemetry-exporter-otlp-proto-grpc>=1.20.0
