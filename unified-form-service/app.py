@@ -67,6 +67,10 @@ app.register_blueprint(analyser_forms_bp)
 app.register_blueprint(schema_bp)
 app.register_blueprint(webhooks_bp)
 
+# Setup Swagger API Docs
+from swagger import init_swagger
+init_swagger(app)
+
 # Setup metrics logging
 setup_metrics(app)
 
