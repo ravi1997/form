@@ -1,21 +1,17 @@
 """
 Comprehensive tests for User model including edge cases and validation.
 """
+
 import pytest
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from mongoengine.errors import ValidationError, NotUniqueError
 from app.models.user import User, Organization, ROLE_CHOICES, USER_STATUS_CHOICES
-from app.extensions import db
 
 
 @pytest.fixture
 def organization(app_context):
     """Create a test organization."""
-    org = Organization(
-        uuid="01-01-24-0001",
-        name="Test Organization",
-        status="active"
-    )
+    org = Organization(uuid="01-01-24-0001", name="Test Organization", status="active")
     org.save()
     return org
 
@@ -24,9 +20,7 @@ def organization(app_context):
 def another_organization(app_context):
     """Create another test organization."""
     org = Organization(
-        uuid="01-01-24-0002",
-        name="Another Organization",
-        status="active"
+        uuid="01-01-24-0002", name="Another Organization", status="active"
     )
     org.save()
     return org
@@ -42,10 +36,10 @@ class TestUserBasicCreation:
             name="John Doe",
             email="john@example.com",
             password_hash="hashed_password_123",
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
         assert retrieved.name == "John Doe"
         assert retrieved.email == "john@example.com"
@@ -65,10 +59,10 @@ class TestUserBasicCreation:
             auth_provider="local",
             is_email_verified=True,
             is_phone_verified=True,
-            is_organisation_admin=True
+            is_organisation_admin=True,
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
         assert retrieved.designation == "Software Engineer"
         assert retrieved.phone == "+1-555-0123"
@@ -83,10 +77,10 @@ class TestUserBasicCreation:
             name="Test User",
             email="John@EXAMPLE.COM",
             password_hash="hashed_password",
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
         assert retrieved.email == "john@example.com"
 
@@ -97,7 +91,7 @@ class TestUserBasicCreation:
             name="  Test User  ",
             email="test@example.com",
             password_hash="hashed_password",
-            auth_provider="local"
+            auth_provider="local",
         )
         # Note: name normalization depends on implementation
         user.save()
@@ -114,7 +108,7 @@ class TestUserValidation:
             name="",
             email="test@example.com",
             password_hash="hashed_password",
-            auth_provider="local"
+            auth_provider="local",
         )
         with pytest.raises(ValidationError):
             user.clean()
@@ -126,7 +120,7 @@ class TestUserValidation:
             name="   ",
             email="test@example.com",
             password_hash="hashed_password",
-            auth_provider="local"
+            auth_provider="local",
         )
         with pytest.raises(ValidationError):
             user.clean()
@@ -137,7 +131,7 @@ class TestUserValidation:
             uuid="01-01-24-0001-01-01-24-0007",
             name="Test User",
             email="test@example.com",
-            auth_provider="local"
+            auth_provider="local",
             # password_hash is missing
         )
         with pytest.raises(ValidationError):
@@ -149,7 +143,7 @@ class TestUserValidation:
             uuid="01-01-24-0001-01-01-24-0008",
             name="Test User",
             email="test@example.com",
-            auth_provider="sso"
+            auth_provider="sso",
         )
         user.clean()  # Should not raise
 
@@ -160,16 +154,16 @@ class TestUserValidation:
             name="User 1",
             email="user1@example.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         user1.save()
-        
+
         user2 = User(
             uuid="01-01-24-0001-01-01-24-0009",  # Same UUID
             name="User 2",
             email="user2@example.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         with pytest.raises(NotUniqueError):
             user2.save()
@@ -181,16 +175,16 @@ class TestUserValidation:
             name="User 1",
             email="duplicate@example.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         user1.save()
-        
+
         user2 = User(
             uuid="01-01-24-0001-01-01-24-0011",
             name="User 2",
             email="duplicate@example.com",  # Same email
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         with pytest.raises(NotUniqueError):
             user2.save()
@@ -208,15 +202,17 @@ class TestUserRolesAndOrganizations:
             organizations=[organization],
             roles={str(organization.id): ["admin"]},
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
         assert len(retrieved.organizations) == 1
         assert organization in retrieved.organizations
 
-    def test_user_with_multiple_organizations(self, app_context, organization, another_organization):
+    def test_user_with_multiple_organizations(
+        self, app_context, organization, another_organization
+    ):
         """Test user in multiple organizations with different roles."""
         user = User(
             uuid="01-01-24-0001-01-01-24-0013",
@@ -225,18 +221,20 @@ class TestUserRolesAndOrganizations:
             organizations=[organization, another_organization],
             roles={
                 str(organization.id): ["admin"],
-                str(another_organization.id): ["editor", "viewer"]
+                str(another_organization.id): ["editor", "viewer"],
             },
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
         assert len(retrieved.organizations) == 2
         assert len(retrieved.roles) == 2
 
-    def test_invalid_organization_key_in_roles_raises_error(self, app_context, organization):
+    def test_invalid_organization_key_in_roles_raises_error(
+        self, app_context, organization
+    ):
         """Test that roles with unknown organization keys are rejected."""
         user = User(
             uuid="01-01-24-0001-01-01-24-0014",
@@ -245,15 +243,17 @@ class TestUserRolesAndOrganizations:
             organizations=[organization],
             roles={
                 str(organization.id): ["admin"],
-                "invalid-org-id": ["editor"]  # Not in organizations
+                "invalid-org-id": ["editor"],  # Not in organizations
             },
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         with pytest.raises(ValidationError):
             user.clean()
 
-    def test_organisation_admin_without_admin_role_raises_error(self, app_context, organization):
+    def test_organisation_admin_without_admin_role_raises_error(
+        self, app_context, organization
+    ):
         """Test that is_organisation_admin requires admin role."""
         user = User(
             uuid="01-01-24-0001-01-01-24-0015",
@@ -263,12 +263,14 @@ class TestUserRolesAndOrganizations:
             roles={str(organization.id): ["editor", "viewer"]},  # No admin role
             is_organisation_admin=True,
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         with pytest.raises(ValidationError):
             user.clean()
 
-    def test_organisation_admin_with_admin_role_is_valid(self, app_context, organization):
+    def test_organisation_admin_with_admin_role_is_valid(
+        self, app_context, organization
+    ):
         """Test that is_organisation_admin is valid with admin role."""
         user = User(
             uuid="01-01-24-0001-01-01-24-0016",
@@ -278,7 +280,7 @@ class TestUserRolesAndOrganizations:
             roles={str(organization.id): ["admin"]},
             is_organisation_admin=True,
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         user.clean()  # Should not raise
 
@@ -293,7 +295,7 @@ class TestUserStatus:
             name="Test User",
             email="test@example.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
         assert user.status == "active"
@@ -305,10 +307,10 @@ class TestUserStatus:
             name="Test User",
             email="test@example.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         user.status = "deleted"
         user.clean()
         assert user.deleted_at is not None
@@ -322,7 +324,7 @@ class TestUserStatus:
                 email=f"{status}@example.com",
                 password_hash="hashed",
                 auth_provider="local",
-                status=status
+                status=status,
             )
             user.save()
             retrieved = User.objects.get(status=status)
@@ -339,7 +341,7 @@ class TestUserMFA:
             name="Test User",
             email="test@example.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
         assert user.is_mfa_enabled is False
@@ -355,10 +357,10 @@ class TestUserMFA:
             auth_provider="local",
             otp_secret="secret123",
             otp_secret_created_at=now,
-            is_mfa_enabled=True
+            is_mfa_enabled=True,
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
         assert retrieved.otp_secret == "secret123"
         assert retrieved.is_mfa_enabled is True
@@ -376,12 +378,12 @@ class TestUserLoginTracking:
             email="test@example.com",
             password_hash="hashed",
             auth_provider="local",
-            last_login_at=login_time
+            last_login_at=login_time,
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
-        assert retrieved.last_login_at == login_time
+        assert abs((retrieved.last_login_at - login_time).total_seconds()) < 0.001
 
     def test_last_logout_at_tracking(self, app_context):
         """Test tracking last logout time."""
@@ -392,12 +394,12 @@ class TestUserLoginTracking:
             email="test@example.com",
             password_hash="hashed",
             auth_provider="local",
-            last_logout_at=logout_time
+            last_logout_at=logout_time,
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
-        assert retrieved.last_logout_at == logout_time
+        assert abs((retrieved.last_logout_at - logout_time).total_seconds()) < 0.001
 
     def test_password_change_tracking(self, app_context):
         """Test tracking password change time."""
@@ -408,12 +410,19 @@ class TestUserLoginTracking:
             email="test@example.com",
             password_hash="hashed",
             auth_provider="local",
-            last_password_change_at=password_change_time
+            last_password_change_at=password_change_time,
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
-        assert retrieved.last_password_change_at == password_change_time
+        assert (
+            abs(
+                (
+                    retrieved.last_password_change_at - password_change_time
+                ).total_seconds()
+            )
+            < 0.001
+        )
 
 
 class TestUserPasswordReset:
@@ -423,7 +432,7 @@ class TestUserPasswordReset:
         """Test storing password reset token."""
         reset_token = "reset_token_xyz"
         expiry = datetime.utcnow() + timedelta(hours=1)
-        
+
         user = User(
             uuid="01-01-24-0001-01-01-24-0024",
             name="Test User",
@@ -431,13 +440,16 @@ class TestUserPasswordReset:
             password_hash="hashed",
             auth_provider="local",
             password_reset_token=reset_token,
-            password_reset_token_expiry=expiry
+            password_reset_token_expiry=expiry,
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
         assert retrieved.password_reset_token == reset_token
-        assert retrieved.password_reset_token_expiry == expiry
+        assert (
+            abs((retrieved.password_reset_token_expiry - expiry).total_seconds())
+            < 0.001
+        )
 
     def test_password_reset_token_expiry_tracking(self, app_context):
         """Test that password reset token creation time is tracked."""
@@ -448,12 +460,19 @@ class TestUserPasswordReset:
             email="test@example.com",
             password_hash="hashed",
             auth_provider="local",
-            password_reset_token_created_at=creation_time
+            password_reset_token_created_at=creation_time,
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
-        assert retrieved.password_reset_token_created_at == creation_time
+        assert (
+            abs(
+                (
+                    retrieved.password_reset_token_created_at - creation_time
+                ).total_seconds()
+            )
+            < 0.001
+        )
 
 
 class TestUserEmailVerification:
@@ -463,7 +482,7 @@ class TestUserEmailVerification:
         """Test email verification timestamp and verifier."""
         verified_at = datetime.utcnow()
         verified_by = "admin@example.com"
-        
+
         user = User(
             uuid="01-01-24-0001-01-01-24-0026",
             name="Test User",
@@ -472,13 +491,13 @@ class TestUserEmailVerification:
             auth_provider="local",
             is_email_verified=True,
             verified_at=verified_at,
-            verified_by=verified_by
+            verified_by=verified_by,
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
         assert retrieved.is_email_verified is True
-        assert retrieved.verified_at == verified_at
+        assert abs((retrieved.verified_at - verified_at).total_seconds()) < 0.001
         assert retrieved.verified_by == verified_by
 
 
@@ -492,10 +511,10 @@ class TestUserTimestamps:
             name="Test User",
             email="test@example.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         assert user.created_at is not None
         assert isinstance(user.created_at, datetime)
 
@@ -506,17 +525,18 @@ class TestUserTimestamps:
             name="Test User",
             email="test@example.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
         created_updated_at = user.updated_at
-        
+
         import time
+
         time.sleep(0.1)
-        
+
         user.name = "Updated Name"
         user.save()
-        
+
         assert user.updated_at >= created_updated_at
 
 
@@ -530,10 +550,10 @@ class TestUserQueries:
             name="Test User",
             email="test@example.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         retrieved = User.objects(uuid="01-01-24-0001-01-01-24-0029").first()
         assert retrieved is not None
         assert retrieved.name == "Test User"
@@ -545,10 +565,10 @@ class TestUserQueries:
             name="Test User",
             email="unique@example.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         retrieved = User.objects(email="unique@example.com").first()
         assert retrieved is not None
         assert retrieved.name == "Test User"
@@ -561,23 +581,23 @@ class TestUserQueries:
             email="active@example.com",
             password_hash="hashed",
             auth_provider="local",
-            status="active"
+            status="active",
         )
         active_user.save()
-        
+
         inactive_user = User(
             uuid="01-01-24-0001-01-01-24-0032",
             name="Inactive User",
             email="inactive@example.com",
             password_hash="hashed",
             auth_provider="local",
-            status="inactive"
+            status="inactive",
         )
         inactive_user.save()
-        
+
         active_users = User.objects(status="active")
         assert active_users.count() >= 1
-        
+
         inactive_users = User.objects(status="inactive")
         assert inactive_users.count() >= 1
 
@@ -589,10 +609,10 @@ class TestUserQueries:
             email="admin@example.com",
             password_hash="hashed",
             auth_provider="local",
-            is_super_admin=True
+            is_super_admin=True,
         )
         super_admin.save()
-        
+
         admins = User.objects(is_super_admin=True)
         assert admins.count() >= 1
 
@@ -608,10 +628,10 @@ class TestUserEdgeCases:
             name=long_name,
             email="test@example.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
         assert retrieved.name == long_name
 
@@ -622,10 +642,10 @@ class TestUserEdgeCases:
             name="Test User",
             email="test+tag@example.co.uk",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
         assert retrieved.email == "test+tag@example.co.uk"
 
@@ -636,10 +656,10 @@ class TestUserEdgeCases:
             name="François José 中文",
             email="intl@example.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
         assert retrieved.name == "François José 中文"
 
@@ -653,8 +673,8 @@ class TestUserEdgeCases:
                 organizations=[organization],
                 roles={str(organization.id): [role]},
                 password_hash="hashed",
-                auth_provider="local"
+                auth_provider="local",
             )
             user.save()
-            retrieved = User.objects.get(roles__0=[role])
+            retrieved = User.objects.get(uuid=user.uuid)
             assert role in retrieved.roles[str(organization.id)]

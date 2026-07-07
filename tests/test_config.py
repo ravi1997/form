@@ -4,7 +4,6 @@ import importlib.util
 import unittest
 from unittest import mock
 
-
 CONFIG_FILE = pathlib.Path(__file__).resolve().parents[1] / "app" / "config.py"
 SPEC = importlib.util.spec_from_file_location("form_config", CONFIG_FILE)
 CONFIG_MODULE = importlib.util.module_from_spec(SPEC)

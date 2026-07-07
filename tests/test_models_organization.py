@@ -1,11 +1,11 @@
 """
 Comprehensive tests for Organization model.
 """
+
 import pytest
 from datetime import datetime
 from mongoengine.errors import ValidationError, NotUniqueError
 from app.models.user import Organization, User, ORGANIZATION_STATUS_CHOICES
-from app.extensions import db
 
 
 class TestOrganizationBasicCreation:
@@ -13,12 +13,9 @@ class TestOrganizationBasicCreation:
 
     def test_create_organization_with_required_fields(self, app_context):
         """Test creating organization with required fields."""
-        org = Organization(
-            uuid="01-01-24-0001",
-            name="Test Company"
-        )
+        org = Organization(uuid="01-01-24-0001", name="Test Company")
         org.save()
-        
+
         retrieved = Organization.objects.get(uuid=org.uuid)
         assert retrieved.name == "Test Company"
         assert retrieved.status == "active"
@@ -30,26 +27,24 @@ class TestOrganizationBasicCreation:
             name="Admin 1",
             email="admin1@company.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         admin1.save()
-        
+
         admin2 = User(
             uuid="01-01-24-0001-01-01-24-admin2",
             name="Admin 2",
             email="admin2@company.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         admin2.save()
-        
+
         org = Organization(
-            uuid="01-01-24-0002",
-            name="Test Company",
-            admins=[admin1, admin2]
+            uuid="01-01-24-0002", name="Test Company", admins=[admin1, admin2]
         )
         org.save()
-        
+
         retrieved = Organization.objects.get(uuid=org.uuid)
         assert len(retrieved.admins) == 2
         assert admin1 in retrieved.admins
@@ -60,28 +55,19 @@ class TestOrganizationValidation:
 
     def test_organization_name_is_trimmed(self, app_context):
         """Test that organization name is trimmed."""
-        org = Organization(
-            uuid="01-01-24-0003",
-            name="  Test Company  "
-        )
+        org = Organization(uuid="01-01-24-0003", name="  Test Company  ")
         org.clean()
         assert org.name == "Test Company"
 
     def test_empty_organization_name_raises_error(self, app_context):
         """Test that empty organization name is rejected."""
-        org = Organization(
-            uuid="01-01-24-0004",
-            name=""
-        )
+        org = Organization(uuid="01-01-24-0004", name="")
         with pytest.raises(ValidationError):
             org.clean()
 
     def test_whitespace_only_organization_name_raises_error(self, app_context):
         """Test that whitespace-only name is rejected."""
-        org = Organization(
-            uuid="01-01-24-0005",
-            name="   "
-        )
+        org = Organization(uuid="01-01-24-0005", name="   ")
         with pytest.raises(ValidationError):
             org.clean()
 
@@ -89,7 +75,7 @@ class TestOrganizationValidation:
         """Test that organization UUIDs are unique."""
         org1 = Organization(uuid="01-01-24-0006", name="Company 1")
         org1.save()
-        
+
         org2 = Organization(uuid="01-01-24-0006", name="Company 2")
         with pytest.raises(NotUniqueError):
             org2.save()
@@ -98,7 +84,7 @@ class TestOrganizationValidation:
         """Test that organization names are unique."""
         org1 = Organization(uuid="01-01-24-0007", name="Unique Company")
         org1.save()
-        
+
         org2 = Organization(uuid="01-01-24-0008", name="Unique Company")
         with pytest.raises(NotUniqueError):
             org2.save()
@@ -119,7 +105,7 @@ class TestOrganizationStatus:
             org = Organization(
                 uuid=f"01-01-24-{1000 + idx}",
                 name=f"Company with status {status}",
-                status=status
+                status=status,
             )
             org.save()
             retrieved = Organization.objects.get(status=status)
@@ -129,7 +115,7 @@ class TestOrganizationStatus:
         """Test that deleting an organization sets deleted_at."""
         org = Organization(uuid="01-01-24-0010", name="To Delete")
         org.save()
-        
+
         org.status = "deleted"
         org.clean()
         assert org.deleted_at is not None
@@ -141,13 +127,13 @@ class TestOrganizationStatus:
             name="Deleter",
             email="deleter@company.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         deleter.save()
-        
+
         org = Organization(uuid="01-01-24-0011", name="To Delete")
         org.save()
-        
+
         org.status = "deleted"
         org.deleted_by = deleter
         org.clean()
@@ -161,7 +147,7 @@ class TestOrganizationTimestamps:
         """Test that created_at is set."""
         org = Organization(uuid="01-01-24-0012", name="Timestamped Company")
         org.save()
-        
+
         assert org.created_at is not None
         assert isinstance(org.created_at, datetime)
 
@@ -169,7 +155,7 @@ class TestOrganizationTimestamps:
         """Test that updated_at is set on creation."""
         org = Organization(uuid="01-01-24-0013", name="Updated Company")
         org.save()
-        
+
         assert org.updated_at is not None
         assert isinstance(org.updated_at, datetime)
 
@@ -178,13 +164,14 @@ class TestOrganizationTimestamps:
         org = Organization(uuid="01-01-24-0014", name="Original Name")
         org.save()
         first_updated_at = org.updated_at
-        
+
         import time
+
         time.sleep(0.1)
-        
+
         org.name = "Updated Name"
         org.save()
-        
+
         assert org.updated_at >= first_updated_at
 
 
@@ -198,14 +185,14 @@ class TestOrganizationAdminManagement:
             name="New Admin",
             email="newadmin@company.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         admin.save()
-        
+
         org = Organization(uuid="01-01-24-0015", name="Company with Admin")
         org.admins.append(admin)
         org.save()
-        
+
         retrieved = Organization.objects.get(uuid=org.uuid)
         assert admin in retrieved.admins
 
@@ -218,18 +205,16 @@ class TestOrganizationAdminManagement:
                 name=f"Admin {i}",
                 email=f"admin{i}@company.com",
                 password_hash="hashed",
-                auth_provider="local"
+                auth_provider="local",
             )
             admin.save()
             admins.append(admin)
-        
+
         org = Organization(
-            uuid="01-01-24-0016",
-            name="Company with Multiple Admins",
-            admins=admins
+            uuid="01-01-24-0016", name="Company with Multiple Admins", admins=admins
         )
         org.save()
-        
+
         retrieved = Organization.objects.get(uuid=org.uuid)
         assert len(retrieved.admins) == 3
 
@@ -240,29 +225,27 @@ class TestOrganizationAdminManagement:
             name="Admin 4",
             email="admin4@company.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         admin1.save()
-        
+
         admin2 = User(
             uuid="01-01-24-0001-01-01-24-admin5",
             name="Admin 5",
             email="admin5@company.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         admin2.save()
-        
+
         org = Organization(
-            uuid="01-01-24-0017",
-            name="Company",
-            admins=[admin1, admin2]
+            uuid="01-01-24-0017", name="Company", admins=[admin1, admin2]
         )
         org.save()
-        
+
         org.admins.remove(admin1)
         org.save()
-        
+
         retrieved = Organization.objects.get(uuid=org.uuid)
         assert len(retrieved.admins) == 1
         assert admin1 not in retrieved.admins
@@ -275,7 +258,7 @@ class TestOrganizationQueries:
         """Test querying organization by UUID."""
         org = Organization(uuid="01-01-24-0018", name="Query Test Company")
         org.save()
-        
+
         retrieved = Organization.objects.get(uuid="01-01-24-0018")
         assert retrieved.name == "Query Test Company"
 
@@ -283,7 +266,7 @@ class TestOrganizationQueries:
         """Test querying organization by name."""
         org = Organization(uuid="01-01-24-0019", name="Unique Name Company")
         org.save()
-        
+
         retrieved = Organization.objects.get(name="Unique Name Company")
         assert retrieved.uuid == "01-01-24-0019"
 
@@ -291,10 +274,12 @@ class TestOrganizationQueries:
         """Test querying organizations by status."""
         org_active = Organization(uuid="01-01-24-0020", name="Active", status="active")
         org_active.save()
-        
-        org_inactive = Organization(uuid="01-01-24-0021", name="Inactive", status="inactive")
+
+        org_inactive = Organization(
+            uuid="01-01-24-0021", name="Inactive", status="inactive"
+        )
         org_inactive.save()
-        
+
         active_count = Organization.objects(status="active").count()
         assert active_count >= 1
 
@@ -305,13 +290,13 @@ class TestOrganizationQueries:
             name="Admin 6",
             email="admin6@company.com",
             password_hash="hashed",
-            auth_provider="local"
+            auth_provider="local",
         )
         admin.save()
-        
+
         org = Organization(uuid="01-01-24-0022", name="Org with Admin", admins=[admin])
         org.save()
-        
+
         orgs = Organization.objects(admins=admin)
         assert orgs.count() >= 1
 
@@ -324,29 +309,25 @@ class TestOrganizationEdgeCases:
         long_name = "A" * 500
         org = Organization(uuid="01-01-24-0023", name=long_name)
         org.save()
-        
+
         retrieved = Organization.objects.get(uuid=org.uuid)
         assert retrieved.name == long_name
 
     def test_organization_with_special_characters(self, app_context):
         """Test organization with special characters in name."""
-        org = Organization(
-            uuid="01-01-24-0024",
-            name="Company & Co., Ltd. (USA) #1"
-        )
+        org = Organization(uuid="01-01-24-0024", name="Company & Co., Ltd. (USA) #1")
         org.save()
-        
+
         retrieved = Organization.objects.get(uuid=org.uuid)
         assert retrieved.name == "Company & Co., Ltd. (USA) #1"
 
     def test_organization_with_international_characters(self, app_context):
         """Test organization with international characters."""
         org = Organization(
-            uuid="01-01-24-0025",
-            name="Société Générale 中国公司 Компания"
+            uuid="01-01-24-0025", name="Société Générale 中国公司 Компания"
         )
         org.save()
-        
+
         retrieved = Organization.objects.get(uuid=org.uuid)
         assert "中国公司" in retrieved.name
 
@@ -354,7 +335,7 @@ class TestOrganizationEdgeCases:
         """Test creating organization with no admins."""
         org = Organization(uuid="01-01-24-0026", name="No Admin Company")
         org.save()
-        
+
         retrieved = Organization.objects.get(uuid=org.uuid)
         assert len(retrieved.admins) == 0
 
@@ -362,10 +343,10 @@ class TestOrganizationEdgeCases:
         """Test that organization names are case sensitive."""
         org1 = Organization(uuid="01-01-24-0027", name="TestCompany")
         org1.save()
-        
+
         org2 = Organization(uuid="01-01-24-0028", name="testcompany")
         org2.save()
-        
+
         # Both should exist
         assert Organization.objects(name="TestCompany").count() == 1
         assert Organization.objects(name="testcompany").count() == 1

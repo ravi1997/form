@@ -1,11 +1,11 @@
 """
 Comprehensive security and validation tests.
 """
+
 import pytest
 import json
 from werkzeug.security import generate_password_hash, check_password_hash
 from app.models.user import User
-from app.extensions import db
 
 
 class TestPasswordSecurity:
@@ -15,7 +15,7 @@ class TestPasswordSecurity:
         """Test that passwords are hashed, not stored as plaintext."""
         password = "test_password_123"
         password_hash = generate_password_hash(password)
-        
+
         assert password_hash != password
         assert password not in password_hash
 
@@ -23,7 +23,7 @@ class TestPasswordSecurity:
         """Test that password hashes can be verified."""
         password = "test_password_123"
         password_hash = generate_password_hash(password)
-        
+
         assert check_password_hash(password_hash, password)
         assert not check_password_hash(password_hash, "wrong_password")
 
@@ -31,7 +31,7 @@ class TestPasswordSecurity:
         """Test that different passwords produce different hashes."""
         hash1 = generate_password_hash("password1")
         hash2 = generate_password_hash("password2")
-        
+
         assert hash1 != hash2
 
     def test_same_password_produces_different_hashes(self, app_context):
@@ -39,7 +39,7 @@ class TestPasswordSecurity:
         password = "test_password_123"
         hash1 = generate_password_hash(password)
         hash2 = generate_password_hash(password)
-        
+
         # Hashes should be different due to salt
         assert hash1 != hash2
         # But both should verify the same password
@@ -53,13 +53,13 @@ class TestPasswordSecurity:
             name="Test User",
             email="passtest@example.com",
             password_hash=generate_password_hash("secret_password"),
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         # Query user
         retrieved = User.objects.get(uuid=user.uuid)
-        
+
         # Password should be hashed
         assert retrieved.password_hash != "secret_password"
         assert "secret_password" not in str(retrieved)
@@ -71,14 +71,14 @@ class TestPasswordSecurity:
             name="Test User",
             email="json@example.com",
             password_hash=generate_password_hash("secret_password"),
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         # Convert to dict
         user_dict = user.to_mongo().to_dict()
         user_json = json.dumps(user_dict, default=str)
-        
+
         assert "secret_password" not in user_json
 
 
@@ -94,14 +94,14 @@ class TestEmailValidation:
             "user_name@example-domain.com",
             "user123@test.org",
         ]
-        
+
         for idx, email in enumerate(valid_emails):
             user = User(
                 uuid=f"01-01-24-0001-01-01-24-email{idx}",
                 name="Test User",
                 email=email,
                 password_hash=generate_password_hash("password"),
-                auth_provider="local"
+                auth_provider="local",
             )
             user.save()
             retrieved = User.objects.get(email=email.lower())
@@ -114,10 +114,10 @@ class TestEmailValidation:
             name="Test User",
             email="TeSt@ExAmPlE.COM",
             password_hash=generate_password_hash("password"),
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
         assert retrieved.email == "test@example.com"
 
@@ -128,11 +128,11 @@ class TestEmailValidation:
             name="Test User",
             email="  test@example.com  ",
             password_hash=generate_password_hash("password"),
-            auth_provider="local"
+            auth_provider="local",
         )
         user.clean()
         user.save()
-        
+
         # Email should be trimmed
         assert user.email.startswith("test@example.com")
 
@@ -143,30 +143,30 @@ class TestInputValidation:
     def test_name_cannot_be_empty(self, app_context):
         """Test that user name cannot be empty."""
         from mongoengine.errors import ValidationError
-        
+
         user = User(
             uuid="01-01-24-0001-01-01-24-emptyname",
             name="",
             email="test@example.com",
             password_hash=generate_password_hash("password"),
-            auth_provider="local"
+            auth_provider="local",
         )
-        
+
         with pytest.raises(ValidationError):
             user.clean()
 
     def test_name_cannot_be_whitespace(self, app_context):
         """Test that user name cannot be only whitespace."""
         from mongoengine.errors import ValidationError
-        
+
         user = User(
             uuid="01-01-24-0001-01-01-24-wsname",
             name="   \t  \n  ",
             email="test@example.com",
             password_hash=generate_password_hash("password"),
-            auth_provider="local"
+            auth_provider="local",
         )
-        
+
         with pytest.raises(ValidationError):
             user.clean()
 
@@ -177,10 +177,10 @@ class TestInputValidation:
             name="François José 李明 Müller",
             email="unicode@example.com",
             password_hash=generate_password_hash("password"),
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
         assert "François" in retrieved.name
         assert "李明" in retrieved.name
@@ -192,15 +192,15 @@ class TestAuthProviderValidation:
     def test_local_auth_requires_password(self, app_context):
         """Test that local auth users must have password."""
         from mongoengine.errors import ValidationError
-        
+
         user = User(
             uuid="01-01-24-0001-01-01-24-localpw",
             name="Test User",
             email="local@example.com",
-            auth_provider="local"
+            auth_provider="local",
             # No password_hash
         )
-        
+
         with pytest.raises(ValidationError):
             user.clean()
 
@@ -210,10 +210,10 @@ class TestAuthProviderValidation:
             uuid="01-01-24-0001-01-01-24-ssoauth",
             name="Test User",
             email="sso@example.com",
-            auth_provider="sso"
+            auth_provider="sso",
             # No password_hash
         )
-        
+
         user.clean()  # Should not raise
         user.save()
 
@@ -224,9 +224,9 @@ class TestAuthProviderValidation:
             name="Test User",
             email="bad@example.com",
             password_hash=generate_password_hash("password"),
-            auth_provider="invalid_provider"  # Invalid
+            auth_provider="invalid_provider",  # Invalid
         )
-        
+
         # This depends on MongoEngine validation
         try:
             user.save()
@@ -242,7 +242,7 @@ class TestStatusFieldValidation:
     def test_user_status_choices(self, app_context):
         """Test all valid user status values."""
         from app.models.user import USER_STATUS_CHOICES
-        
+
         for idx, status in enumerate(USER_STATUS_CHOICES):
             user = User(
                 uuid=f"01-01-24-0001-01-01-24-status{idx}",
@@ -250,7 +250,7 @@ class TestStatusFieldValidation:
                 email=f"status{idx}@example.com",
                 password_hash=generate_password_hash("password"),
                 auth_provider="local",
-                status=status
+                status=status,
             )
             user.save()
             retrieved = User.objects.get(status=status)
@@ -263,13 +263,13 @@ class TestStatusFieldValidation:
             name="To Delete",
             email="delete@example.com",
             password_hash=generate_password_hash("password"),
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         user.status = "deleted"
         user.clean()
-        
+
         assert user.deleted_at is not None
 
     def test_non_deleted_user_no_deleted_at(self, app_context):
@@ -280,10 +280,10 @@ class TestStatusFieldValidation:
             email="active@example.com",
             password_hash=generate_password_hash("password"),
             auth_provider="local",
-            status="active"
+            status="active",
         )
         user.save()
-        
+
         assert user.deleted_at is None
 
 
@@ -293,24 +293,24 @@ class TestUUIDValidation:
     def test_uuid_uniqueness_enforced(self, app_context):
         """Test that UUIDs must be unique."""
         from mongoengine.errors import NotUniqueError
-        
+
         user1 = User(
             uuid="01-01-24-0001-01-01-24-same",
             name="User 1",
             email="user1@example.com",
             password_hash=generate_password_hash("password"),
-            auth_provider="local"
+            auth_provider="local",
         )
         user1.save()
-        
+
         user2 = User(
             uuid="01-01-24-0001-01-01-24-same",  # Same UUID
             name="User 2",
             email="user2@example.com",
             password_hash=generate_password_hash("password"),
-            auth_provider="local"
+            auth_provider="local",
         )
-        
+
         with pytest.raises(NotUniqueError):
             user2.save()
 
@@ -321,9 +321,9 @@ class TestUUIDValidation:
             name="No UUID",
             email="nouuid@example.com",
             password_hash=generate_password_hash("password"),
-            auth_provider="local"
+            auth_provider="local",
         )
-        
+
         with pytest.raises(Exception):  # ValidationError or similar
             user.save()
 
@@ -335,13 +335,10 @@ class TestRoleValidation:
         """Test all valid role values."""
         from app.models.user import ROLE_CHOICES
         from app.models.user import Organization
-        
-        org = Organization(
-            uuid="01-01-24-roletest-org",
-            name="Role Test Org"
-        )
+
+        org = Organization(uuid="01-01-24-roletest-org", name="Role Test Org")
         org.save()
-        
+
         for idx, role in enumerate(ROLE_CHOICES):
             user = User(
                 uuid=f"01-01-24-0001-01-01-24-role{idx}",
@@ -350,20 +347,17 @@ class TestRoleValidation:
                 organizations=[org],
                 roles={str(org.id): [role]},
                 password_hash=generate_password_hash("password"),
-                auth_provider="local"
+                auth_provider="local",
             )
             user.save()
 
     def test_user_with_multiple_roles(self, app_context):
         """Test user with multiple roles in single org."""
         from app.models.user import Organization
-        
-        org = Organization(
-            uuid="01-01-24-multirole-org",
-            name="Multi Role Org"
-        )
+
+        org = Organization(uuid="01-01-24-multirole-org", name="Multi Role Org")
         org.save()
-        
+
         user = User(
             uuid="01-01-24-0001-01-01-24-multirole",
             name="Multi Role User",
@@ -371,10 +365,10 @@ class TestRoleValidation:
             organizations=[org],
             roles={str(org.id): ["admin", "editor", "reviewer"]},
             password_hash=generate_password_hash("password"),
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
         assert len(retrieved.roles[str(org.id)]) == 3
 
@@ -385,33 +379,32 @@ class TestTimestampValidation:
     def test_timestamps_are_datetime_objects(self, app_context):
         """Test that timestamp fields are datetime objects."""
         from datetime import datetime
-        
+
         user = User(
             uuid="01-01-24-0001-01-01-24-timestamp",
             name="Timestamp User",
             email="timestamp@example.com",
             password_hash=generate_password_hash("password"),
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
         assert isinstance(retrieved.created_at, datetime)
         assert isinstance(retrieved.updated_at, datetime)
 
     def test_timestamps_are_utc(self, app_context):
         """Test that timestamps are in UTC."""
-        from datetime import datetime, timezone
-        
+
         user = User(
             uuid="01-01-24-0001-01-01-24-timeutc",
             name="UTC Time User",
             email="timeutc@example.com",
             password_hash=generate_password_hash("password"),
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         retrieved = User.objects.get(uuid=user.uuid)
         # Timestamps should not have timezone info (stored as UTC)
         assert retrieved.created_at is not None
@@ -423,22 +416,22 @@ class TestConcurrentUpdates:
     def test_updated_at_changes_on_update(self, app_context):
         """Test that updated_at timestamp changes on update."""
         import time
-        
+
         user = User(
             uuid="01-01-24-0001-01-01-24-concurrent",
             name="Original Name",
             email="concurrent@example.com",
             password_hash=generate_password_hash("password"),
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
         first_updated_at = user.updated_at
-        
+
         time.sleep(0.1)
-        
+
         user.name = "Updated Name"
         user.save()
-        
+
         assert user.updated_at > first_updated_at
 
     def test_save_idempotency(self, app_context):
@@ -448,14 +441,14 @@ class TestConcurrentUpdates:
             name="Idempotent User",
             email="idempotent@example.com",
             password_hash=generate_password_hash("password"),
-            auth_provider="local"
+            auth_provider="local",
         )
         user.save()
-        
+
         # Save multiple times
         for _ in range(5):
             user.save()
-        
+
         # User should still be retrievable with same data
         retrieved = User.objects.get(uuid=user.uuid)
         assert retrieved.name == "Idempotent User"

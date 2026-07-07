@@ -1,10 +1,11 @@
 """
 Comprehensive tests for auth service.
 """
+
 import pytest
 import jwt
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from app.services.auth import (
     AuthError,
     _utcnow,
@@ -39,7 +40,7 @@ class TestAuthUtilityFunctions:
     def test_jwt_secret_missing_raises_error(self, app):
         """Test that missing JWT secret raises AuthError."""
         with app.app_context():
-            with patch.object(app, 'config', {}):
+            with patch.object(app, "config", {}):
                 with pytest.raises(AuthError, match="JWT secret is not configured"):
                     _jwt_secret()
 
@@ -75,9 +76,9 @@ class TestAccessTokenCreation:
         user_uuid = "test-user-uuid"
         email = "test@example.com"
         session_uuid = "test-session-uuid"
-        
+
         token = create_access_token(user_uuid, email, session_uuid)
-        
+
         assert isinstance(token, str)
         assert len(token) > 0
 
@@ -86,10 +87,12 @@ class TestAccessTokenCreation:
         user_uuid = "test-user-uuid"
         email = "test@example.com"
         session_uuid = "test-session-uuid"
-        
+
         token = create_access_token(user_uuid, email, session_uuid)
-        payload = jwt.decode(token, "test-secret-key-do-not-use-in-production", algorithms=["HS256"])
-        
+        payload = jwt.decode(
+            token, "test-secret-key-do-not-use-in-production", algorithms=["HS256"]
+        )
+
         assert payload["sub"] == user_uuid
         assert payload["email"] == email
         assert payload["sid"] == session_uuid
@@ -103,31 +106,36 @@ class TestAccessTokenCreation:
         user_uuid = "test-user-uuid"
         email = "test@example.com"
         session_uuid = "test-session-uuid"
-        
+
         before = _utcnow()
         token = create_access_token(user_uuid, email, session_uuid)
         after = _utcnow()
-        
-        payload = jwt.decode(token, "test-secret-key-do-not-use-in-production", algorithms=["HS256"])
-        
-        exp_time = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
-        expected_min_exp = before + timedelta(seconds=30*60)
-        expected_max_exp = after + timedelta(seconds=30*60)
-        
-        assert expected_min_exp <= exp_time <= expected_max_exp
+
+        payload = jwt.decode(
+            token, "test-secret-key-do-not-use-in-production", algorithms=["HS256"]
+        )
+
+        expected_min_exp = int(before.timestamp()) + (30 * 60)
+        expected_max_exp = int(after.timestamp()) + (30 * 60)
+
+        assert expected_min_exp <= int(payload["exp"]) <= expected_max_exp
 
     def test_access_token_jti_is_unique(self, app_context):
         """Test that each access token has a unique JTI."""
         user_uuid = "test-user-uuid"
         email = "test@example.com"
         session_uuid = "test-session-uuid"
-        
+
         token1 = create_access_token(user_uuid, email, session_uuid)
         token2 = create_access_token(user_uuid, email, session_uuid)
-        
-        payload1 = jwt.decode(token1, "test-secret-key-do-not-use-in-production", algorithms=["HS256"])
-        payload2 = jwt.decode(token2, "test-secret-key-do-not-use-in-production", algorithms=["HS256"])
-        
+
+        payload1 = jwt.decode(
+            token1, "test-secret-key-do-not-use-in-production", algorithms=["HS256"]
+        )
+        payload2 = jwt.decode(
+            token2, "test-secret-key-do-not-use-in-production", algorithms=["HS256"]
+        )
+
         assert payload1["jti"] != payload2["jti"]
 
 
@@ -139,9 +147,9 @@ class TestRefreshTokenCreation:
         user_uuid = "test-user-uuid"
         email = "test@example.com"
         session_uuid = "test-session-uuid"
-        
+
         token = create_refresh_token(user_uuid, email, session_uuid)
-        
+
         assert isinstance(token, str)
         assert len(token) > 0
 
@@ -150,10 +158,12 @@ class TestRefreshTokenCreation:
         user_uuid = "test-user-uuid"
         email = "test@example.com"
         session_uuid = "test-session-uuid"
-        
+
         token = create_refresh_token(user_uuid, email, session_uuid)
-        payload = jwt.decode(token, "test-secret-key-do-not-use-in-production", algorithms=["HS256"])
-        
+        payload = jwt.decode(
+            token, "test-secret-key-do-not-use-in-production", algorithms=["HS256"]
+        )
+
         assert payload["sub"] == user_uuid
         assert payload["email"] == email
         assert payload["sid"] == session_uuid
@@ -165,34 +175,43 @@ class TestRefreshTokenCreation:
         user_uuid = "test-user-uuid"
         email = "test@example.com"
         session_uuid = "test-session-uuid"
-        
+
         before = _utcnow()
         token = create_refresh_token(user_uuid, email, session_uuid)
         after = _utcnow()
-        
-        payload = jwt.decode(token, "test-secret-key-do-not-use-in-production", algorithms=["HS256"])
-        
-        exp_time = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
-        expected_min_exp = before + timedelta(days=7)
-        expected_max_exp = after + timedelta(days=7)
-        
-        assert expected_min_exp <= exp_time <= expected_max_exp
+
+        payload = jwt.decode(
+            token, "test-secret-key-do-not-use-in-production", algorithms=["HS256"]
+        )
+
+        expected_min_exp = int(before.timestamp()) + (7 * 24 * 60 * 60)
+        expected_max_exp = int(after.timestamp()) + (7 * 24 * 60 * 60)
+
+        assert expected_min_exp <= int(payload["exp"]) <= expected_max_exp
 
     def test_refresh_token_longer_ttl_than_access_token(self, app_context):
         """Test that refresh token TTL is longer than access token TTL."""
         user_uuid = "test-user-uuid"
         email = "test@example.com"
         session_uuid = "test-session-uuid"
-        
+
         access_token = create_access_token(user_uuid, email, session_uuid)
         refresh_token = create_refresh_token(user_uuid, email, session_uuid)
-        
-        access_payload = jwt.decode(access_token, "test-secret-key-do-not-use-in-production", algorithms=["HS256"])
-        refresh_payload = jwt.decode(refresh_token, "test-secret-key-do-not-use-in-production", algorithms=["HS256"])
-        
+
+        access_payload = jwt.decode(
+            access_token,
+            "test-secret-key-do-not-use-in-production",
+            algorithms=["HS256"],
+        )
+        refresh_payload = jwt.decode(
+            refresh_token,
+            "test-secret-key-do-not-use-in-production",
+            algorithms=["HS256"],
+        )
+
         access_exp = datetime.fromtimestamp(access_payload["exp"], tz=timezone.utc)
         refresh_exp = datetime.fromtimestamp(refresh_payload["exp"], tz=timezone.utc)
-        
+
         assert refresh_exp > access_exp
 
 
@@ -204,10 +223,10 @@ class TestTokenDecoding:
         user_uuid = "test-user-uuid"
         email = "test@example.com"
         session_uuid = "test-session-uuid"
-        
+
         token = create_access_token(user_uuid, email, session_uuid)
         payload = decode_token(token, "access")
-        
+
         assert payload["sub"] == user_uuid
         assert payload["email"] == email
         assert payload["sid"] == session_uuid
@@ -218,7 +237,7 @@ class TestTokenDecoding:
         user_uuid = "test-user-uuid"
         email = "test@example.com"
         session_uuid = "test-session-uuid"
-        
+
         # Create an expired token manually
         now = _utcnow()
         payload = {
@@ -230,8 +249,10 @@ class TestTokenDecoding:
             "iat": int(now.timestamp()),
             "exp": int((now - timedelta(hours=1)).timestamp()),  # Expired 1 hour ago
         }
-        expired_token = jwt.encode(payload, "test-secret-key-do-not-use-in-production", algorithm="HS256")
-        
+        expired_token = jwt.encode(
+            payload, "test-secret-key-do-not-use-in-production", algorithm="HS256"
+        )
+
         with pytest.raises(AuthError, match="Token has expired"):
             decode_token(expired_token, "access")
 
@@ -245,9 +266,9 @@ class TestTokenDecoding:
         user_uuid = "test-user-uuid"
         email = "test@example.com"
         session_uuid = "test-session-uuid"
-        
+
         refresh_token = create_refresh_token(user_uuid, email, session_uuid)
-        
+
         with pytest.raises(AuthError, match="Expected access token"):
             decode_token(refresh_token, "access")
 
@@ -256,10 +277,12 @@ class TestTokenDecoding:
         payload = {
             "sub": "user-uuid",
             # Missing email, sid, jti, exp
-            "type": "access"
+            "type": "access",
         }
-        invalid_token = jwt.encode(payload, "test-secret-key-do-not-use-in-production", algorithm="HS256")
-        
+        invalid_token = jwt.encode(
+            payload, "test-secret-key-do-not-use-in-production", algorithm="HS256"
+        )
+
         with pytest.raises(AuthError, match="Token payload is invalid"):
             decode_token(invalid_token, "access")
 
@@ -268,12 +291,15 @@ class TestTokenDecoding:
         user_uuid = "test-user-uuid"
         email = "test@example.com"
         session_uuid = "test-session-uuid"
-        
+
         token = create_access_token(user_uuid, email, session_uuid)
-        
+
         # Try to decode with wrong secret
         with pytest.raises(AuthError, match="Invalid token"):
-            with patch('app.services.auth._jwt_secret', return_value="wrong-secret"):
+            with patch(
+                "app.services.auth._jwt_secret",
+                return_value="wrong-secret-key-for-test-0123456789",
+            ):
                 decode_token(token, "access")
 
 
@@ -284,9 +310,9 @@ class TestUserSessionCreation:
         """Test creating a user session."""
         user_uuid = "test-user-uuid"
         email = "test@example.com"
-        
+
         session_data = create_user_session(user_uuid=user_uuid, email=email)
-        
+
         assert "session_uuid" in session_data
         assert "access_token" in session_data
         assert "refresh_token" in session_data
@@ -295,14 +321,13 @@ class TestUserSessionCreation:
         """Test that created session is stored in database."""
         user_uuid = "test-user-uuid"
         email = "test@example.com"
-        
+
         session_data = create_user_session(user_uuid=user_uuid, email=email)
-        
+
         session = UserSession.objects(
-            session_uuid=session_data["session_uuid"],
-            user_uuid=user_uuid
+            session_uuid=session_data["session_uuid"], user_uuid=user_uuid
         ).first()
-        
+
         assert session is not None
         assert session.email == email
 
@@ -313,17 +338,17 @@ class TestUserSessionCreation:
         user_agent = "Mozilla/5.0..."
         ip_address = "192.168.1.1"
         device_name = "Chrome on Windows"
-        
+
         session_data = create_user_session(
             user_uuid=user_uuid,
             email=email,
             user_agent=user_agent,
             ip_address=ip_address,
-            device_name=device_name
+            device_name=device_name,
         )
-        
+
         session = UserSession.objects(session_uuid=session_data["session_uuid"]).first()
-        
+
         assert session.user_agent == user_agent
         assert session.ip_address == ip_address
         assert session.device_name == device_name
@@ -332,12 +357,12 @@ class TestUserSessionCreation:
         """Test that session tokens can be decoded."""
         user_uuid = "test-user-uuid"
         email = "test@example.com"
-        
+
         session_data = create_user_session(user_uuid=user_uuid, email=email)
-        
+
         access_payload = decode_token(session_data["access_token"], "access")
         refresh_payload = decode_token(session_data["refresh_token"], "refresh")
-        
+
         assert access_payload["sub"] == user_uuid
         assert refresh_payload["sub"] == user_uuid
 
@@ -349,11 +374,11 @@ class TestGetSession:
         """Test retrieving an active session."""
         user_uuid = "test-user-uuid"
         email = "test@example.com"
-        
+
         session_data = create_user_session(user_uuid=user_uuid, email=email)
-        
+
         retrieved_session = get_session(session_data["session_uuid"], user_uuid)
-        
+
         assert retrieved_session is not None
         assert retrieved_session.user_uuid == user_uuid
 
@@ -366,14 +391,14 @@ class TestGetSession:
         """Test that getting inactive session returns None."""
         user_uuid = "test-user-uuid"
         email = "test@example.com"
-        
+
         session_data = create_user_session(user_uuid=user_uuid, email=email)
-        
+
         # Mark session as inactive
         session = UserSession.objects(session_uuid=session_data["session_uuid"]).first()
         session.is_active = False
         session.save()
-        
+
         retrieved = get_session(session_data["session_uuid"], user_uuid)
         assert retrieved is None
 
@@ -385,41 +410,43 @@ class TestListActiveSessions:
         """Test listing user's single active session."""
         user_uuid = "test-user-uuid"
         email = "test@example.com"
-        
+
         create_user_session(user_uuid=user_uuid, email=email)
-        
+
         sessions = list_active_sessions(user_uuid)
-        
+
         assert len(sessions) >= 1
 
     def test_list_multiple_active_sessions(self, app_context):
         """Test listing user's multiple active sessions."""
         user_uuid = "test-user-uuid"
         email = "test@example.com"
-        
+
         create_user_session(user_uuid=user_uuid, email=email)
         create_user_session(user_uuid=user_uuid, email=email)
         create_user_session(user_uuid=user_uuid, email=email)
-        
+
         sessions = list_active_sessions(user_uuid)
-        
+
         assert len(sessions) >= 3
 
     def test_list_sessions_excludes_inactive(self, app_context):
         """Test that listing sessions excludes inactive sessions."""
         user_uuid = "test-user-uuid"
         email = "test@example.com"
-        
+
         session1_data = create_user_session(user_uuid=user_uuid, email=email)
         session2_data = create_user_session(user_uuid=user_uuid, email=email)
-        
+
         # Deactivate first session
-        session1 = UserSession.objects(session_uuid=session1_data["session_uuid"]).first()
+        session1 = UserSession.objects(
+            session_uuid=session1_data["session_uuid"]
+        ).first()
         session1.is_active = False
         session1.save()
-        
+
         sessions = list_active_sessions(user_uuid)
-        
+
         session_uuids = [s.session_uuid for s in sessions]
         assert session1_data["session_uuid"] not in session_uuids
         assert session2_data["session_uuid"] in session_uuids
@@ -437,7 +464,7 @@ class TestAuthEdgeCases:
         """Test token with empty user UUID."""
         email = "test@example.com"
         session_uuid = "test-session"
-        
+
         now = _utcnow()
         payload = {
             "sub": "",
@@ -448,8 +475,10 @@ class TestAuthEdgeCases:
             "iat": int(now.timestamp()),
             "exp": int((now + timedelta(hours=1)).timestamp()),
         }
-        token = jwt.encode(payload, "test-secret-key-do-not-use-in-production", algorithm="HS256")
-        
+        token = jwt.encode(
+            payload, "test-secret-key-do-not-use-in-production", algorithm="HS256"
+        )
+
         with pytest.raises(AuthError, match="Token payload is invalid"):
             decode_token(token, "access")
 
@@ -458,12 +487,12 @@ class TestAuthEdgeCases:
         user_uuid = "test-user-uuid"
         email = "test@example.com"
         session_uuid = "test-session-uuid"
-        
+
         token = create_access_token(user_uuid, email, session_uuid)
-        
+
         payload1 = decode_token(token, "access")
         payload1["sub"] = "modified"
-        
+
         payload2 = decode_token(token, "access")
         assert payload2["sub"] == user_uuid
 
@@ -471,11 +500,11 @@ class TestAuthEdgeCases:
         """Test that refresh token is hashed before storage."""
         user_uuid = "test-user-uuid"
         email = "test@example.com"
-        
+
         create_user_session(user_uuid=user_uuid, email=email)
-        
+
         session = UserSession.objects(user_uuid=user_uuid).first()
-        
+
         # refresh_token_hash should not be the actual token
         assert session.refresh_token_hash is not None
         # Should be a hash (SHA256), which is 64 hex characters

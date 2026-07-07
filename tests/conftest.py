@@ -1,27 +1,59 @@
 """
 Pytest configuration and shared fixtures for all tests.
 """
-import os
-import sys
+
 import pytest
 from datetime import datetime, timedelta, timezone
-from flask import Flask
+from mongoengine.connection import get_connection
+from app.models.auth import (
+    RateLimitCounter,
+    SessionAuditLog,
+    TokenBlocklist,
+    UserSession,
+)
+from app.models.form import Condition, Form, FormResponse, Project, Question, Section
+from app.models.user import Organization, User
 
 # Handle mongomock and MongoEngine setup
 try:
     from mongomock import MongoClient
+
+    HAS_MONGOMOCK = True
 except ImportError:
-    pass
+    HAS_MONGOMOCK = False
 
 # Try to import MongoEngine
 try:
-    from flask_mongoengine import MongoEngine
-    from app.extensions import db
-    from app.config import DevelopmentConfig
+    from app import create_openapi_app
+
     HAS_MONGOENGINE = True
 except ImportError as e:
     HAS_MONGOENGINE = False
     print(f"Warning: MongoEngine import failed: {e}")
+
+
+def _drop_test_database() -> None:
+    connection = get_connection()
+    active_db_name = connection.get_default_database().name
+    connection.drop_database(active_db_name)
+
+
+def _ensure_test_indexes() -> None:
+    for document in (
+        User,
+        Organization,
+        Condition,
+        Form,
+        Project,
+        Section,
+        Question,
+        FormResponse,
+        UserSession,
+        RateLimitCounter,
+        SessionAuditLog,
+        TokenBlocklist,
+    ):
+        document.ensure_indexes()
 
 
 @pytest.fixture(scope="session")
@@ -29,38 +61,47 @@ def app():
     """Create application for testing."""
     if not HAS_MONGOENGINE:
         pytest.skip("MongoEngine not available")
-    
-    app = Flask(__name__)
-    app.config["TESTING"] = True
-    app.config["MONGODB_SETTINGS"] = {
-        "db": "test_form_db",
-        "host": "mongomock://localhost",
-        "connect": False,
-    }
-    app.config["JWT_SECRET_KEY"] = "test-secret-key-do-not-use-in-production"
-    app.config["JWT_ALGORITHM"] = "HS256"
-    app.config["JWT_ACCESS_TOKEN_EXPIRES_MINUTES"] = 30
-    app.config["JWT_REFRESH_TOKEN_EXPIRES_DAYS"] = 7
-    app.config["AUTH_RATE_LIMIT_LOGIN_MAX"] = 10
-    app.config["AUTH_RATE_LIMIT_LOGIN_WINDOW_SECONDS"] = 60
-    app.config["AUTH_RATE_LIMIT_REFRESH_MAX"] = 20
-    app.config["AUTH_RATE_LIMIT_REFRESH_WINDOW_SECONDS"] = 60
-    app.config["AUTH_RATE_LIMIT_LOGOUT_MAX"] = 20
-    app.config["AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS"] = 60
-    
-    db.init_app(app)
-    
+    if not HAS_MONGOMOCK:
+        pytest.skip("mongomock not available")
+
+    db_name = "test_form_db"
+    app = create_openapi_app(
+        {
+            "TESTING": True,
+            "MONGODB_SETTINGS": {
+                "db": db_name,
+                "host": f"mongodb://localhost/{db_name}",
+                "mongo_client_class": MongoClient,
+                "connect": False,
+            },
+            "JWT_SECRET_KEY": "test-secret-key-do-not-use-in-production",
+            "JWT_ALGORITHM": "HS256",
+            "JWT_ACCESS_TOKEN_EXPIRES_MINUTES": 30,
+            "JWT_REFRESH_TOKEN_EXPIRES_DAYS": 7,
+            "AUTH_RATE_LIMIT_LOGIN_MAX": 10,
+            "AUTH_RATE_LIMIT_LOGIN_WINDOW_SECONDS": 60,
+            "AUTH_RATE_LIMIT_REFRESH_MAX": 20,
+            "AUTH_RATE_LIMIT_REFRESH_WINDOW_SECONDS": 60,
+            "AUTH_RATE_LIMIT_LOGOUT_MAX": 20,
+            "AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS": 60,
+            "ENABLE_AUDIT_LOGS": False,
+        }
+    )
+
+    _drop_test_database()
     with app.app_context():
         yield app
+    _drop_test_database()
 
 
 @pytest.fixture(autouse=True)
 def cleanup_db(app):
     """Clean up database before each test."""
     with app.app_context():
-        db.connection.drop_database("test_form_db")
+        _drop_test_database()
+        _ensure_test_indexes()
         yield
-        db.connection.drop_database("test_form_db")
+        _drop_test_database()
 
 
 @pytest.fixture
