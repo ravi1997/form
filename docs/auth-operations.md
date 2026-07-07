@@ -11,7 +11,7 @@ This document covers operator usage for auth, session, and audit endpoints.
 
 ### 1) Generic audit listing
 
-Endpoint: `GET /api/auth/admin/audit-logs`
+Endpoint: `GET /api/v1/auth/admin/audit-logs`
 
 Supported query parameters:
 
@@ -28,18 +28,18 @@ Supported query parameters:
 Examples:
 
 ```bash
-curl -s "http://localhost:5000/api/auth/admin/audit-logs?page=1&page_size=20" \
+curl -s "http://localhost:5000/api/v1/auth/admin/audit-logs?page=1&page_size=20" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
 ```bash
-curl -s "http://localhost:5000/api/auth/admin/audit-logs?action=logout&start_at=2026-07-01T00:00:00&page_size=50" \
+curl -s "http://localhost:5000/api/v1/auth/admin/audit-logs?action=logout&start_at=2026-07-01T00:00:00&page_size=50" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
 ### 2) User/action/date-range search endpoint
 
-Endpoint: `GET /api/auth/admin/audit-logs/search`
+Endpoint: `GET /api/v1/auth/admin/audit-logs/search`
 
 Supported query parameters:
 
@@ -54,14 +54,16 @@ Supported query parameters:
 Examples:
 
 ```bash
-curl -s "http://localhost:5000/api/auth/admin/audit-logs/search?user_uuid=u-123&action=admin_session_revoke&page_size=25" \
+curl -s "http://localhost:5000/api/v1/auth/admin/audit-logs/search?user_uuid=u-123&action=admin_session_revoke&page_size=25" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
 ```bash
-curl -s "http://localhost:5000/api/auth/admin/audit-logs/search?cursor=$CURSOR&page_size=100" \
+curl -s "http://localhost:5000/api/v1/auth/admin/audit-logs/search?cursor=$CURSOR&page_size=100" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
+
+Compatibility note: legacy `/api/auth/*` paths continue to work via HTTP 308 redirects.
 
 ## Cursor Handling
 

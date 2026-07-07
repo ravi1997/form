@@ -12,6 +12,8 @@ Required in production:
 Recommended explicit settings:
 
 - `JWT_ALGORITHM`
+- `JWT_ACTIVE_KID`
+- `JWT_ADDITIONAL_KEYS` (during rotation windows)
 - `JWT_ACCESS_TOKEN_EXPIRES_MINUTES`
 - `JWT_REFRESH_TOKEN_EXPIRES_DAYS`
 - `AUTH_RATE_LIMIT_LOGIN_MAX`
@@ -20,7 +22,12 @@ Recommended explicit settings:
 - `AUTH_RATE_LIMIT_REFRESH_WINDOW_SECONDS`
 - `AUTH_RATE_LIMIT_LOGOUT_MAX`
 - `AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS`
+- `RESOURCE_RATE_LIMIT_MAX`
+- `RESOURCE_RATE_LIMIT_WINDOW_SECONDS`
 - `ENABLE_AUDIT_LOGS`
+- `REQUEST_ID_HEADER`
+- `API_VERSION`
+- `AUDIT_LOG_RETENTION_DAYS`
 
 ## 2) Startup Logs
 
@@ -34,13 +41,15 @@ Ensure snapshot confirms:
 - `env_name: production`
 - expected TTL/rate-limit values
 - `jwt_secret_configured: true`
+- expected `jwt_active_kid`
+- expected `request_id_header`
 
 ## 3) Admin Config Health Endpoint
 
 Call endpoint:
 
 ```bash
-curl -s "http://localhost:5000/api/auth/admin/config/health" \
+curl -s "http://localhost:5000/api/v1/auth/admin/config/health" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
@@ -50,7 +59,13 @@ Validate response fields match deployment intent:
 - `debug`
 - JWT TTL values
 - rate limits
+- resource API rate limits
 - `enable_audit_logs`
+- `audit_log_retention_days`
+- `jwt_active_kid`
+- `jwt_additional_key_ids`
+- `request_id_header`
+- `api_version`
 
 ## 4) Auth and Throttle Smoke Tests
 
@@ -64,8 +79,8 @@ Validate response fields match deployment intent:
 
 ## 5) Audit Search Endpoint Checks
 
-- `GET /api/auth/admin/audit-logs`
-- `GET /api/auth/admin/audit-logs/search`
+- `GET /api/v1/auth/admin/audit-logs`
+- `GET /api/v1/auth/admin/audit-logs/search`
 - Validate page mode and cursor mode both work
 - Confirm filters (user/action/date range) return expected subsets
 
@@ -79,3 +94,9 @@ Run explain plans from docs/auth-operations.md and verify indexed execution.
 - trusted proxy configuration reviewed for correct client IP parsing
 - secrets managed through secure secret storage
 - no development fallback secrets in production
+
+## 8) Key Rotation Readiness
+
+- Follow the phased procedure in `docs/jwt-key-rotation.md`
+- Ensure old keys are present in `JWT_ADDITIONAL_KEYS` only during overlap windows
+- Remove retired keys after refresh token TTL window
