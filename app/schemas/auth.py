@@ -74,6 +74,17 @@ class SessionInfo(SchemaModel):
 
 class SessionListResponse(SchemaModel):
     sessions: List[SessionInfo]
+    page: int
+    page_size: int
+    total_items: Optional[int] = None
+    total_pages: Optional[int] = None
+    next_cursor: Optional[str] = None
+
+
+class SessionListQuery(SchemaModel):
+    cursor: Optional[str] = None
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=20, ge=1, le=100)
 
 
 class RevokeSessionRequest(SchemaModel):
@@ -111,6 +122,7 @@ class AdminRevokeAllSessionsResponse(SchemaModel):
 
 
 class AdminConfigHealthResponse(SchemaModel):
+    api_version: str
     env_name: str
     debug: bool
     jwt_algorithm: str
@@ -124,7 +136,12 @@ class AdminConfigHealthResponse(SchemaModel):
     auth_rate_limit_refresh_window_seconds: int
     auth_rate_limit_logout_max: int
     auth_rate_limit_logout_window_seconds: int
+    resource_rate_limit_max: int
+    resource_rate_limit_window_seconds: int
+    resource_rbac_require_org_role_alignment: bool
+    workflow_strict_review_before_approve: bool
     enable_audit_logs: bool
+    audit_log_retention_days: int
     request_id_header: str
 
 

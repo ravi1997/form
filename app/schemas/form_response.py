@@ -94,8 +94,16 @@ class FormResponseRef(SchemaModel):
     status: FormResponseStatus
 
 
+class FormResponseStatusEventOutput(SchemaModel):
+    transition_from: Optional[FormResponseStatus] = None
+    transition_to: FormResponseStatus
+    changed_at: datetime
+    reason: Optional[str] = None
+
+
 class FormResponseOutput(FormResponseBase):
     uuid: str
     responses: List[ResponseItemOutput] = Field(default_factory=list)
+    status_history: List[FormResponseStatusEventOutput] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime

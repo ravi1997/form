@@ -10,6 +10,18 @@ from app.schemas.version import VersionCreateInput, VersionOutput, VersionUpdate
 
 
 DocumentStatus = Literal["active", "inactive", "deleted"]
+FormWorkflowState = Literal["draft", "submitted", "in_review", "approved", "rejected"]
+
+
+class FormWorkflowEventOutput(SchemaModel):
+    action: Literal["submit", "review", "approve"]
+    actor_user_uuid: str
+    note: Optional[str] = None
+    transition_from: Optional[FormWorkflowState] = None
+    transition_to: Optional[FormWorkflowState] = None
+    outcome: Literal["success", "idempotent", "rejected"]
+    created_at: datetime
+    request_id: Optional[str] = None
 
 
 class FormBase(SchemaModel):
@@ -78,5 +90,8 @@ class FormRef(SchemaModel):
 class FormOutput(FormBase):
     uuid: str
     versions: List[VersionOutput] = Field(default_factory=list)
+    workflow_state: FormWorkflowState = "draft"
+    workflow_updated_at: Optional[datetime] = None
+    workflow_history: List[FormWorkflowEventOutput] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime

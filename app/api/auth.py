@@ -37,6 +37,7 @@ from app.schemas.auth import (
     RefreshTokenRequest,
     RegisterRequest,
     SessionInfo,
+    SessionListQuery,
     SessionListResponse,
     TokenPairResponse,
 )
@@ -57,6 +58,12 @@ from app.services.auth import (
     touch_session,
 )
 from app.services.security import check_and_increment_rate_limit, log_session_audit_event
+from app.services.rbac import (
+    get_user_by_uuid,
+    require_admin_by_payload,
+    require_admin_for_user_payload,
+    resolve_access_identity_from_header,
+)
 
 try:
     from flask_openapi3 import APIBlueprint, Tag
@@ -67,7 +74,7 @@ except ImportError as exc:  # pragma: no cover - evaluated only when package is 
 
 
 auth_tag = Tag(name="Auth", description="JWT authentication")
-auth_api = APIBlueprint("auth", __name__, url_prefix="/api/auth")
+auth_api = APIBlueprint("auth", __name__, url_prefix="/api/v1/auth")
 logger = logging.getLogger(__name__)
 
 
@@ -181,7 +188,7 @@ def _enforce_rate_limit(scope: str, key: str):
         _security_event(
             event="rate_limit",
             outcome="throttled",
-            endpoint=f"/api/auth/{scope}",
+            endpoint=f"/api/v1/auth/{scope}",
             limit_scope=limit_scope,
             reason="rate_limit_exceeded",
             details={"scope": scope, "key": key, "retry_after": int(result["retry_after"])} ,
@@ -221,64 +228,17 @@ def _extract_bearer(header: AuthorizationHeader):
 
 
 def _resolve_access_identity(header: AuthorizationHeader):
-    token = _extract_bearer(header)
-    return decode_token(token, expected_type="access")
+    return resolve_access_identity_from_header(header.Authorization)
 
 
 def _require_admin(header: AuthorizationHeader):
     payload = _resolve_access_identity(header)
-    user = User.objects(uuid=payload["sub"]).first()
-    if not user:
-        raise AuthError("User not found")
-
-    has_admin_role = any("admin" in roles for roles in (user.roles or {}).values())
-    if not (bool(user.is_super_admin) or bool(user.is_organisation_admin) or has_admin_role):
-        raise AuthError("Admin privileges required")
-
-    return payload, user
-
-
-def _user_org_scope_keys(user: User):
-    keys = set()
-
-    for org in user.organizations or []:
-        org_id = getattr(org, "id", None)
-        if org_id is not None:
-            keys.add(str(org_id))
-
-        org_uuid = getattr(org, "uuid", None)
-        if org_uuid:
-            keys.add(str(org_uuid))
-
-    return keys
-
-
-def _admin_org_scope_keys(user: User):
-    keys = set()
-
-    for org_key, roles in (user.roles or {}).items():
-        if "admin" in (roles or []):
-            keys.add(str(org_key))
-
-    return keys
+    return require_admin_by_payload(payload)
 
 
 def _require_admin_for_user(header: AuthorizationHeader, target_user_uuid: str):
-    payload, admin_user = _require_admin(header)
-    target_user = User.objects(uuid=target_user_uuid).first()
-    if not target_user:
-        raise AuthError("Target user not found")
-
-    # Global admins keep unrestricted visibility and revocation access.
-    if bool(admin_user.is_super_admin):
-        return payload, admin_user, target_user
-
-    admin_scope = _admin_org_scope_keys(admin_user)
-    target_scope = _user_org_scope_keys(target_user)
-    if not admin_scope or not target_scope or not (admin_scope & target_scope):
-        raise AuthError("Admin scope does not include target user organizations")
-
-    return payload, admin_user, target_user
+    payload = _resolve_access_identity(header)
+    return require_admin_for_user_payload(payload, target_user_uuid)
 
 
 @auth_api.post(
@@ -292,7 +252,7 @@ def register(body: RegisterRequest):
         _security_event(
             event="register",
             outcome="rejected",
-            endpoint="/api/auth/register",
+            endpoint="/api/v1/auth/register",
             reason="email_exists",
             details={"email": email},
         )
@@ -329,7 +289,7 @@ def register(body: RegisterRequest):
     _security_event(
         event="register",
         outcome="success",
-        endpoint="/api/auth/register",
+        endpoint="/api/v1/auth/register",
         actor_user_uuid=user.uuid,
         details={"session_uuid": str(session["session_uuid"]), "email": email},
     )
@@ -355,7 +315,7 @@ def login(body: LoginRequest):
         _security_event(
             event="login",
             outcome="failed",
-            endpoint="/api/auth/login",
+            endpoint="/api/v1/auth/login",
             reason="invalid_credentials",
             details={"email": email},
         )
@@ -365,7 +325,7 @@ def login(body: LoginRequest):
         _security_event(
             event="login",
             outcome="failed",
-            endpoint="/api/auth/login",
+            endpoint="/api/v1/auth/login",
             actor_user_uuid=user.uuid,
             reason="invalid_credentials",
             details={"email": email},
@@ -392,7 +352,7 @@ def login(body: LoginRequest):
     _security_event(
         event="login",
         outcome="success",
-        endpoint="/api/auth/login",
+        endpoint="/api/v1/auth/login",
         actor_user_uuid=user.uuid,
         details={"session_uuid": str(session["session_uuid"]), "email": email},
     )
@@ -415,7 +375,7 @@ def refresh_token(body: RefreshTokenRequest):
         _security_event(
             event="refresh",
             outcome="failed",
-            endpoint="/api/auth/refresh",
+            endpoint="/api/v1/auth/refresh",
             reason=str(exc),
         )
         return _unauthorized(str(exc))
@@ -428,18 +388,18 @@ def refresh_token(body: RefreshTokenRequest):
         _security_event(
             event="refresh",
             outcome="failed",
-            endpoint="/api/auth/refresh",
+            endpoint="/api/v1/auth/refresh",
             actor_user_uuid=payload.get("sub"),
             reason="refresh_token_revoked",
         )
         return _unauthorized("Refresh token has been revoked")
 
-    user = User.objects(uuid=payload["sub"]).first()
+    user = get_user_by_uuid(payload["sub"])
     if not user:
         _security_event(
             event="refresh",
             outcome="failed",
-            endpoint="/api/auth/refresh",
+            endpoint="/api/v1/auth/refresh",
             actor_user_uuid=payload.get("sub"),
             reason="user_not_found",
         )
@@ -451,7 +411,7 @@ def refresh_token(body: RefreshTokenRequest):
         _security_event(
             event="refresh",
             outcome="failed",
-            endpoint="/api/auth/refresh",
+            endpoint="/api/v1/auth/refresh",
             actor_user_uuid=payload.get("sub"),
             reason=str(exc),
         )
@@ -466,7 +426,7 @@ def refresh_token(body: RefreshTokenRequest):
     _security_event(
         event="refresh",
         outcome="success",
-        endpoint="/api/auth/refresh",
+        endpoint="/api/v1/auth/refresh",
         actor_user_uuid=payload.get("sub"),
         details={"session_uuid": str(rotated["session_uuid"])},
     )
@@ -493,7 +453,7 @@ def logout(body: LogoutRequest):
         _security_event(
             event="logout",
             outcome="failed",
-            endpoint="/api/auth/logout",
+            endpoint="/api/v1/auth/logout",
             reason=str(exc),
         )
         return _unauthorized(str(exc))
@@ -506,13 +466,13 @@ def logout(body: LogoutRequest):
         reason="logout",
         ip_address=_client_ip(),
         user_agent=request.headers.get("User-Agent"),
-        metadata={"endpoint": "/api/auth/logout"},
+        metadata={"endpoint": "/api/v1/auth/logout"},
     )
 
     _security_event(
         event="logout",
         outcome="success",
-        endpoint="/api/auth/logout",
+        endpoint="/api/v1/auth/logout",
         actor_user_uuid=payload["sub"],
         details={"session_uuid": payload["sid"]},
     )
@@ -536,9 +496,10 @@ def me(header: AuthorizationHeader):
     except AuthError as exc:
         return _unauthorized(str(exc))
 
-    user = User.objects(uuid=payload["sub"]).first()
-    if not user:
-        return _unauthorized("User not found")
+    try:
+        user = get_user_by_uuid(payload["sub"])
+    except AuthError as exc:
+        return _unauthorized(str(exc))
 
     touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
 
@@ -550,7 +511,7 @@ def me(header: AuthorizationHeader):
     tags=[auth_tag],
     responses={200: SessionListResponse, 401: ErrorResponse},
 )
-def sessions(header: AuthorizationHeader):
+def sessions(header: AuthorizationHeader, query: SessionListQuery):
     try:
         payload = _resolve_access_identity(header)
     except AuthError as exc:
@@ -558,8 +519,24 @@ def sessions(header: AuthorizationHeader):
 
     touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
 
+    all_items = list_active_sessions(user_uuid=payload["sub"])
+    page_size = query.page_size
+    page = query.page
+
+    if query.cursor:
+        cursor_created_at = _decode_audit_cursor(query.cursor)
+        filtered = [s for s in all_items if s.last_seen_at < cursor_created_at]
+        selected = filtered[:page_size]
+        total_items = None
+        total_pages = None
+    else:
+        total_items = len(all_items)
+        total_pages = (total_items + page_size - 1) // page_size if total_items else 0
+        start = (page - 1) * page_size
+        selected = all_items[start : start + page_size]
+
     items = []
-    for session in list_active_sessions(user_uuid=payload["sub"]):
+    for session in selected:
         items.append(
             SessionInfo(
                 session_uuid=session.session_uuid,
@@ -572,7 +549,20 @@ def sessions(header: AuthorizationHeader):
             )
         )
 
-    return to_json_ready(SessionListResponse(sessions=items))
+    next_cursor = None
+    if len(selected) == page_size:
+        next_cursor = _encode_audit_cursor(selected[-1].last_seen_at)
+
+    return to_json_ready(
+        SessionListResponse(
+            sessions=items,
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+            next_cursor=next_cursor,
+        )
+    )
 
 
 @auth_api.post(
@@ -590,11 +580,11 @@ def revoke_session_endpoint(header: AuthorizationHeader, body: RevokeSessionRequ
         _security_event(
             event="session_revoke",
             outcome="rejected",
-            endpoint="/api/auth/sessions/revoke",
+            endpoint="/api/v1/auth/sessions/revoke",
             actor_user_uuid=payload["sub"],
             reason="current_session_disallowed",
         )
-        return _bad_request("Use /api/auth/logout for current session")
+        return _bad_request("Use /api/v1/auth/logout for current session")
 
     revoked = revoke_session(
         session_uuid=body.session_uuid,
@@ -605,7 +595,7 @@ def revoke_session_endpoint(header: AuthorizationHeader, body: RevokeSessionRequ
         _security_event(
             event="session_revoke",
             outcome="failed",
-            endpoint="/api/auth/sessions/revoke",
+            endpoint="/api/v1/auth/sessions/revoke",
             actor_user_uuid=payload["sub"],
             target_user_uuid=payload["sub"],
             reason="session_not_found",
@@ -621,13 +611,13 @@ def revoke_session_endpoint(header: AuthorizationHeader, body: RevokeSessionRequ
         reason="session_revoke",
         ip_address=_client_ip(),
         user_agent=request.headers.get("User-Agent"),
-        metadata={"endpoint": "/api/auth/sessions/revoke"},
+        metadata={"endpoint": "/api/v1/auth/sessions/revoke"},
     )
 
     _security_event(
         event="session_revoke",
         outcome="success",
-        endpoint="/api/auth/sessions/revoke",
+        endpoint="/api/v1/auth/sessions/revoke",
         actor_user_uuid=payload["sub"],
         target_user_uuid=payload["sub"],
         details={"session_uuid": body.session_uuid},
@@ -663,7 +653,7 @@ def logout_all(header: AuthorizationHeader, body: LogoutAllSessionsRequest):
         ip_address=_client_ip(),
         user_agent=request.headers.get("User-Agent"),
         metadata={
-            "endpoint": "/api/auth/logout-all",
+            "endpoint": "/api/v1/auth/logout-all",
             "revoked_count": revoked_count,
             "keep_current": body.keep_current,
         },
@@ -672,7 +662,7 @@ def logout_all(header: AuthorizationHeader, body: LogoutAllSessionsRequest):
     _security_event(
         event="logout_all",
         outcome="success",
-        endpoint="/api/auth/logout-all",
+        endpoint="/api/v1/auth/logout-all",
         actor_user_uuid=payload["sub"],
         target_user_uuid=payload["sub"],
         details={"revoked_count": revoked_count, "keep_current": body.keep_current},
@@ -690,7 +680,11 @@ def logout_all(header: AuthorizationHeader, body: LogoutAllSessionsRequest):
     tags=[auth_tag],
     responses={200: SessionListResponse, 401: ErrorResponse},
 )
-def admin_list_user_sessions(header: AuthorizationHeader, path: AdminUserPath):
+def admin_list_user_sessions(
+    header: AuthorizationHeader,
+    path: AdminUserPath,
+    query: SessionListQuery,
+):
     try:
         payload, _admin_user, _target_user = _require_admin_for_user(header, path.user_uuid)
     except AuthError as exc:
@@ -698,8 +692,24 @@ def admin_list_user_sessions(header: AuthorizationHeader, path: AdminUserPath):
 
     touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
 
+    all_items = list_active_sessions(user_uuid=path.user_uuid)
+    page_size = query.page_size
+    page = query.page
+
+    if query.cursor:
+        cursor_created_at = _decode_audit_cursor(query.cursor)
+        filtered = [s for s in all_items if s.last_seen_at < cursor_created_at]
+        selected = filtered[:page_size]
+        total_items = None
+        total_pages = None
+    else:
+        total_items = len(all_items)
+        total_pages = (total_items + page_size - 1) // page_size if total_items else 0
+        start = (page - 1) * page_size
+        selected = all_items[start : start + page_size]
+
     items = []
-    for session in list_active_sessions(user_uuid=path.user_uuid):
+    for session in selected:
         items.append(
             SessionInfo(
                 session_uuid=session.session_uuid,
@@ -712,7 +722,20 @@ def admin_list_user_sessions(header: AuthorizationHeader, path: AdminUserPath):
             )
         )
 
-    return to_json_ready(SessionListResponse(sessions=items))
+    next_cursor = None
+    if len(selected) == page_size:
+        next_cursor = _encode_audit_cursor(selected[-1].last_seen_at)
+
+    return to_json_ready(
+        SessionListResponse(
+            sessions=items,
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+            next_cursor=next_cursor,
+        )
+    )
 
 
 @auth_api.post(
@@ -739,7 +762,7 @@ def admin_revoke_user_session(
         _security_event(
             event="admin_session_revoke",
             outcome="failed",
-            endpoint="/api/auth/admin/users/<user_uuid>/sessions/revoke",
+            endpoint="/api/v1/auth/admin/users/<user_uuid>/sessions/revoke",
             actor_user_uuid=payload["sub"],
             target_user_uuid=path.user_uuid,
             reason="session_not_found",
@@ -755,13 +778,13 @@ def admin_revoke_user_session(
         reason="admin_revoke",
         ip_address=_client_ip(),
         user_agent=request.headers.get("User-Agent"),
-        metadata={"endpoint": "/api/auth/admin/users/<user_uuid>/sessions/revoke"},
+        metadata={"endpoint": "/api/v1/auth/admin/users/<user_uuid>/sessions/revoke"},
     )
 
     _security_event(
         event="admin_session_revoke",
         outcome="success",
-        endpoint="/api/auth/admin/users/<user_uuid>/sessions/revoke",
+        endpoint="/api/v1/auth/admin/users/<user_uuid>/sessions/revoke",
         actor_user_uuid=payload["sub"],
         target_user_uuid=path.user_uuid,
         details={"session_uuid": body.session_uuid},
@@ -796,7 +819,7 @@ def admin_revoke_all_user_sessions(header: AuthorizationHeader, path: AdminUserP
         ip_address=_client_ip(),
         user_agent=request.headers.get("User-Agent"),
         metadata={
-            "endpoint": "/api/auth/admin/users/<user_uuid>/sessions/revoke-all",
+            "endpoint": "/api/v1/auth/admin/users/<user_uuid>/sessions/revoke-all",
             "revoked_count": revoked_count,
         },
     )
@@ -804,7 +827,7 @@ def admin_revoke_all_user_sessions(header: AuthorizationHeader, path: AdminUserP
     _security_event(
         event="admin_sessions_revoke_all",
         outcome="success",
-        endpoint="/api/auth/admin/users/<user_uuid>/sessions/revoke-all",
+        endpoint="/api/v1/auth/admin/users/<user_uuid>/sessions/revoke-all",
         actor_user_uuid=payload["sub"],
         target_user_uuid=path.user_uuid,
         details={"revoked_count": revoked_count},
@@ -828,12 +851,25 @@ def admin_config_health(header: AuthorizationHeader):
     touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
 
     response = AdminConfigHealthResponse(
+        api_version=BaseConfig.get_str(
+            current_app.config,
+            "API_VERSION",
+            BaseConfig.API_VERSION,
+        ),
         env_name=BaseConfig.get_str(current_app.config, "ENV_NAME", "development"),
         debug=BaseConfig.get_bool(current_app.config, "DEBUG", False),
         jwt_algorithm=BaseConfig.get_str(
             current_app.config,
             "JWT_ALGORITHM",
             BaseConfig.JWT_ALGORITHM,
+        ),
+        jwt_active_kid=BaseConfig.get_str(
+            current_app.config,
+            "JWT_ACTIVE_KID",
+            BaseConfig.JWT_ACTIVE_KID,
+        ),
+        jwt_additional_key_ids=sorted(
+            list((current_app.config.get("JWT_ADDITIONAL_KEYS") or {}).keys())
         ),
         jwt_access_token_expires_minutes=BaseConfig.get_int(
             current_app.config,
@@ -875,17 +911,47 @@ def admin_config_health(header: AuthorizationHeader):
             "AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS",
             BaseConfig.AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS,
         ),
+        resource_rate_limit_max=BaseConfig.get_int(
+            current_app.config,
+            "RESOURCE_RATE_LIMIT_MAX",
+            BaseConfig.RESOURCE_RATE_LIMIT_MAX,
+        ),
+        resource_rate_limit_window_seconds=BaseConfig.get_int(
+            current_app.config,
+            "RESOURCE_RATE_LIMIT_WINDOW_SECONDS",
+            BaseConfig.RESOURCE_RATE_LIMIT_WINDOW_SECONDS,
+        ),
+        resource_rbac_require_org_role_alignment=BaseConfig.get_bool(
+            current_app.config,
+            "RESOURCE_RBAC_REQUIRE_ORG_ROLE_ALIGNMENT",
+            BaseConfig.RESOURCE_RBAC_REQUIRE_ORG_ROLE_ALIGNMENT,
+        ),
+        workflow_strict_review_before_approve=BaseConfig.get_bool(
+            current_app.config,
+            "WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE",
+            BaseConfig.WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE,
+        ),
         enable_audit_logs=BaseConfig.get_bool(
             current_app.config,
             "ENABLE_AUDIT_LOGS",
             BaseConfig.ENABLE_AUDIT_LOGS,
+        ),
+        audit_log_retention_days=BaseConfig.get_int(
+            current_app.config,
+            "AUDIT_LOG_RETENTION_DAYS",
+            BaseConfig.AUDIT_LOG_RETENTION_DAYS,
+        ),
+        request_id_header=BaseConfig.get_str(
+            current_app.config,
+            "REQUEST_ID_HEADER",
+            BaseConfig.REQUEST_ID_HEADER,
         ),
     )
 
     _security_event(
         event="admin_config_health",
         outcome="success",
-        endpoint="/api/auth/admin/config/health",
+        endpoint="/api/v1/auth/admin/config/health",
         actor_user_uuid=payload["sub"],
     )
 
@@ -968,7 +1034,7 @@ def admin_audit_logs(header: AuthorizationHeader, query: AdminAuditLogQuery):
     _security_event(
         event="admin_audit_logs",
         outcome="success",
-        endpoint="/api/auth/admin/audit-logs",
+        endpoint="/api/v1/auth/admin/audit-logs",
         actor_user_uuid=payload["sub"],
         details={
             "page": page,
@@ -1052,7 +1118,7 @@ def admin_audit_logs_search(header: AuthorizationHeader, query: AdminAuditLogSea
     _security_event(
         event="admin_audit_logs_search",
         outcome="success",
-        endpoint="/api/auth/admin/audit-logs/search",
+        endpoint="/api/v1/auth/admin/audit-logs/search",
         actor_user_uuid=payload["sub"],
         details={
             "page": page,

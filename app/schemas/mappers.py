@@ -173,6 +173,21 @@ def to_section_ref(section: Any) -> SectionRef:
 
 
 def to_form_output(form: Any) -> FormOutput:
+    workflow_history = []
+    for event in (form.workflow_history or []):
+        workflow_history.append(
+            {
+                "action": event.action,
+                "actor_user_uuid": event.actor_user_uuid,
+                "note": event.note,
+                "transition_from": event.transition_from,
+                "transition_to": event.transition_to,
+                "outcome": event.outcome,
+                "created_at": event.created_at,
+                "request_id": event.request_id,
+            }
+        )
+
     return FormOutput(
         uuid=str(form.uuid),
         versions=[to_version_output(v) for v in (form.versions or [])],
@@ -191,6 +206,9 @@ def to_form_output(form: Any) -> FormOutput:
         child_sections=_uuid_list(form.child_sections),
         tags=list(form.tags or []),
         icon=form.icon,
+        workflow_state=getattr(form, "workflow_state", "draft") or "draft",
+        workflow_updated_at=getattr(form, "workflow_updated_at", None),
+        workflow_history=workflow_history,
         created_at=form.created_at,
         updated_at=form.updated_at,
         status=form.status,
@@ -234,6 +252,17 @@ def to_response_item_output(item: Any) -> ResponseItemOutput:
 
 
 def to_form_response_output(response: Any) -> FormResponseOutput:
+    status_history = []
+    for event in (response.status_history or []):
+        status_history.append(
+            {
+                "transition_from": event.transition_from,
+                "transition_to": event.transition_to,
+                "changed_at": event.changed_at,
+                "reason": event.reason,
+            }
+        )
+
     return FormResponseOutput(
         uuid=str(response.uuid),
         form=_get_uuid(response.form),
@@ -255,6 +284,7 @@ def to_form_response_output(response: Any) -> FormResponseOutput:
         reviewed_by=_uuid_list(response.reviewed_by),
         approved_at=response.approved_at,
         approved_by=_uuid_list(response.approved_by),
+        status_history=status_history,
         created_at=response.created_at,
         updated_at=response.updated_at,
         deleted_at=response.deleted_at,

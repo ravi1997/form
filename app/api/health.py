@@ -18,7 +18,7 @@ from app.schemas.common import SchemaModel
 system_tag = Tag(name="System", description="System and integration checks")
 schema_tag = Tag(name="Schemas", description="Schema validation and JSON IO examples")
 
-health_api = APIBlueprint("health", __name__, url_prefix="/api")
+health_api = APIBlueprint("health", __name__, url_prefix="/api/v1")
 
 
 class HealthResponse(SchemaModel):

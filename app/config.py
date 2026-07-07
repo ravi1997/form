@@ -25,8 +25,14 @@ ENV_AUTH_RATE_LIMIT_REFRESH_MAX = "AUTH_RATE_LIMIT_REFRESH_MAX"
 ENV_AUTH_RATE_LIMIT_REFRESH_WINDOW_SECONDS = "AUTH_RATE_LIMIT_REFRESH_WINDOW_SECONDS"
 ENV_AUTH_RATE_LIMIT_LOGOUT_MAX = "AUTH_RATE_LIMIT_LOGOUT_MAX"
 ENV_AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS = "AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS"
+ENV_RESOURCE_RATE_LIMIT_MAX = "RESOURCE_RATE_LIMIT_MAX"
+ENV_RESOURCE_RATE_LIMIT_WINDOW_SECONDS = "RESOURCE_RATE_LIMIT_WINDOW_SECONDS"
+ENV_RESOURCE_RBAC_REQUIRE_ORG_ROLE_ALIGNMENT = "RESOURCE_RBAC_REQUIRE_ORG_ROLE_ALIGNMENT"
+ENV_WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE = "WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE"
 ENV_ENABLE_AUDIT_LOGS = "ENABLE_AUDIT_LOGS"
 ENV_REQUEST_ID_HEADER = "REQUEST_ID_HEADER"
+ENV_API_VERSION = "API_VERSION"
+ENV_AUDIT_LOG_RETENTION_DAYS = "AUDIT_LOG_RETENTION_DAYS"
 
 
 KNOWN_ENV_KEYS = {
@@ -44,8 +50,14 @@ KNOWN_ENV_KEYS = {
     ENV_AUTH_RATE_LIMIT_REFRESH_WINDOW_SECONDS,
     ENV_AUTH_RATE_LIMIT_LOGOUT_MAX,
     ENV_AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS,
+    ENV_RESOURCE_RATE_LIMIT_MAX,
+    ENV_RESOURCE_RATE_LIMIT_WINDOW_SECONDS,
+    ENV_RESOURCE_RBAC_REQUIRE_ORG_ROLE_ALIGNMENT,
+    ENV_WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE,
     ENV_ENABLE_AUDIT_LOGS,
     ENV_REQUEST_ID_HEADER,
+    ENV_API_VERSION,
+    ENV_AUDIT_LOG_RETENTION_DAYS,
 }
 
 
@@ -68,8 +80,14 @@ class BaseConfig:
     AUTH_RATE_LIMIT_REFRESH_WINDOW_SECONDS = 60
     AUTH_RATE_LIMIT_LOGOUT_MAX = 20
     AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS = 60
+    RESOURCE_RATE_LIMIT_MAX = 300
+    RESOURCE_RATE_LIMIT_WINDOW_SECONDS = 60
+    RESOURCE_RBAC_REQUIRE_ORG_ROLE_ALIGNMENT = True
+    WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE = True
     ENABLE_AUDIT_LOGS = True
     REQUEST_ID_HEADER = "X-Request-Id"
+    API_VERSION = "v1"
+    AUDIT_LOG_RETENTION_DAYS = 180
 
     ALLOWED_JWT_ALGORITHMS = {"HS256"}
     REQUIRED_POSITIVE_INT_KEYS = (
@@ -81,6 +99,9 @@ class BaseConfig:
         "AUTH_RATE_LIMIT_REFRESH_WINDOW_SECONDS",
         "AUTH_RATE_LIMIT_LOGOUT_MAX",
         "AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS",
+        "RESOURCE_RATE_LIMIT_MAX",
+        "RESOURCE_RATE_LIMIT_WINDOW_SECONDS",
+        "AUDIT_LOG_RETENTION_DAYS",
     )
 
     INT_BOUNDS = {
@@ -92,6 +113,9 @@ class BaseConfig:
         "AUTH_RATE_LIMIT_REFRESH_WINDOW_SECONDS": (1, 3600),
         "AUTH_RATE_LIMIT_LOGOUT_MAX": (1, 2000),
         "AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS": (1, 3600),
+        "RESOURCE_RATE_LIMIT_MAX": (1, 10000),
+        "RESOURCE_RATE_LIMIT_WINDOW_SECONDS": (1, 3600),
+        "AUDIT_LOG_RETENTION_DAYS": (1, 3650),
     }
 
     @staticmethod
@@ -230,6 +254,22 @@ class BaseConfig:
                 ENV_AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS,
                 cls.AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS,
             ),
+            "RESOURCE_RATE_LIMIT_MAX": cls._env_int(
+                ENV_RESOURCE_RATE_LIMIT_MAX,
+                cls.RESOURCE_RATE_LIMIT_MAX,
+            ),
+            "RESOURCE_RATE_LIMIT_WINDOW_SECONDS": cls._env_int(
+                ENV_RESOURCE_RATE_LIMIT_WINDOW_SECONDS,
+                cls.RESOURCE_RATE_LIMIT_WINDOW_SECONDS,
+            ),
+            "RESOURCE_RBAC_REQUIRE_ORG_ROLE_ALIGNMENT": cls._env_bool(
+                ENV_RESOURCE_RBAC_REQUIRE_ORG_ROLE_ALIGNMENT,
+                cls.RESOURCE_RBAC_REQUIRE_ORG_ROLE_ALIGNMENT,
+            ),
+            "WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE": cls._env_bool(
+                ENV_WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE,
+                cls.WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE,
+            ),
             "ENABLE_AUDIT_LOGS": cls._env_bool(
                 ENV_ENABLE_AUDIT_LOGS,
                 cls.ENABLE_AUDIT_LOGS,
@@ -237,6 +277,14 @@ class BaseConfig:
             "REQUEST_ID_HEADER": cls._env_str(
                 ENV_REQUEST_ID_HEADER,
                 cls.REQUEST_ID_HEADER,
+            ),
+            "API_VERSION": cls._env_str(
+                ENV_API_VERSION,
+                cls.API_VERSION,
+            ),
+            "AUDIT_LOG_RETENTION_DAYS": cls._env_int(
+                ENV_AUDIT_LOG_RETENTION_DAYS,
+                cls.AUDIT_LOG_RETENTION_DAYS,
             ),
             "JWT_ADDITIONAL_KEYS": cls._env_key_map(
                 ENV_JWT_ADDITIONAL_KEYS,
@@ -268,6 +316,9 @@ class BaseConfig:
                 raise RuntimeError(f"{key} must be between {lower} and {upper}")
 
         cls.get_bool(app.config, "ENABLE_AUDIT_LOGS", cls.ENABLE_AUDIT_LOGS)
+        api_version = cls.get_str(app.config, "API_VERSION", cls.API_VERSION)
+        if not api_version.startswith("v") or not api_version[1:].isdigit():
+            raise RuntimeError("API_VERSION must use format v<integer>, for example v1")
 
         active_kid = cls.get_str(app.config, "JWT_ACTIVE_KID", cls.JWT_ACTIVE_KID)
         if not active_kid:
@@ -352,6 +403,26 @@ class BaseConfig:
                 "AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS",
                 cls.AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS,
             ),
+            "resource_rate_limit_max": cls.get_int(
+                config,
+                "RESOURCE_RATE_LIMIT_MAX",
+                cls.RESOURCE_RATE_LIMIT_MAX,
+            ),
+            "resource_rate_limit_window_seconds": cls.get_int(
+                config,
+                "RESOURCE_RATE_LIMIT_WINDOW_SECONDS",
+                cls.RESOURCE_RATE_LIMIT_WINDOW_SECONDS,
+            ),
+            "resource_rbac_require_org_role_alignment": cls.get_bool(
+                config,
+                "RESOURCE_RBAC_REQUIRE_ORG_ROLE_ALIGNMENT",
+                cls.RESOURCE_RBAC_REQUIRE_ORG_ROLE_ALIGNMENT,
+            ),
+            "workflow_strict_review_before_approve": cls.get_bool(
+                config,
+                "WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE",
+                cls.WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE,
+            ),
             "enable_audit_logs": cls.get_bool(
                 config,
                 "ENABLE_AUDIT_LOGS",
@@ -361,6 +432,16 @@ class BaseConfig:
                 config,
                 "REQUEST_ID_HEADER",
                 cls.REQUEST_ID_HEADER,
+            ),
+            "api_version": cls.get_str(
+                config,
+                "API_VERSION",
+                cls.API_VERSION,
+            ),
+            "audit_log_retention_days": cls.get_int(
+                config,
+                "AUDIT_LOG_RETENTION_DAYS",
+                cls.AUDIT_LOG_RETENTION_DAYS,
             ),
             "jwt_additional_key_ids": sorted(
                 list((config.get("JWT_ADDITIONAL_KEYS") or {}).keys())

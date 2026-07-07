@@ -63,6 +63,7 @@ class SessionAuditLog(db.Document):
     user_agent = db.StringField()
     metadata = db.DictField()
     created_at = db.DateTimeField(default=datetime.utcnow)
+    expires_at = db.DateTimeField(required=True)
 
     meta = {
         "collection": "session_audit_logs",
@@ -76,6 +77,7 @@ class SessionAuditLog(db.Document):
             {"fields": ["target_user_uuid", "-created_at"]},
             {"fields": ["action", "-created_at"]},
             {"fields": ["-created_at"]},
+            {"fields": ["expires_at"], "expireAfterSeconds": 0},
         ],
     }
 

@@ -28,6 +28,7 @@ from app.schemas.auth import (
     RefreshTokenRequest,
     RegisterRequest,
     SessionInfo,
+    SessionListQuery,
     SessionListResponse,
     TokenPairResponse,
 )
@@ -200,6 +201,7 @@ __all__ = [
     "RefreshTokenRequest",
     "LogoutRequest",
     "SessionInfo",
+    "SessionListQuery",
     "SessionListResponse",
     "RevokeSessionRequest",
     "RevokeSessionResponse",

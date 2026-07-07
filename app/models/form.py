@@ -24,6 +24,22 @@ DOCUMENT_STATUS_CHOICES = (
     "deleted",
 )
 
+FORM_WORKFLOW_STATE_CHOICES = (
+    "draft",
+    "submitted",
+    "in_review",
+    "approved",
+    "rejected",
+)
+
+FORM_WORKFLOW_ALLOWED_TRANSITIONS = {
+    "draft": {"submitted"},
+    "submitted": {"in_review", "approved", "rejected"},
+    "in_review": {"approved", "rejected"},
+    "approved": set(),
+    "rejected": {"submitted"},
+}
+
 FORM_RESPONSE_STATUS_CHOICES = (
     "draft",
     "submitted",
@@ -32,6 +48,14 @@ FORM_RESPONSE_STATUS_CHOICES = (
     "rejected",
     "deleted",
 )
+
+FORM_RESPONSE_ALLOWED_TRANSITIONS = {
+    "draft": {"submitted", "deleted"},
+    "submitted": {"in_review", "rejected", "deleted"},
+    "in_review": {"approved", "rejected", "deleted"},
+    "approved": {"deleted"},
+    "rejected": {"submitted", "deleted"},
+}
 
 
 def _collect_version_uuids(versions):
@@ -67,6 +91,27 @@ def _validate_versioned_map_keys(versioned_map, versions, field_name):
     if invalid_keys:
         raise ValidationError(
             f"{field_name} contains unknown version UUID keys: {', '.join(invalid_keys)}"
+        )
+
+
+def _persisted_state(instance, field_name):
+    if not getattr(instance, "id", None):
+        return None
+
+    persisted = instance.__class__.objects(id=instance.id).only(field_name).first()
+    if not persisted:
+        return None
+    return getattr(persisted, field_name, None)
+
+
+def _ensure_transition_allowed(previous_state, new_state, allowed_map, field_name):
+    if previous_state is None or previous_state == new_state:
+        return
+
+    allowed = allowed_map.get(previous_state, set())
+    if new_state not in allowed:
+        raise ValidationError(
+            f"Invalid {field_name} transition: {previous_state} -> {new_state}"
         )
 
 class Version(db.EmbeddedDocument):
@@ -182,6 +227,24 @@ class Choice(db.EmbeddedDocument):
     value = db.StringField(required=True)
 
     visibility_condition = db.ReferenceField("Condition")
+
+
+class FormWorkflowEvent(db.EmbeddedDocument):
+    action = db.StringField(required=True, choices=("submit", "review", "approve"))
+    actor_user_uuid = db.StringField(required=True)
+    note = db.StringField()
+    transition_from = db.StringField(choices=FORM_WORKFLOW_STATE_CHOICES)
+    transition_to = db.StringField(choices=FORM_WORKFLOW_STATE_CHOICES)
+    outcome = db.StringField(required=True, choices=("success", "idempotent", "rejected"))
+    created_at = db.DateTimeField(default=datetime.utcnow)
+    request_id = db.StringField()
+
+
+class FormResponseStatusEvent(db.EmbeddedDocument):
+    transition_from = db.StringField(choices=FORM_RESPONSE_STATUS_CHOICES)
+    transition_to = db.StringField(required=True, choices=FORM_RESPONSE_STATUS_CHOICES)
+    changed_at = db.DateTimeField(default=datetime.utcnow)
+    reason = db.StringField()
 
 class Question(db.Document):
     uuid = db.StringField(required=True, unique=True)
@@ -368,6 +431,10 @@ class Form(db.Document):
     tags = db.ListField(db.StringField())
     icon = db.StringField()
 
+    workflow_state = db.StringField(choices=FORM_WORKFLOW_STATE_CHOICES, default="draft")
+    workflow_updated_at = db.DateTimeField(default=datetime.utcnow)
+    workflow_history = db.ListField(db.EmbeddedDocumentField(FormWorkflowEvent), default=list)
+
     created_at = db.DateTimeField(default=datetime.utcnow)
     updated_at = db.DateTimeField(default=datetime.utcnow)
     status = db.StringField(choices=DOCUMENT_STATUS_CHOICES, default="active")
@@ -378,6 +445,14 @@ class Form(db.Document):
     }
 
     def clean(self):
+        previous_state = _persisted_state(self, "workflow_state")
+        _ensure_transition_allowed(
+            previous_state,
+            self.workflow_state,
+            FORM_WORKFLOW_ALLOWED_TRANSITIONS,
+            "workflow_state",
+        )
+
         _ensure_unique_values(_collect_version_uuids(self.versions), "Form.versions.uuid")
         _validate_versioned_map_keys(self.sections, self.versions, "Form.sections")
 
@@ -407,8 +482,17 @@ class Form(db.Document):
                     f"Form requires at least {required_approver_count} unique approver(s)"
                 )
 
+        if self.workflow_state == "approved" and self.requires_reviewer:
+            if self.min_reviewers_required > 0 and not self.reviewers:
+                raise ValidationError("approved workflow requires reviewer assignments")
+
+        if self.workflow_state == "approved" and self.requires_approver:
+            if self.min_approvers_required > 0 and not self.approvers:
+                raise ValidationError("approved workflow requires approver assignments")
+
     def save(self, *args, **kwargs):
         self.updated_at = datetime.utcnow()
+        self.workflow_updated_at = datetime.utcnow()
         return super().save(*args, **kwargs)
 
 class Project(db.Document):
@@ -470,6 +554,7 @@ class FormResponse(db.Document):
     submitted_by_uuid = db.StringField()
 
     status = db.StringField(choices=FORM_RESPONSE_STATUS_CHOICES, default="draft")
+    status_history = db.ListField(db.EmbeddedDocumentField(FormResponseStatusEvent), default=list)
 
     responses = db.ListField(db.EmbeddedDocumentField(ResponseItem), default=list)
     response_map = db.MapField(db.DynamicField(), default=dict)
@@ -509,6 +594,14 @@ class FormResponse(db.Document):
     }
 
     def clean(self):
+        previous_status = _persisted_state(self, "status")
+        _ensure_transition_allowed(
+            previous_status,
+            self.status,
+            FORM_RESPONSE_ALLOWED_TRANSITIONS,
+            "status",
+        )
+
         if self.form and not self.form_uuid:
             self.form_uuid = self.form.uuid
 
@@ -552,12 +645,22 @@ class FormResponse(db.Document):
 
         if self.status in ("in_review", "approved", "rejected") and not self.reviewed_at:
             self.reviewed_at = datetime.utcnow()
+        if self.status in ("draft", "submitted"):
+            self.reviewed_at = None
+            self.reviewed_by = []
 
         if self.status == "approved" and not self.approved_at:
             self.approved_at = datetime.utcnow()
+        if self.status in ("draft", "submitted", "in_review", "rejected"):
+            self.approved_at = None
+            self.approved_by = []
 
         if self.status == "deleted" and not self.deleted_at:
             self.deleted_at = datetime.utcnow()
+
+        if self.status != "deleted":
+            self.deleted_at = None
+            self.deleted_by = None
 
         response_keys = []
         for item in self.responses:
@@ -565,6 +668,22 @@ class FormResponse(db.Document):
                 response_keys.append(f"{item.question_uuid}:{item.repeat_index or 0}")
 
         _ensure_unique_values(response_keys, "FormResponse.responses.question_uuid+repeat_index")
+
+        if previous_status != self.status:
+            self.status_history = list(self.status_history or [])
+            self.status_history.append(
+                FormResponseStatusEvent(
+                    transition_from=previous_status,
+                    transition_to=self.status,
+                )
+            )
+        elif not self.status_history:
+            self.status_history = [
+                FormResponseStatusEvent(
+                    transition_from=None,
+                    transition_to=self.status,
+                )
+            ]
 
     def save(self, *args, **kwargs):
         self.updated_at = datetime.utcnow()

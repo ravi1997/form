@@ -3,6 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, Dict
 
+from flask import current_app
+
+from app.config import BaseConfig
 from app.models.auth import RateLimitCounter, SessionAuditLog
 
 
@@ -55,6 +58,14 @@ def log_session_audit_event(
     user_agent: str | None = None,
     metadata: Dict[str, Any] | None = None,
 ) -> None:
+    retention_days = int(
+        current_app.config.get(
+            "AUDIT_LOG_RETENTION_DAYS",
+            BaseConfig.AUDIT_LOG_RETENTION_DAYS,
+        )
+    )
+    expires_at = datetime.utcnow() + timedelta(days=retention_days)
+
     SessionAuditLog(
         actor_user_uuid=actor_user_uuid,
         target_user_uuid=target_user_uuid,
@@ -64,4 +75,5 @@ def log_session_audit_event(
         ip_address=ip_address,
         user_agent=user_agent,
         metadata=metadata or {},
+        expires_at=expires_at,
     ).save()
