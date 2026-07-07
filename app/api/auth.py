@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
@@ -80,6 +80,10 @@ auth_api = APIBlueprint("auth", __name__, url_prefix="/api/v1/auth")
 logger = logging.getLogger(__name__)
 
 
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def _unauthorized(message: str):
     return to_json_ready(ErrorResponse(message=message)), 401
 
@@ -141,7 +145,7 @@ def _security_event(
         "reason": reason,
         "details": details or {},
         "request_id": getattr(g, "request_id", None),
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": _utcnow().isoformat().replace("+00:00", "Z"),
     }
     logger.info("security_event=%s", payload)
 
@@ -267,7 +271,7 @@ def register(body: RegisterRequest):
         )
         return _bad_request("Email already registered")
 
-    now = datetime.utcnow()
+    now = _utcnow()
     user = User(
         uuid=str(uuid4()),
         name=body.name,
@@ -341,7 +345,7 @@ def login(body: LoginRequest):
         )
         return _unauthorized("Invalid email or password")
 
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = _utcnow()
     user.save()
 
     session = create_user_session(

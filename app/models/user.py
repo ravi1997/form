@@ -1,5 +1,5 @@
 from app.extensions import db
-from datetime import datetime
+from datetime import datetime, timezone
 from mongoengine.errors import ValidationError
 
 ROLE_CHOICES = (
@@ -26,14 +26,18 @@ ORGANIZATION_STATUS_CHOICES = (
 )
 
 
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class Organization(db.Document):
     uuid = db.StringField(required=True, unique=True)  # DD-MM-YY-XXXX
     name = db.StringField(required=True, unique=True)
 
     admins = db.ListField(db.ReferenceField("User"))
 
-    created_at = db.DateTimeField(default=datetime.utcnow)
-    updated_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=utcnow)
+    updated_at = db.DateTimeField(default=utcnow)
     status = db.StringField(choices=ORGANIZATION_STATUS_CHOICES, default="active")
     deleted_at = db.DateTimeField()
     deleted_by = db.ReferenceField("User")
@@ -49,10 +53,10 @@ class Organization(db.Document):
             raise ValidationError("Organization name cannot be empty")
 
         if self.status == "deleted" and not self.deleted_at:
-            self.deleted_at = datetime.utcnow()
+            self.deleted_at = utcnow()
 
     def save(self, *args, **kwargs):
-        self.updated_at = datetime.utcnow()
+        self.updated_at = utcnow()
         return super().save(*args, **kwargs)
 
 
@@ -73,8 +77,8 @@ class User(db.Document):
     # stored as: { "org_id": ["role1", "role2"] }
     roles = db.MapField(db.ListField(db.StringField(choices=ROLE_CHOICES)))
 
-    created_at = db.DateTimeField(default=datetime.utcnow)
-    updated_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=utcnow)
+    updated_at = db.DateTimeField(default=utcnow)
 
     verified_at = db.DateTimeField()
     verified_by = db.StringField()
@@ -121,7 +125,7 @@ class User(db.Document):
             raise ValidationError("password_hash is required for local auth users")
 
         if self.status == "deleted" and not self.deleted_at:
-            self.deleted_at = datetime.utcnow()
+            self.deleted_at = utcnow()
 
         if self.roles and self.organizations:
             organization_keys = set()
@@ -147,5 +151,5 @@ class User(db.Document):
                 )
 
     def save(self, *args, **kwargs):
-        self.updated_at = datetime.utcnow()
+        self.updated_at = utcnow()
         return super().save(*args, **kwargs)

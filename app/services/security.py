@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
 from flask import current_app
 
 from app.config import BaseConfig
 from app.models.auth import RateLimitCounter, SessionAuditLog
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def check_and_increment_rate_limit(
@@ -16,7 +20,7 @@ def check_and_increment_rate_limit(
     max_requests: int,
     window_seconds: int,
 ) -> Dict[str, int | bool]:
-    now = datetime.utcnow()
+    now = utcnow()
     bucket_epoch = int(now.timestamp()) // window_seconds
     expires_at = now + timedelta(seconds=window_seconds)
 
@@ -64,7 +68,7 @@ def log_session_audit_event(
             BaseConfig.AUDIT_LOG_RETENTION_DAYS,
         )
     )
-    expires_at = datetime.utcnow() + timedelta(days=retention_days)
+    expires_at = utcnow() + timedelta(days=retention_days)
 
     SessionAuditLog(
         actor_user_uuid=actor_user_uuid,
