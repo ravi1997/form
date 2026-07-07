@@ -72,6 +72,10 @@ class SessionAuditLog(db.Document):
             "session_uuid",
             "action",
             "created_at",
+            {"fields": ["actor_user_uuid", "-created_at"]},
+            {"fields": ["target_user_uuid", "-created_at"]},
+            {"fields": ["action", "-created_at"]},
+            {"fields": ["-created_at"]},
         ],
     }
 

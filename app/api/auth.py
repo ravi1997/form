@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 from datetime import datetime
 from typing import Optional
 from uuid import uuid4
@@ -66,6 +67,7 @@ except ImportError as exc:  # pragma: no cover - evaluated only when package is 
 
 auth_tag = Tag(name="Auth", description="JWT authentication")
 auth_api = APIBlueprint("auth", __name__, url_prefix="/api/auth")
+logger = logging.getLogger(__name__)
 
 
 def _unauthorized(message: str):
@@ -101,6 +103,32 @@ def _is_audit_enabled() -> bool:
 def _audit_log(**kwargs):
     if _is_audit_enabled():
         log_session_audit_event(**kwargs)
+
+
+def _security_event(
+    *,
+    event: str,
+    outcome: str,
+    endpoint: str,
+    actor_user_uuid: Optional[str] = None,
+    target_user_uuid: Optional[str] = None,
+    limit_scope: Optional[str] = None,
+    reason: Optional[str] = None,
+    details: Optional[dict] = None,
+):
+    payload = {
+        "event": event,
+        "outcome": outcome,
+        "endpoint": endpoint,
+        "ip": _client_ip(),
+        "actor_user_uuid": actor_user_uuid,
+        "target_user_uuid": target_user_uuid,
+        "limit_scope": limit_scope,
+        "reason": reason,
+        "details": details or {},
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }
+    logger.info("security_event=%s", payload)
 
 
 def _encode_audit_cursor(created_at: datetime) -> str:
@@ -145,6 +173,14 @@ def _enforce_rate_limit(scope: str, key: str):
     )
     if bool(result["limited"]):
         limit_scope = "user" if key.startswith("user:") else "ip"
+        _security_event(
+            event="rate_limit",
+            outcome="throttled",
+            endpoint=f"/api/auth/{scope}",
+            limit_scope=limit_scope,
+            reason="rate_limit_exceeded",
+            details={"scope": scope, "key": key, "retry_after": int(result["retry_after"])} ,
+        )
         return _too_many_requests(
             message="Too many requests for this endpoint. Please try again later.",
             retry_after=int(result["retry_after"]),
@@ -248,6 +284,13 @@ def _require_admin_for_user(header: AuthorizationHeader, target_user_uuid: str):
 def register(body: RegisterRequest):
     email = str(body.email).strip().lower()
     if User.objects(email=email).first():
+        _security_event(
+            event="register",
+            outcome="rejected",
+            endpoint="/api/auth/register",
+            reason="email_exists",
+            details={"email": email},
+        )
         return _bad_request("Email already registered")
 
     now = datetime.utcnow()
@@ -278,6 +321,13 @@ def register(body: RegisterRequest):
         expires_in=access_token_ttl_seconds(),
         user=to_user_output(user),
     )
+    _security_event(
+        event="register",
+        outcome="success",
+        endpoint="/api/auth/register",
+        actor_user_uuid=user.uuid,
+        details={"session_uuid": str(session["session_uuid"]), "email": email},
+    )
     return to_json_ready(payload), 201
 
 
@@ -297,9 +347,24 @@ def login(body: LoginRequest):
     email = str(body.email).strip().lower()
     user = User.objects(email=email).first()
     if not user or not user.password_hash:
+        _security_event(
+            event="login",
+            outcome="failed",
+            endpoint="/api/auth/login",
+            reason="invalid_credentials",
+            details={"email": email},
+        )
         return _unauthorized("Invalid email or password")
 
     if not check_password_hash(user.password_hash, body.password):
+        _security_event(
+            event="login",
+            outcome="failed",
+            endpoint="/api/auth/login",
+            actor_user_uuid=user.uuid,
+            reason="invalid_credentials",
+            details={"email": email},
+        )
         return _unauthorized("Invalid email or password")
 
     user.last_login_at = datetime.utcnow()
@@ -319,6 +384,13 @@ def login(body: LoginRequest):
         expires_in=access_token_ttl_seconds(),
         user=to_user_output(user),
     )
+    _security_event(
+        event="login",
+        outcome="success",
+        endpoint="/api/auth/login",
+        actor_user_uuid=user.uuid,
+        details={"session_uuid": str(session["session_uuid"]), "email": email},
+    )
     return to_json_ready(payload)
 
 
@@ -335,6 +407,12 @@ def refresh_token(body: RefreshTokenRequest):
     try:
         payload = decode_token(body.refresh_token, expected_type="refresh")
     except AuthError as exc:
+        _security_event(
+            event="refresh",
+            outcome="failed",
+            endpoint="/api/auth/refresh",
+            reason=str(exc),
+        )
         return _unauthorized(str(exc))
 
     user_limit = _enforce_user_rate_limit(scope="refresh", user_key=payload.get("sub"))
@@ -342,15 +420,36 @@ def refresh_token(body: RefreshTokenRequest):
         return user_limit
 
     if is_refresh_token_revoked(body.refresh_token, payload=payload):
+        _security_event(
+            event="refresh",
+            outcome="failed",
+            endpoint="/api/auth/refresh",
+            actor_user_uuid=payload.get("sub"),
+            reason="refresh_token_revoked",
+        )
         return _unauthorized("Refresh token has been revoked")
 
     user = User.objects(uuid=payload["sub"]).first()
     if not user:
+        _security_event(
+            event="refresh",
+            outcome="failed",
+            endpoint="/api/auth/refresh",
+            actor_user_uuid=payload.get("sub"),
+            reason="user_not_found",
+        )
         return _unauthorized("User not found")
 
     try:
         rotated = rotate_refresh_token(body.refresh_token)
     except AuthError as exc:
+        _security_event(
+            event="refresh",
+            outcome="failed",
+            endpoint="/api/auth/refresh",
+            actor_user_uuid=payload.get("sub"),
+            reason=str(exc),
+        )
         return _unauthorized(str(exc))
 
     response = AccessTokenResponse(
@@ -358,6 +457,13 @@ def refresh_token(body: RefreshTokenRequest):
         refresh_token=str(rotated["refresh_token"]),
         session_uuid=str(rotated["session_uuid"]),
         expires_in=access_token_ttl_seconds(),
+    )
+    _security_event(
+        event="refresh",
+        outcome="success",
+        endpoint="/api/auth/refresh",
+        actor_user_uuid=payload.get("sub"),
+        details={"session_uuid": str(rotated["session_uuid"])},
     )
     return to_json_ready(response)
 
@@ -379,6 +485,12 @@ def logout(body: LogoutRequest):
             return user_limit
         revoke_refresh_token(body.refresh_token, reason="logout")
     except AuthError as exc:
+        _security_event(
+            event="logout",
+            outcome="failed",
+            endpoint="/api/auth/logout",
+            reason=str(exc),
+        )
         return _unauthorized(str(exc))
 
     _audit_log(
@@ -390,6 +502,14 @@ def logout(body: LogoutRequest):
         ip_address=_client_ip(),
         user_agent=request.headers.get("User-Agent"),
         metadata={"endpoint": "/api/auth/logout"},
+    )
+
+    _security_event(
+        event="logout",
+        outcome="success",
+        endpoint="/api/auth/logout",
+        actor_user_uuid=payload["sub"],
+        details={"session_uuid": payload["sid"]},
     )
 
     return to_json_ready(LogoutResponse())
@@ -462,6 +582,13 @@ def revoke_session_endpoint(header: AuthorizationHeader, body: RevokeSessionRequ
         return _unauthorized(str(exc))
 
     if body.session_uuid == payload["sid"]:
+        _security_event(
+            event="session_revoke",
+            outcome="rejected",
+            endpoint="/api/auth/sessions/revoke",
+            actor_user_uuid=payload["sub"],
+            reason="current_session_disallowed",
+        )
         return _bad_request("Use /api/auth/logout for current session")
 
     revoked = revoke_session(
@@ -470,6 +597,15 @@ def revoke_session_endpoint(header: AuthorizationHeader, body: RevokeSessionRequ
         reason="session_revoke",
     )
     if not revoked:
+        _security_event(
+            event="session_revoke",
+            outcome="failed",
+            endpoint="/api/auth/sessions/revoke",
+            actor_user_uuid=payload["sub"],
+            target_user_uuid=payload["sub"],
+            reason="session_not_found",
+            details={"session_uuid": body.session_uuid},
+        )
         return _bad_request("Session not found or already inactive")
 
     _audit_log(
@@ -481,6 +617,15 @@ def revoke_session_endpoint(header: AuthorizationHeader, body: RevokeSessionRequ
         ip_address=_client_ip(),
         user_agent=request.headers.get("User-Agent"),
         metadata={"endpoint": "/api/auth/sessions/revoke"},
+    )
+
+    _security_event(
+        event="session_revoke",
+        outcome="success",
+        endpoint="/api/auth/sessions/revoke",
+        actor_user_uuid=payload["sub"],
+        target_user_uuid=payload["sub"],
+        details={"session_uuid": body.session_uuid},
     )
 
     touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
@@ -517,6 +662,15 @@ def logout_all(header: AuthorizationHeader, body: LogoutAllSessionsRequest):
             "revoked_count": revoked_count,
             "keep_current": body.keep_current,
         },
+    )
+
+    _security_event(
+        event="logout_all",
+        outcome="success",
+        endpoint="/api/auth/logout-all",
+        actor_user_uuid=payload["sub"],
+        target_user_uuid=payload["sub"],
+        details={"revoked_count": revoked_count, "keep_current": body.keep_current},
     )
 
     if body.keep_current:
@@ -577,6 +731,15 @@ def admin_revoke_user_session(
         reason="admin_revoke",
     )
     if not revoked:
+        _security_event(
+            event="admin_session_revoke",
+            outcome="failed",
+            endpoint="/api/auth/admin/users/<user_uuid>/sessions/revoke",
+            actor_user_uuid=payload["sub"],
+            target_user_uuid=path.user_uuid,
+            reason="session_not_found",
+            details={"session_uuid": body.session_uuid},
+        )
         return _bad_request("Session not found or already inactive")
 
     _audit_log(
@@ -588,6 +751,15 @@ def admin_revoke_user_session(
         ip_address=_client_ip(),
         user_agent=request.headers.get("User-Agent"),
         metadata={"endpoint": "/api/auth/admin/users/<user_uuid>/sessions/revoke"},
+    )
+
+    _security_event(
+        event="admin_session_revoke",
+        outcome="success",
+        endpoint="/api/auth/admin/users/<user_uuid>/sessions/revoke",
+        actor_user_uuid=payload["sub"],
+        target_user_uuid=path.user_uuid,
+        details={"session_uuid": body.session_uuid},
     )
 
     touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
@@ -622,6 +794,15 @@ def admin_revoke_all_user_sessions(header: AuthorizationHeader, path: AdminUserP
             "endpoint": "/api/auth/admin/users/<user_uuid>/sessions/revoke-all",
             "revoked_count": revoked_count,
         },
+    )
+
+    _security_event(
+        event="admin_sessions_revoke_all",
+        outcome="success",
+        endpoint="/api/auth/admin/users/<user_uuid>/sessions/revoke-all",
+        actor_user_uuid=payload["sub"],
+        target_user_uuid=path.user_uuid,
+        details={"revoked_count": revoked_count},
     )
 
     touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
@@ -694,6 +875,13 @@ def admin_config_health(header: AuthorizationHeader):
             "ENABLE_AUDIT_LOGS",
             BaseConfig.ENABLE_AUDIT_LOGS,
         ),
+    )
+
+    _security_event(
+        event="admin_config_health",
+        outcome="success",
+        endpoint="/api/auth/admin/config/health",
+        actor_user_uuid=payload["sub"],
     )
 
     return to_json_ready(response)
@@ -772,6 +960,18 @@ def admin_audit_logs(header: AuthorizationHeader, query: AdminAuditLogQuery):
         total_pages=total_pages,
         next_cursor=next_cursor,
     )
+    _security_event(
+        event="admin_audit_logs",
+        outcome="success",
+        endpoint="/api/auth/admin/audit-logs",
+        actor_user_uuid=payload["sub"],
+        details={
+            "page": page,
+            "page_size": page_size,
+            "used_cursor": bool(query.cursor),
+            "returned_items": len(items),
+        },
+    )
     return to_json_ready(response)
 
 
@@ -843,5 +1043,20 @@ def admin_audit_logs_search(header: AuthorizationHeader, query: AdminAuditLogSea
         total_items=total_items,
         total_pages=total_pages,
         next_cursor=next_cursor,
+    )
+    _security_event(
+        event="admin_audit_logs_search",
+        outcome="success",
+        endpoint="/api/auth/admin/audit-logs/search",
+        actor_user_uuid=payload["sub"],
+        details={
+            "page": page,
+            "page_size": page_size,
+            "used_cursor": bool(query.cursor),
+            "returned_items": len(items),
+            "has_user_filter": bool(query.user_uuid),
+            "has_action_filter": bool(query.action),
+            "has_date_filter": bool(query.start_at or query.end_at),
+        },
     )
     return to_json_ready(response)

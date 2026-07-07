@@ -251,6 +251,60 @@ class BaseConfig:
 
         cls.validate_all(app)
 
+    @classmethod
+    def public_config_snapshot(cls, config: Mapping[str, Any]) -> Dict[str, Any]:
+        return {
+            "env_name": cls.get_str(config, "ENV_NAME", cls.ENV_NAME),
+            "debug": cls.get_bool(config, "DEBUG", cls.DEBUG),
+            "jwt_algorithm": cls.get_str(config, "JWT_ALGORITHM", cls.JWT_ALGORITHM),
+            "jwt_access_token_expires_minutes": cls.get_int(
+                config,
+                "JWT_ACCESS_TOKEN_EXPIRES_MINUTES",
+                cls.JWT_ACCESS_TOKEN_EXPIRES_MINUTES,
+            ),
+            "jwt_refresh_token_expires_days": cls.get_int(
+                config,
+                "JWT_REFRESH_TOKEN_EXPIRES_DAYS",
+                cls.JWT_REFRESH_TOKEN_EXPIRES_DAYS,
+            ),
+            "auth_rate_limit_login_max": cls.get_int(
+                config,
+                "AUTH_RATE_LIMIT_LOGIN_MAX",
+                cls.AUTH_RATE_LIMIT_LOGIN_MAX,
+            ),
+            "auth_rate_limit_login_window_seconds": cls.get_int(
+                config,
+                "AUTH_RATE_LIMIT_LOGIN_WINDOW_SECONDS",
+                cls.AUTH_RATE_LIMIT_LOGIN_WINDOW_SECONDS,
+            ),
+            "auth_rate_limit_refresh_max": cls.get_int(
+                config,
+                "AUTH_RATE_LIMIT_REFRESH_MAX",
+                cls.AUTH_RATE_LIMIT_REFRESH_MAX,
+            ),
+            "auth_rate_limit_refresh_window_seconds": cls.get_int(
+                config,
+                "AUTH_RATE_LIMIT_REFRESH_WINDOW_SECONDS",
+                cls.AUTH_RATE_LIMIT_REFRESH_WINDOW_SECONDS,
+            ),
+            "auth_rate_limit_logout_max": cls.get_int(
+                config,
+                "AUTH_RATE_LIMIT_LOGOUT_MAX",
+                cls.AUTH_RATE_LIMIT_LOGOUT_MAX,
+            ),
+            "auth_rate_limit_logout_window_seconds": cls.get_int(
+                config,
+                "AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS",
+                cls.AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS,
+            ),
+            "enable_audit_logs": cls.get_bool(
+                config,
+                "ENABLE_AUDIT_LOGS",
+                cls.ENABLE_AUDIT_LOGS,
+            ),
+            "jwt_secret_configured": bool(config.get("JWT_SECRET_KEY")),
+        }
+
 
 class DevelopmentConfig(BaseConfig):
     """Configuration for local development."""
@@ -303,3 +357,4 @@ def apply_app_config(
     config_class = get_config_class(env_name=env_name)
     config_class.load_app_config(app, overrides=overrides)
     logger.info("Config loaded: %s", config_class.__name__)
+    logger.info("Config snapshot: %s", config_class.public_config_snapshot(app.config))
