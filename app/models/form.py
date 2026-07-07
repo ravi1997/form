@@ -1,0 +1,572 @@
+from app.extensions import db
+from datetime import datetime
+from mongoengine.errors import ValidationError
+
+
+VERSION_STATUS_CHOICES = (
+    "published",
+    "archived",
+    "deleted",
+    "draft",
+    "disabled",
+)
+
+CONDITION_TYPE_CHOICES = (
+    "regex",
+    "comparison",
+    "logical",
+    "custom",
+)
+
+DOCUMENT_STATUS_CHOICES = (
+    "active",
+    "inactive",
+    "deleted",
+)
+
+FORM_RESPONSE_STATUS_CHOICES = (
+    "draft",
+    "submitted",
+    "in_review",
+    "approved",
+    "rejected",
+    "deleted",
+)
+
+
+def _collect_version_uuids(versions):
+    uuids = []
+    for version in versions or []:
+        if version.uuid:
+            uuids.append(version.uuid)
+    return uuids
+
+
+def _ensure_unique_values(values, field_name):
+    if len(values) != len(set(values)):
+        raise ValidationError(f"Duplicate values found in {field_name}")
+
+
+def _unique_ref_count(ref_list):
+    unique_ids = set()
+    for ref in ref_list or []:
+        if ref is None:
+            continue
+        ref_id = getattr(ref, "id", None)
+        unique_ids.add(str(ref_id) if ref_id is not None else str(ref))
+    return len(unique_ids)
+
+
+def _validate_versioned_map_keys(versioned_map, versions, field_name):
+    if not versioned_map:
+        return
+
+    valid_uuids = set(_collect_version_uuids(versions))
+    invalid_keys = [key for key in versioned_map.keys() if key not in valid_uuids]
+
+    if invalid_keys:
+        raise ValidationError(
+            f"{field_name} contains unknown version UUID keys: {', '.join(invalid_keys)}"
+        )
+
+class Version(db.EmbeddedDocument):
+    uuid = db.StringField(required=True)
+
+    major = db.IntField(required=True, min_value=0, default=0)
+    minor = db.IntField(required=True, min_value=0, default=0)
+    patch = db.IntField(required=True, min_value=0, default=0)
+
+    created = db.DateTimeField(default=datetime.utcnow)
+    created_by = db.ReferenceField("User")
+
+    updated = db.DateTimeField()
+    updated_by = db.ReferenceField("User")
+
+    status = db.StringField(
+        choices=VERSION_STATUS_CHOICES,
+        default="draft",
+    )
+
+    def clean(self):
+        if self.status == "DISABLED":
+            self.status = "disabled"
+
+        if self.created and self.updated is None:
+            self.updated = self.created
+
+class Condition(db.Document):
+    uuid = db.StringField(required=True, unique=True)
+
+    conditionType = db.StringField(choices=CONDITION_TYPE_CHOICES)
+    expression = db.StringField()
+
+    targetField = db.StringField()
+    sourceSectionUuid = db.StringField()
+
+    operator = db.StringField()
+    operands = db.ListField(db.StringField())
+
+    isNegated = db.BooleanField(default=False)
+
+    # recursive tree support
+    subConditions = db.ListField(db.LazyReferenceField("self"))
+    logicalJoinType = db.StringField(choices=["AND", "OR"])
+
+    isActive = db.BooleanField(default=True)
+
+    errorMessage = db.StringField()
+    description = db.StringField()
+
+    priority = db.IntField(default=0)
+    stopEvaluationIfTrue = db.BooleanField(default=False)
+
+    metadata = db.DictField()
+
+    created_at = db.DateTimeField(default=datetime.utcnow)
+    updated_at = db.DateTimeField(default=datetime.utcnow)
+    status = db.StringField(choices=DOCUMENT_STATUS_CHOICES, default="active")
+
+    meta = {
+        "collection": "conditions",
+        "indexes": ["uuid", "conditionType", "status", "priority"],
+    }
+
+    def clean(self):
+        if not self.conditionType:
+            raise ValidationError("conditionType is required")
+
+        is_logical = self.conditionType == "logical"
+
+        if is_logical:
+            if not self.logicalJoinType:
+                raise ValidationError("logicalJoinType is required for logical conditions")
+            if not self.subConditions:
+                raise ValidationError("Logical conditions require at least one sub-condition")
+            if self.expression or self.operator or self.operands:
+                raise ValidationError(
+                    "Logical conditions cannot also define expression/operator/operands"
+                )
+
+            if self.id is not None:
+                for sub_condition in self.subConditions:
+                    if sub_condition.pk == self.id:
+                        raise ValidationError("A condition cannot reference itself as sub-condition")
+        else:
+            if self.logicalJoinType:
+                raise ValidationError("logicalJoinType is only valid for logical conditions")
+            if self.subConditions:
+                raise ValidationError("subConditions are only valid for logical conditions")
+
+            if self.conditionType == "regex":
+                if not self.expression or not self.targetField:
+                    raise ValidationError("Regex conditions require expression and targetField")
+
+            if self.conditionType == "comparison":
+                if not self.targetField or not self.operator:
+                    raise ValidationError("Comparison conditions require targetField and operator")
+                if not self.operands:
+                    raise ValidationError("Comparison conditions require at least one operand")
+
+            if self.conditionType == "custom" and not self.expression:
+                raise ValidationError("Custom conditions require expression")
+
+    def save(self, *args, **kwargs):
+        self.updated_at = datetime.utcnow()
+        return super().save(*args, **kwargs)
+
+
+
+class Choice(db.EmbeddedDocument):
+    uuid = db.StringField(required=True)
+    label = db.StringField(required=True)
+    value = db.StringField(required=True)
+
+    visibility_condition = db.ReferenceField("Condition")
+
+class Question(db.Document):
+    uuid = db.StringField(required=True, unique=True)
+
+    versions = db.ListField(db.EmbeddedDocumentField(Version))
+
+    type = db.StringField(required=True)
+
+    label = db.StringField(required=True)
+    placeholder = db.StringField()
+    description = db.StringField()
+    default_value = db.DynamicField()
+    help_text = db.StringField()
+    tooltip = db.StringField()
+
+    validation_conditions = db.ListField(db.ReferenceField("Condition"))
+    validation_condition_messages = db.MapField(db.StringField())
+
+    visibility_conditions = db.ListField(db.ReferenceField("Condition"))
+
+    add_button = db.BooleanField(default=False)
+
+    is_repeatable = db.BooleanField(default=False)
+    repeatable_condition = db.ReferenceField("Condition")
+
+    check_repeat_on = db.StringField()
+
+    min_repeatable_count = db.IntField()
+    max_repeatable_count = db.IntField()
+
+    isAction = db.BooleanField(default=False)
+    actionButtonType = db.StringField()
+    actionType = db.StringField()
+    actionLabel = db.StringField()
+
+    tags = db.ListField(db.StringField())
+
+    choices = db.ListField(db.EmbeddedDocumentField(Choice))
+
+    hideButton = db.BooleanField(default=False)
+
+    actionIcon = db.StringField()
+
+    created_at = db.DateTimeField(default=datetime.utcnow)
+    updated_at = db.DateTimeField(default=datetime.utcnow)
+    status = db.StringField(choices=DOCUMENT_STATUS_CHOICES, default="active")
+
+    meta = {
+        "collection": "questions",
+        "indexes": ["uuid", "type", "status", "tags"],
+    }
+
+    def clean(self):
+        _ensure_unique_values(_collect_version_uuids(self.versions), "Question.versions.uuid")
+
+        if (
+            self.min_repeatable_count is not None
+            and self.max_repeatable_count is not None
+            and self.min_repeatable_count > self.max_repeatable_count
+        ):
+            raise ValidationError("min_repeatable_count cannot be greater than max_repeatable_count")
+
+        if self.is_repeatable:
+            if self.min_repeatable_count is None:
+                self.min_repeatable_count = 1
+            if self.max_repeatable_count is None:
+                self.max_repeatable_count = 10
+
+        if self.isAction and (not self.actionType or not self.actionLabel):
+            raise ValidationError("Action questions require actionType and actionLabel")
+
+        if self.choices:
+            choice_uuids = [choice.uuid for choice in self.choices]
+            choice_values = [choice.value for choice in self.choices]
+            _ensure_unique_values(choice_uuids, "Question.choices.uuid")
+            _ensure_unique_values(choice_values, "Question.choices.value")
+
+    def save(self, *args, **kwargs):
+        self.updated_at = datetime.utcnow()
+        return super().save(*args, **kwargs)
+
+
+class Section(db.Document):
+    uuid = db.StringField(required=True, unique=True)
+
+    versions = db.ListField(db.EmbeddedDocumentField(Version))
+
+    # replaces Map<Version, Vector<Question>>
+    questions = db.MapField(db.ListField(db.StringField()))
+    # structure:
+    # {
+    #   "version_uuid": ["question_id1", "question_id2"]
+    # }
+
+    add_button = db.BooleanField(default=False)
+    is_repeatable = db.BooleanField(default=False)
+
+    repeatable_condition = db.ReferenceField("Condition")
+
+    check_repeat_on = db.StringField()
+
+    min_repeatable_count = db.IntField()
+    max_repeatable_count = db.IntField()
+
+    title = db.StringField()
+    description = db.StringField()
+
+    isDeleted = db.BooleanField(default=False)
+    deletedBy = db.ReferenceField("User")
+    deletedAt = db.DateTimeField()
+    deleted_at = db.DateTimeField()
+    deleted_by = db.ReferenceField("User")
+
+    visibility_condition = db.ReferenceField("Condition")
+
+    validation_conditions = db.ListField(db.ReferenceField("Condition"))
+    validation_condition_messages = db.MapField(db.StringField())
+
+    tags = db.ListField(db.StringField())
+    icon = db.StringField()
+
+    created_at = db.DateTimeField(default=datetime.utcnow)
+    updated_at = db.DateTimeField(default=datetime.utcnow)
+    status = db.StringField(choices=DOCUMENT_STATUS_CHOICES, default="active")
+
+    meta = {
+        "collection": "sections",
+        "indexes": ["uuid", "status", "tags"],
+    }
+
+    def clean(self):
+        _ensure_unique_values(_collect_version_uuids(self.versions), "Section.versions.uuid")
+        _validate_versioned_map_keys(self.questions, self.versions, "Section.questions")
+
+        if (
+            self.min_repeatable_count is not None
+            and self.max_repeatable_count is not None
+            and self.min_repeatable_count > self.max_repeatable_count
+        ):
+            raise ValidationError("min_repeatable_count cannot be greater than max_repeatable_count")
+
+        if self.isDeleted:
+            if not self.deletedAt:
+                self.deletedAt = datetime.utcnow()
+            if not self.deleted_at:
+                self.deleted_at = self.deletedAt
+        elif self.deleted_at and not self.deletedAt:
+            self.deletedAt = self.deleted_at
+
+        if self.deleted_by and not self.deletedBy:
+            self.deletedBy = self.deleted_by
+        elif self.deletedBy and not self.deleted_by:
+            self.deleted_by = self.deletedBy
+
+    def save(self, *args, **kwargs):
+        self.updated_at = datetime.utcnow()
+        return super().save(*args, **kwargs)
+
+
+class Form(db.Document):
+    uuid = db.StringField(required=True, unique=True)
+
+    versions = db.ListField(db.EmbeddedDocumentField(Version))
+
+    # Map<Version, Vector<Section>>
+    sections = db.MapField(db.ListField(db.StringField()))
+
+    editors = db.ListField(db.ReferenceField("User"))
+    viewers = db.ListField(db.ReferenceField("User"))
+    reviewers = db.ListField(db.ReferenceField("User"))
+    approvers = db.ListField(db.ReferenceField("User"))
+    submitters = db.ListField(db.ReferenceField("User"))
+
+    requires_reviewer = db.BooleanField(default=False)
+    requires_approver = db.BooleanField(default=False)
+    min_reviewers_required = db.IntField(min_value=0, default=0)
+    min_approvers_required = db.IntField(min_value=0, default=0)
+
+    validation_conditions = db.ListField(db.ReferenceField("Condition"))
+    validation_condition_messages = db.MapField(db.StringField())
+
+    child_sections = db.ListField(db.ReferenceField("Section"))
+
+    tags = db.ListField(db.StringField())
+    icon = db.StringField()
+
+    created_at = db.DateTimeField(default=datetime.utcnow)
+    updated_at = db.DateTimeField(default=datetime.utcnow)
+    status = db.StringField(choices=DOCUMENT_STATUS_CHOICES, default="active")
+
+    meta = {
+        "collection": "forms",
+        "indexes": ["uuid", "status", "tags"],
+    }
+
+    def clean(self):
+        _ensure_unique_values(_collect_version_uuids(self.versions), "Form.versions.uuid")
+        _validate_versioned_map_keys(self.sections, self.versions, "Form.sections")
+
+        if self.min_reviewers_required > 0:
+            self.requires_reviewer = True
+
+        if self.min_approvers_required > 0:
+            self.requires_approver = True
+
+        if self.requires_reviewer and not self.reviewers:
+            raise ValidationError("Form requires reviewers but reviewers list is empty")
+
+        if self.requires_approver and not self.approvers:
+            raise ValidationError("Form requires approvers but approvers list is empty")
+
+        if self.requires_reviewer:
+            required_reviewer_count = max(1, self.min_reviewers_required)
+            if _unique_ref_count(self.reviewers) < required_reviewer_count:
+                raise ValidationError(
+                    f"Form requires at least {required_reviewer_count} unique reviewer(s)"
+                )
+
+        if self.requires_approver:
+            required_approver_count = max(1, self.min_approvers_required)
+            if _unique_ref_count(self.approvers) < required_approver_count:
+                raise ValidationError(
+                    f"Form requires at least {required_approver_count} unique approver(s)"
+                )
+
+    def save(self, *args, **kwargs):
+        self.updated_at = datetime.utcnow()
+        return super().save(*args, **kwargs)
+
+class Project(db.Document):
+    uuid = db.StringField(required=True, unique=True)
+    name = db.StringField(required=True)
+
+    versions = db.ListField(db.EmbeddedDocumentField(Version))
+
+    admins = db.ListField(db.ReferenceField("User"))
+    members = db.ListField(db.ReferenceField("User"))
+    viewers = db.ListField(db.ReferenceField("User"))
+
+    forms = db.ListField(db.ReferenceField("Form"))
+
+    organizations = db.ListField(db.ReferenceField("Organization"))
+
+    tags = db.ListField(db.StringField())
+
+    created_at = db.DateTimeField(default=datetime.utcnow)
+    updated_at = db.DateTimeField(default=datetime.utcnow)
+    status = db.StringField(choices=DOCUMENT_STATUS_CHOICES, default="active")
+
+    meta = {
+        "collection": "projects",
+        "indexes": ["uuid", "name", "status", "tags"],
+    }
+
+    def clean(self):
+        _ensure_unique_values(_collect_version_uuids(self.versions), "Project.versions.uuid")
+
+    def save(self, *args, **kwargs):
+        self.updated_at = datetime.utcnow()
+        return super().save(*args, **kwargs)
+
+
+class ResponseItem(db.EmbeddedDocument):
+    question_uuid = db.StringField(required=True)
+    section_uuid = db.StringField()
+    repeat_index = db.IntField(min_value=0)
+    value = db.DynamicField()
+    value_type = db.StringField()
+    metadata = db.DictField()
+
+
+class FormResponse(db.Document):
+    uuid = db.StringField(required=True, unique=True)
+
+    form = db.ReferenceField("Form", required=True)
+    form_uuid = db.StringField(required=True)
+    form_version_uuid = db.StringField(required=True)
+
+    project = db.ReferenceField("Project")
+    project_uuid = db.StringField()
+
+    organization = db.ReferenceField("Organization")
+    organization_uuid = db.StringField()
+
+    submitted_by = db.ReferenceField("User")
+    submitted_by_uuid = db.StringField()
+
+    status = db.StringField(choices=FORM_RESPONSE_STATUS_CHOICES, default="draft")
+
+    responses = db.ListField(db.EmbeddedDocumentField(ResponseItem), default=list)
+    response_map = db.MapField(db.DynamicField(), default=dict)
+
+    score = db.FloatField()
+    validation_errors = db.MapField(db.StringField(), default=dict)
+
+    submitted_at = db.DateTimeField()
+    reviewed_at = db.DateTimeField()
+    reviewed_by = db.ListField(db.ReferenceField("User"), default=list)
+    approved_at = db.DateTimeField()
+    approved_by = db.ListField(db.ReferenceField("User"), default=list)
+
+    created_at = db.DateTimeField(default=datetime.utcnow)
+    updated_at = db.DateTimeField(default=datetime.utcnow)
+    deleted_at = db.DateTimeField()
+    deleted_by = db.ReferenceField("User")
+
+    metadata = db.DictField()
+
+    meta = {
+        "collection": "form_responses",
+        "indexes": [
+            "uuid",
+            "form",
+            "form_uuid",
+            "form_version_uuid",
+            "status",
+            "submitted_by",
+            "reviewed_by",
+            "approved_by",
+            "organization",
+            "project",
+            "created_at",
+            "updated_at",
+        ],
+    }
+
+    def clean(self):
+        if self.form and not self.form_uuid:
+            self.form_uuid = self.form.uuid
+
+        if self.project and not self.project_uuid:
+            self.project_uuid = self.project.uuid
+
+        if self.organization and not self.organization_uuid:
+            self.organization_uuid = self.organization.uuid
+
+        if self.submitted_by and not self.submitted_by_uuid:
+            self.submitted_by_uuid = self.submitted_by.uuid
+
+        if self.status in ("submitted", "in_review", "approved", "rejected") and not self.submitted_at:
+            self.submitted_at = datetime.utcnow()
+
+        requires_reviewer = bool(self.form and self.form.requires_reviewer)
+        requires_approver = bool(self.form and self.form.requires_approver)
+        min_reviewers_required = self.form.min_reviewers_required if self.form else 0
+        min_approvers_required = self.form.min_approvers_required if self.form else 0
+
+        required_reviewers = max(1, min_reviewers_required) if requires_reviewer else 0
+        required_approvers = max(1, min_approvers_required) if requires_approver else 0
+
+        if (
+            required_reviewers > 0
+            and self.status in ("in_review", "rejected", "approved")
+            and _unique_ref_count(self.reviewed_by) < required_reviewers
+        ):
+            raise ValidationError(
+                f"This form requires at least {required_reviewers} reviewer(s) before review outcome states"
+            )
+
+        if (
+            required_approvers > 0
+            and self.status == "approved"
+            and _unique_ref_count(self.approved_by) < required_approvers
+        ):
+            raise ValidationError(
+                f"This form requires at least {required_approvers} approver(s) before approval"
+            )
+
+        if self.status in ("in_review", "approved", "rejected") and not self.reviewed_at:
+            self.reviewed_at = datetime.utcnow()
+
+        if self.status == "approved" and not self.approved_at:
+            self.approved_at = datetime.utcnow()
+
+        if self.status == "deleted" and not self.deleted_at:
+            self.deleted_at = datetime.utcnow()
+
+        response_keys = []
+        for item in self.responses:
+            if item.question_uuid:
+                response_keys.append(f"{item.question_uuid}:{item.repeat_index or 0}")
+
+        _ensure_unique_values(response_keys, "FormResponse.responses.question_uuid+repeat_index")
+
+    def save(self, *args, **kwargs):
+        self.updated_at = datetime.utcnow()
+        return super().save(*args, **kwargs)
+
