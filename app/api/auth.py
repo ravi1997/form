@@ -76,8 +76,10 @@ def _bad_request(message: str):
     return to_json_ready(ErrorResponse(message=message)), 400
 
 
-def _too_many_requests(message: str, retry_after: int):
-    response, status = to_json_ready(ErrorResponse(message=message)), 429
+def _too_many_requests(message: str, retry_after: int, limit_scope: str):
+    response, status = to_json_ready(
+        ErrorResponse(message=message, limit_scope=limit_scope)
+    ), 429
     return response, status, {"Retry-After": str(retry_after)}
 
 
@@ -142,9 +144,11 @@ def _enforce_rate_limit(scope: str, key: str):
         window_seconds=window_seconds,
     )
     if bool(result["limited"]):
+        limit_scope = "user" if key.startswith("user:") else "ip"
         return _too_many_requests(
             message="Too many requests for this endpoint. Please try again later.",
             retry_after=int(result["retry_after"]),
+            limit_scope=limit_scope,
         )
     return None
 

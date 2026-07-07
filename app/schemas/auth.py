@@ -55,6 +55,7 @@ class AccessTokenResponse(SchemaModel):
 
 class ErrorResponse(SchemaModel):
     message: str
+    limit_scope: Optional[Literal["ip", "user"]] = None
 
 
 class LogoutResponse(SchemaModel):
