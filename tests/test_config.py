@@ -79,6 +79,47 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 DevelopmentConfig.load_app_config(app)
 
+    def test_resource_rate_limit_bounds_validation_raises(self):
+        app = DummyApp()
+        cases = [
+            {"RESOURCE_RATE_LIMIT_MAX": "10001"},
+            {"RESOURCE_RATE_LIMIT_WINDOW_SECONDS": "0"},
+        ]
+
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
+                env = {"APP_ENV": "development"}
+                env.update(overrides)
+                with mock.patch.dict(os.environ, env, clear=True):
+                    with self.assertRaises(RuntimeError):
+                        DevelopmentConfig.load_app_config(app)
+
+    def test_invalid_workflow_rbac_boolean_env_raises(self):
+        app = DummyApp()
+        with mock.patch.dict(
+            os.environ,
+            {
+                "APP_ENV": "development",
+                "RESOURCE_RBAC_REQUIRE_ORG_ROLE_ALIGNMENT": "maybe",
+            },
+            clear=True,
+        ):
+            with self.assertRaises(RuntimeError):
+                DevelopmentConfig.load_app_config(app)
+
+    def test_public_config_snapshot_includes_workflow_rbac_flags(self):
+        snapshot = BaseConfig.public_config_snapshot(
+            {
+                "RESOURCE_RBAC_REQUIRE_ORG_ROLE_ALIGNMENT": False,
+                "WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE": False,
+            }
+        )
+
+        self.assertIn("resource_rbac_require_org_role_alignment", snapshot)
+        self.assertIn("workflow_strict_review_before_approve", snapshot)
+        self.assertFalse(snapshot["resource_rbac_require_org_role_alignment"])
+        self.assertFalse(snapshot["workflow_strict_review_before_approve"])
+
     def test_unknown_env_key_warns_in_development(self):
         app = DummyApp()
         with mock.patch.dict(
