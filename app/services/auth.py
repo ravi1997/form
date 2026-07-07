@@ -240,7 +240,7 @@ def touch_session(session_uuid: str, user_uuid: str) -> None:
     session = get_session(session_uuid=session_uuid, user_uuid=user_uuid)
     if not session:
         return
-    session.last_seen_at = datetime.utcnow()
+    session.last_seen_at = _utcnow()
     session.save()
 
 
@@ -323,7 +323,7 @@ def rotate_refresh_token(token: str) -> Dict[str, Any]:
     session.refresh_expires_at = datetime.fromtimestamp(
         new_refresh_payload["exp"], tz=timezone.utc
     )
-    session.last_seen_at = datetime.utcnow()
+    session.last_seen_at = _utcnow()
     session.save()
 
     new_access_token = create_access_token(
@@ -356,9 +356,9 @@ def revoke_session(session_uuid: str, user_uuid: str, reason: str = "logout") ->
         ).save()
 
     session.is_active = False
-    session.revoked_at = datetime.utcnow()
+    session.revoked_at = _utcnow()
     session.revoked_reason = reason
-    session.last_seen_at = datetime.utcnow()
+    session.last_seen_at = _utcnow()
     session.save()
     return True
 

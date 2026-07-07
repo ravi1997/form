@@ -10,7 +10,8 @@ from app.models.auth import RateLimitCounter, SessionAuditLog
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    # Keep naive UTC to match mongoengine DateTimeField values in rate-limit math.
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def check_and_increment_rate_limit(
