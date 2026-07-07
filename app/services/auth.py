@@ -37,7 +37,9 @@ def _jwt_active_kid() -> str:
 def _jwt_keyring() -> Dict[str, str]:
     keyring = {_jwt_active_kid(): _jwt_secret()}
 
-    additional = current_app.config.get("JWT_ADDITIONAL_KEYS", BaseConfig.JWT_ADDITIONAL_KEYS)
+    additional = current_app.config.get(
+        "JWT_ADDITIONAL_KEYS", BaseConfig.JWT_ADDITIONAL_KEYS
+    )
     if additional and isinstance(additional, dict):
         for kid, secret in additional.items():
             if not kid or not secret:
@@ -62,7 +64,11 @@ def access_token_ttl_seconds() -> int:
 
 
 def _refresh_token_ttl_seconds() -> int:
-    days = int(current_app.config.get("JWT_REFRESH_TOKEN_EXPIRES_DAYS", BaseConfig.JWT_REFRESH_TOKEN_EXPIRES_DAYS))
+    days = int(
+        current_app.config.get(
+            "JWT_REFRESH_TOKEN_EXPIRES_DAYS", BaseConfig.JWT_REFRESH_TOKEN_EXPIRES_DAYS
+        )
+    )
     return days * 24 * 60 * 60
 
 
@@ -184,9 +190,13 @@ def create_user_session(
     device_name: Optional[str] = None,
 ) -> Dict[str, str | int]:
     session_uuid = str(uuid4())
-    refresh_token = create_refresh_token(user_uuid=user_uuid, email=email, session_uuid=session_uuid)
+    refresh_token = create_refresh_token(
+        user_uuid=user_uuid, email=email, session_uuid=session_uuid
+    )
     refresh_payload = decode_token(refresh_token, expected_type="refresh")
-    access_token = create_access_token(user_uuid=user_uuid, email=email, session_uuid=session_uuid)
+    access_token = create_access_token(
+        user_uuid=user_uuid, email=email, session_uuid=session_uuid
+    )
 
     expires_at = datetime.fromtimestamp(refresh_payload["exp"], tz=timezone.utc)
     UserSession(
@@ -209,11 +219,17 @@ def create_user_session(
 
 
 def get_session(session_uuid: str, user_uuid: str) -> Optional[UserSession]:
-    return UserSession.objects(session_uuid=session_uuid, user_uuid=user_uuid, is_active=True).first()
+    return UserSession.objects(
+        session_uuid=session_uuid, user_uuid=user_uuid, is_active=True
+    ).first()
 
 
 def list_active_sessions(user_uuid: str) -> List[UserSession]:
-    return list(UserSession.objects(user_uuid=user_uuid, is_active=True).order_by("-last_seen_at"))
+    return list(
+        UserSession.objects(user_uuid=user_uuid, is_active=True).order_by(
+            "-last_seen_at"
+        )
+    )
 
 
 def get_session_by_uuid(session_uuid: str) -> Optional[UserSession]:
@@ -231,7 +247,9 @@ def touch_session(session_uuid: str, user_uuid: str) -> None:
 def is_refresh_token_revoked(token: str, payload: Dict[str, Any] | None = None) -> bool:
     resolved_payload = payload or decode_token(token, expected_type="refresh")
 
-    session = get_session(session_uuid=resolved_payload["sid"], user_uuid=resolved_payload["sub"])
+    session = get_session(
+        session_uuid=resolved_payload["sid"], user_uuid=resolved_payload["sub"]
+    )
     if not session:
         return True
 
@@ -251,7 +269,9 @@ def revoke_refresh_token(token: str, reason: str = "logout") -> None:
     payload = decode_token(token, expected_type="refresh")
 
     if is_refresh_token_revoked(token, payload=payload):
-        revoke_session(session_uuid=payload["sid"], user_uuid=payload["sub"], reason=reason)
+        revoke_session(
+            session_uuid=payload["sid"], user_uuid=payload["sub"], reason=reason
+        )
         return
 
     expires_at = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
@@ -300,7 +320,9 @@ def rotate_refresh_token(token: str) -> Dict[str, Any]:
 
     session.refresh_jti = new_refresh_payload["jti"]
     session.refresh_token_hash = _token_hash(new_refresh_token)
-    session.refresh_expires_at = datetime.fromtimestamp(new_refresh_payload["exp"], tz=timezone.utc)
+    session.refresh_expires_at = datetime.fromtimestamp(
+        new_refresh_payload["exp"], tz=timezone.utc
+    )
     session.last_seen_at = datetime.utcnow()
     session.save()
 
@@ -341,12 +363,16 @@ def revoke_session(session_uuid: str, user_uuid: str, reason: str = "logout") ->
     return True
 
 
-def revoke_all_sessions(user_uuid: str, reason: str = "logout_all", except_session_uuid: str | None = None) -> int:
+def revoke_all_sessions(
+    user_uuid: str, reason: str = "logout_all", except_session_uuid: str | None = None
+) -> int:
     count = 0
     active_sessions = UserSession.objects(user_uuid=user_uuid, is_active=True)
     for session in active_sessions:
         if except_session_uuid and session.session_uuid == except_session_uuid:
             continue
-        if revoke_session(session_uuid=session.session_uuid, user_uuid=user_uuid, reason=reason):
+        if revoke_session(
+            session_uuid=session.session_uuid, user_uuid=user_uuid, reason=reason
+        ):
             count += 1
     return count

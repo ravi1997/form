@@ -110,7 +110,13 @@ from app.schemas.section import (
     SectionRef,
     SectionUpdateInput,
 )
-from app.schemas.user import UserBase, UserCreateInput, UserOutput, UserRef, UserUpdateInput
+from app.schemas.user import (
+    UserBase,
+    UserCreateInput,
+    UserOutput,
+    UserRef,
+    UserUpdateInput,
+)
 from app.schemas.version import (
     VersionBase,
     VersionCreateInput,
@@ -118,7 +124,6 @@ from app.schemas.version import (
     VersionRef,
     VersionUpdateInput,
 )
-
 
 __all__ = [
     "VersionBase",

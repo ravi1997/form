@@ -14,7 +14,6 @@ except ImportError as exc:  # pragma: no cover - evaluated only when package is 
 
 from app.schemas.common import SchemaModel
 
-
 system_tag = Tag(name="System", description="System and integration checks")
 schema_tag = Tag(name="Schemas", description="Schema validation and JSON IO examples")
 
@@ -32,7 +31,9 @@ def health():
     return to_json_ready(response)
 
 
-@health_api.post("/schemas/echo-form", tags=[schema_tag], responses={200: FormCreateInput})
+@health_api.post(
+    "/schemas/echo-form", tags=[schema_tag], responses={200: FormCreateInput}
+)
 def echo_form(body: FormCreateInput):
     """Accept a form schema payload and return it back as validated JSON."""
     return to_json_ready(body)

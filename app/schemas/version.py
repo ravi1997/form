@@ -7,7 +7,6 @@ from pydantic import Field
 
 from app.schemas.common import SchemaModel
 
-
 VersionStatus = Literal["published", "archived", "deleted", "draft", "disabled"]
 
 

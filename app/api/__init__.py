@@ -6,7 +6,6 @@ from app.api.auth import auth_api
 from app.api.health import health_api
 from app.api.resources import resources_api
 
-
 API_BLUEPRINTS = [health_api, auth_api, resources_api]
 
 legacy_api_compat = Blueprint("legacy_api_compat", __name__)

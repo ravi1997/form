@@ -2,7 +2,6 @@ from app.extensions import db
 from datetime import datetime
 from mongoengine.errors import ValidationError
 
-
 VERSION_STATUS_CHOICES = (
     "published",
     "archived",
@@ -114,6 +113,7 @@ def _ensure_transition_allowed(previous_state, new_state, allowed_map, field_nam
             f"Invalid {field_name} transition: {previous_state} -> {new_state}"
         )
 
+
 class Version(db.EmbeddedDocument):
     uuid = db.StringField(required=True)
 
@@ -138,6 +138,7 @@ class Version(db.EmbeddedDocument):
 
         if self.created and self.updated is None:
             self.updated = self.created
+
 
 class Condition(db.Document):
     uuid = db.StringField(required=True, unique=True)
@@ -184,9 +185,13 @@ class Condition(db.Document):
 
         if is_logical:
             if not self.logicalJoinType:
-                raise ValidationError("logicalJoinType is required for logical conditions")
+                raise ValidationError(
+                    "logicalJoinType is required for logical conditions"
+                )
             if not self.subConditions:
-                raise ValidationError("Logical conditions require at least one sub-condition")
+                raise ValidationError(
+                    "Logical conditions require at least one sub-condition"
+                )
             if self.expression or self.operator or self.operands:
                 raise ValidationError(
                     "Logical conditions cannot also define expression/operator/operands"
@@ -195,22 +200,34 @@ class Condition(db.Document):
             if self.id is not None:
                 for sub_condition in self.subConditions:
                     if sub_condition.pk == self.id:
-                        raise ValidationError("A condition cannot reference itself as sub-condition")
+                        raise ValidationError(
+                            "A condition cannot reference itself as sub-condition"
+                        )
         else:
             if self.logicalJoinType:
-                raise ValidationError("logicalJoinType is only valid for logical conditions")
+                raise ValidationError(
+                    "logicalJoinType is only valid for logical conditions"
+                )
             if self.subConditions:
-                raise ValidationError("subConditions are only valid for logical conditions")
+                raise ValidationError(
+                    "subConditions are only valid for logical conditions"
+                )
 
             if self.conditionType == "regex":
                 if not self.expression or not self.targetField:
-                    raise ValidationError("Regex conditions require expression and targetField")
+                    raise ValidationError(
+                        "Regex conditions require expression and targetField"
+                    )
 
             if self.conditionType == "comparison":
                 if not self.targetField or not self.operator:
-                    raise ValidationError("Comparison conditions require targetField and operator")
+                    raise ValidationError(
+                        "Comparison conditions require targetField and operator"
+                    )
                 if not self.operands:
-                    raise ValidationError("Comparison conditions require at least one operand")
+                    raise ValidationError(
+                        "Comparison conditions require at least one operand"
+                    )
 
             if self.conditionType == "custom" and not self.expression:
                 raise ValidationError("Custom conditions require expression")
@@ -218,7 +235,6 @@ class Condition(db.Document):
     def save(self, *args, **kwargs):
         self.updated_at = datetime.utcnow()
         return super().save(*args, **kwargs)
-
 
 
 class Choice(db.EmbeddedDocument):
@@ -235,7 +251,9 @@ class FormWorkflowEvent(db.EmbeddedDocument):
     note = db.StringField()
     transition_from = db.StringField(choices=FORM_WORKFLOW_STATE_CHOICES)
     transition_to = db.StringField(choices=FORM_WORKFLOW_STATE_CHOICES)
-    outcome = db.StringField(required=True, choices=("success", "idempotent", "rejected"))
+    outcome = db.StringField(
+        required=True, choices=("success", "idempotent", "rejected")
+    )
     created_at = db.DateTimeField(default=datetime.utcnow)
     request_id = db.StringField()
 
@@ -245,6 +263,7 @@ class FormResponseStatusEvent(db.EmbeddedDocument):
     transition_to = db.StringField(required=True, choices=FORM_RESPONSE_STATUS_CHOICES)
     changed_at = db.DateTimeField(default=datetime.utcnow)
     reason = db.StringField()
+
 
 class Question(db.Document):
     uuid = db.StringField(required=True, unique=True)
@@ -298,14 +317,18 @@ class Question(db.Document):
     }
 
     def clean(self):
-        _ensure_unique_values(_collect_version_uuids(self.versions), "Question.versions.uuid")
+        _ensure_unique_values(
+            _collect_version_uuids(self.versions), "Question.versions.uuid"
+        )
 
         if (
             self.min_repeatable_count is not None
             and self.max_repeatable_count is not None
             and self.min_repeatable_count > self.max_repeatable_count
         ):
-            raise ValidationError("min_repeatable_count cannot be greater than max_repeatable_count")
+            raise ValidationError(
+                "min_repeatable_count cannot be greater than max_repeatable_count"
+            )
 
         if self.is_repeatable:
             if self.min_repeatable_count is None:
@@ -376,7 +399,9 @@ class Section(db.Document):
     }
 
     def clean(self):
-        _ensure_unique_values(_collect_version_uuids(self.versions), "Section.versions.uuid")
+        _ensure_unique_values(
+            _collect_version_uuids(self.versions), "Section.versions.uuid"
+        )
         _validate_versioned_map_keys(self.questions, self.versions, "Section.questions")
 
         if (
@@ -384,7 +409,9 @@ class Section(db.Document):
             and self.max_repeatable_count is not None
             and self.min_repeatable_count > self.max_repeatable_count
         ):
-            raise ValidationError("min_repeatable_count cannot be greater than max_repeatable_count")
+            raise ValidationError(
+                "min_repeatable_count cannot be greater than max_repeatable_count"
+            )
 
         if self.isDeleted:
             if not self.deletedAt:
@@ -431,9 +458,13 @@ class Form(db.Document):
     tags = db.ListField(db.StringField())
     icon = db.StringField()
 
-    workflow_state = db.StringField(choices=FORM_WORKFLOW_STATE_CHOICES, default="draft")
+    workflow_state = db.StringField(
+        choices=FORM_WORKFLOW_STATE_CHOICES, default="draft"
+    )
     workflow_updated_at = db.DateTimeField(default=datetime.utcnow)
-    workflow_history = db.ListField(db.EmbeddedDocumentField(FormWorkflowEvent), default=list)
+    workflow_history = db.ListField(
+        db.EmbeddedDocumentField(FormWorkflowEvent), default=list
+    )
 
     created_at = db.DateTimeField(default=datetime.utcnow)
     updated_at = db.DateTimeField(default=datetime.utcnow)
@@ -453,7 +484,9 @@ class Form(db.Document):
             "workflow_state",
         )
 
-        _ensure_unique_values(_collect_version_uuids(self.versions), "Form.versions.uuid")
+        _ensure_unique_values(
+            _collect_version_uuids(self.versions), "Form.versions.uuid"
+        )
         _validate_versioned_map_keys(self.sections, self.versions, "Form.sections")
 
         if self.min_reviewers_required > 0:
@@ -495,6 +528,7 @@ class Form(db.Document):
         self.workflow_updated_at = datetime.utcnow()
         return super().save(*args, **kwargs)
 
+
 class Project(db.Document):
     uuid = db.StringField(required=True, unique=True)
     name = db.StringField(required=True)
@@ -521,7 +555,9 @@ class Project(db.Document):
     }
 
     def clean(self):
-        _ensure_unique_values(_collect_version_uuids(self.versions), "Project.versions.uuid")
+        _ensure_unique_values(
+            _collect_version_uuids(self.versions), "Project.versions.uuid"
+        )
 
     def save(self, *args, **kwargs):
         self.updated_at = datetime.utcnow()
@@ -554,7 +590,9 @@ class FormResponse(db.Document):
     submitted_by_uuid = db.StringField()
 
     status = db.StringField(choices=FORM_RESPONSE_STATUS_CHOICES, default="draft")
-    status_history = db.ListField(db.EmbeddedDocumentField(FormResponseStatusEvent), default=list)
+    status_history = db.ListField(
+        db.EmbeddedDocumentField(FormResponseStatusEvent), default=list
+    )
 
     responses = db.ListField(db.EmbeddedDocumentField(ResponseItem), default=list)
     response_map = db.MapField(db.DynamicField(), default=dict)
@@ -614,7 +652,10 @@ class FormResponse(db.Document):
         if self.submitted_by and not self.submitted_by_uuid:
             self.submitted_by_uuid = self.submitted_by.uuid
 
-        if self.status in ("submitted", "in_review", "approved", "rejected") and not self.submitted_at:
+        if (
+            self.status in ("submitted", "in_review", "approved", "rejected")
+            and not self.submitted_at
+        ):
             self.submitted_at = datetime.utcnow()
 
         requires_reviewer = bool(self.form and self.form.requires_reviewer)
@@ -643,7 +684,10 @@ class FormResponse(db.Document):
                 f"This form requires at least {required_approvers} approver(s) before approval"
             )
 
-        if self.status in ("in_review", "approved", "rejected") and not self.reviewed_at:
+        if (
+            self.status in ("in_review", "approved", "rejected")
+            and not self.reviewed_at
+        ):
             self.reviewed_at = datetime.utcnow()
         if self.status in ("draft", "submitted"):
             self.reviewed_at = None
@@ -667,7 +711,9 @@ class FormResponse(db.Document):
             if item.question_uuid:
                 response_keys.append(f"{item.question_uuid}:{item.repeat_index or 0}")
 
-        _ensure_unique_values(response_keys, "FormResponse.responses.question_uuid+repeat_index")
+        _ensure_unique_values(
+            response_keys, "FormResponse.responses.question_uuid+repeat_index"
+        )
 
         if previous_status != self.status:
             self.status_history = list(self.status_history or [])
@@ -688,4 +734,3 @@ class FormResponse(db.Document):
     def save(self, *args, **kwargs):
         self.updated_at = datetime.utcnow()
         return super().save(*args, **kwargs)
-

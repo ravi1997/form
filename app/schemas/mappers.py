@@ -113,7 +113,9 @@ def to_question_output(question: Any) -> QuestionOutput:
         help_text=question.help_text,
         tooltip=question.tooltip,
         validation_conditions=_uuid_list(question.validation_conditions),
-        validation_condition_messages=dict(question.validation_condition_messages or {}),
+        validation_condition_messages=dict(
+            question.validation_condition_messages or {}
+        ),
         visibility_conditions=_uuid_list(question.visibility_conditions),
         add_button=bool(question.add_button),
         is_repeatable=bool(question.is_repeatable),
@@ -136,7 +138,9 @@ def to_question_output(question: Any) -> QuestionOutput:
 
 
 def to_question_ref(question: Any) -> QuestionRef:
-    return QuestionRef(uuid=str(question.uuid), label=question.label, type=question.type)
+    return QuestionRef(
+        uuid=str(question.uuid), label=question.label, type=question.type
+    )
 
 
 def to_section_output(section: Any) -> SectionOutput:
@@ -174,7 +178,7 @@ def to_section_ref(section: Any) -> SectionRef:
 
 def to_form_output(form: Any) -> FormOutput:
     workflow_history = []
-    for event in (form.workflow_history or []):
+    for event in form.workflow_history or []:
         workflow_history.append(
             {
                 "action": event.action,
@@ -253,7 +257,7 @@ def to_response_item_output(item: Any) -> ResponseItemOutput:
 
 def to_form_response_output(response: Any) -> FormResponseOutput:
     status_history = []
-    for event in (response.status_history or []):
+    for event in response.status_history or []:
         status_history.append(
             {
                 "transition_from": event.transition_from,

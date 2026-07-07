@@ -5,7 +5,6 @@ import os
 import warnings
 from typing import Any, Dict, Mapping, Optional, Type
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -27,7 +26,9 @@ ENV_AUTH_RATE_LIMIT_LOGOUT_MAX = "AUTH_RATE_LIMIT_LOGOUT_MAX"
 ENV_AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS = "AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS"
 ENV_RESOURCE_RATE_LIMIT_MAX = "RESOURCE_RATE_LIMIT_MAX"
 ENV_RESOURCE_RATE_LIMIT_WINDOW_SECONDS = "RESOURCE_RATE_LIMIT_WINDOW_SECONDS"
-ENV_RESOURCE_RBAC_REQUIRE_ORG_ROLE_ALIGNMENT = "RESOURCE_RBAC_REQUIRE_ORG_ROLE_ALIGNMENT"
+ENV_RESOURCE_RBAC_REQUIRE_ORG_ROLE_ALIGNMENT = (
+    "RESOURCE_RBAC_REQUIRE_ORG_ROLE_ALIGNMENT"
+)
 ENV_WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE = "WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE"
 ENV_ENABLE_AUDIT_LOGS = "ENABLE_AUDIT_LOGS"
 ENV_REQUEST_ID_HEADER = "REQUEST_ID_HEADER"
@@ -136,7 +137,9 @@ class BaseConfig:
             raise RuntimeError(f"{name} must be an integer") from exc
 
     @staticmethod
-    def _env_key_map(name: str, default: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    def _env_key_map(
+        name: str, default: Optional[Dict[str, str]] = None
+    ) -> Dict[str, str]:
         raw = os.getenv(name)
         if raw is None or raw.strip() == "":
             return dict(default or {})
@@ -166,7 +169,9 @@ class BaseConfig:
             return True
         if normalized in {"0", "false", "no", "off"}:
             return False
-        raise RuntimeError(f"{name} must be a boolean (true/false, 1/0, yes/no, on/off)")
+        raise RuntimeError(
+            f"{name} must be a boolean (true/false, 1/0, yes/no, on/off)"
+        )
 
     @staticmethod
     def get_str(config: Mapping[str, Any], key: str, default: str) -> str:
@@ -340,14 +345,18 @@ class BaseConfig:
                 "Set JWT_SECRET_KEY for secure environments."
             )
 
-        if active_kid in additional_keys and app.config.get("JWT_SECRET_KEY") == additional_keys.get(active_kid):
+        if active_kid in additional_keys and app.config.get(
+            "JWT_SECRET_KEY"
+        ) == additional_keys.get(active_kid):
             cls._warn_or_raise(
                 "JWT_ACTIVE_KID should point to the primary JWT_SECRET_KEY, "
                 "not a duplicated key in JWT_ADDITIONAL_KEYS."
             )
 
     @classmethod
-    def load_app_config(cls, app, overrides: Optional[Mapping[str, Any]] = None) -> None:
+    def load_app_config(
+        cls, app, overrides: Optional[Mapping[str, Any]] = None
+    ) -> None:
         app.config.from_object(cls)
         app.config.update(cls.build_config_from_env())
 
@@ -488,7 +497,9 @@ CONFIG_BY_ENV = {
 
 
 def get_config_class(env_name: Optional[str] = None) -> Type[BaseConfig]:
-    resolved_name = env_name or os.getenv(ENV_APP_ENV) or os.getenv(ENV_FLASK_ENV) or "development"
+    resolved_name = (
+        env_name or os.getenv(ENV_APP_ENV) or os.getenv(ENV_FLASK_ENV) or "development"
+    )
     return CONFIG_BY_ENV.get(resolved_name.strip().lower(), DevelopmentConfig)
 
 

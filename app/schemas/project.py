@@ -8,7 +8,6 @@ from pydantic import Field
 from app.schemas.common import SchemaModel
 from app.schemas.version import VersionCreateInput, VersionOutput, VersionUpdateInput
 
-
 DocumentStatus = Literal["active", "inactive", "deleted"]
 
 

@@ -7,7 +7,6 @@ from pydantic import Field, model_validator
 
 from app.schemas.common import SchemaModel
 
-
 ConditionType = Literal["regex", "comparison", "logical", "custom"]
 DocumentStatus = Literal["active", "inactive", "deleted"]
 LogicalJoinType = Literal["AND", "OR"]
@@ -39,7 +38,9 @@ class ConditionBase(SchemaModel):
             if not self.logicalJoinType:
                 raise ValueError("logicalJoinType is required for logical conditions")
             if not self.subConditions:
-                raise ValueError("logical conditions require at least one sub-condition")
+                raise ValueError(
+                    "logical conditions require at least one sub-condition"
+                )
             if self.expression or self.operator or self.operands:
                 raise ValueError(
                     "logical conditions cannot include expression/operator/operands"
@@ -50,14 +51,20 @@ class ConditionBase(SchemaModel):
             if self.subConditions:
                 raise ValueError("subConditions are only valid for logical conditions")
 
-            if self.conditionType == "regex" and (not self.expression or not self.targetField):
+            if self.conditionType == "regex" and (
+                not self.expression or not self.targetField
+            ):
                 raise ValueError("regex conditions require expression and targetField")
 
             if self.conditionType == "comparison":
                 if not self.targetField or not self.operator:
-                    raise ValueError("comparison conditions require targetField and operator")
+                    raise ValueError(
+                        "comparison conditions require targetField and operator"
+                    )
                 if not self.operands:
-                    raise ValueError("comparison conditions require at least one operand")
+                    raise ValueError(
+                        "comparison conditions require at least one operand"
+                    )
 
             if self.conditionType == "custom" and not self.expression:
                 raise ValueError("custom conditions require expression")

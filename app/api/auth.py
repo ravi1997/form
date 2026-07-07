@@ -46,7 +46,6 @@ from app.schemas.user import UserOutput
 from app.services.auth import (
     AuthError,
     access_token_ttl_seconds,
-    create_access_token,
     create_user_session,
     decode_token,
     is_refresh_token_revoked,
@@ -57,10 +56,13 @@ from app.services.auth import (
     revoke_session,
     touch_session,
 )
-from app.services.security import check_and_increment_rate_limit, log_session_audit_event
+from app.services.security import (
+    check_and_increment_rate_limit,
+    log_session_audit_event,
+)
 from app.services.rbac import (
     get_user_by_uuid,
-    require_admin_by_payload,
+    require_global_admin_by_payload,
     require_admin_for_user_payload,
     resolve_access_identity_from_header,
 )
@@ -87,9 +89,10 @@ def _bad_request(message: str):
 
 
 def _too_many_requests(message: str, retry_after: int, limit_scope: str):
-    response, status = to_json_ready(
-        ErrorResponse(message=message, limit_scope=limit_scope)
-    ), 429
+    response, status = (
+        to_json_ready(ErrorResponse(message=message, limit_scope=limit_scope)),
+        429,
+    )
     return response, status, {"Retry-After": str(retry_after)}
 
 
@@ -144,7 +147,9 @@ def _security_event(
 
 
 def _encode_audit_cursor(created_at: datetime) -> str:
-    return base64.urlsafe_b64encode(created_at.isoformat().encode("utf-8")).decode("utf-8")
+    return base64.urlsafe_b64encode(created_at.isoformat().encode("utf-8")).decode(
+        "utf-8"
+    )
 
 
 def _decode_audit_cursor(cursor: str) -> datetime:
@@ -191,7 +196,11 @@ def _enforce_rate_limit(scope: str, key: str):
             endpoint=f"/api/v1/auth/{scope}",
             limit_scope=limit_scope,
             reason="rate_limit_exceeded",
-            details={"scope": scope, "key": key, "retry_after": int(result["retry_after"])} ,
+            details={
+                "scope": scope,
+                "key": key,
+                "retry_after": int(result["retry_after"]),
+            },
         )
         return _too_many_requests(
             message="Too many requests for this endpoint. Please try again later.",
@@ -233,7 +242,7 @@ def _resolve_access_identity(header: AuthorizationHeader):
 
 def _require_admin(header: AuthorizationHeader):
     payload = _resolve_access_identity(header)
-    return require_admin_by_payload(payload)
+    return require_global_admin_by_payload(payload)
 
 
 def _require_admin_for_user(header: AuthorizationHeader, target_user_uuid: str):
@@ -394,8 +403,9 @@ def refresh_token(body: RefreshTokenRequest):
         )
         return _unauthorized("Refresh token has been revoked")
 
-    user = get_user_by_uuid(payload["sub"])
-    if not user:
+    try:
+        get_user_by_uuid(payload["sub"])
+    except AuthError:
         _security_event(
             event="refresh",
             outcome="failed",
@@ -445,7 +455,9 @@ def logout(body: LogoutRequest):
 
     try:
         payload = decode_token(body.refresh_token, expected_type="refresh")
-        user_limit = _enforce_user_rate_limit(scope="logout", user_key=payload.get("sub"))
+        user_limit = _enforce_user_rate_limit(
+            scope="logout", user_key=payload.get("sub")
+        )
         if user_limit:
             return user_limit
         revoke_refresh_token(body.refresh_token, reason="logout")
@@ -686,7 +698,9 @@ def admin_list_user_sessions(
     query: SessionListQuery,
 ):
     try:
-        payload, _admin_user, _target_user = _require_admin_for_user(header, path.user_uuid)
+        payload, _admin_user, _target_user = _require_admin_for_user(
+            header, path.user_uuid
+        )
     except AuthError as exc:
         return _unauthorized(str(exc))
 
@@ -749,7 +763,9 @@ def admin_revoke_user_session(
     body: AdminRevokeSessionRequest,
 ):
     try:
-        payload, _admin_user, _target_user = _require_admin_for_user(header, path.user_uuid)
+        payload, _admin_user, _target_user = _require_admin_for_user(
+            header, path.user_uuid
+        )
     except AuthError as exc:
         return _unauthorized(str(exc))
 
@@ -801,7 +817,9 @@ def admin_revoke_user_session(
 )
 def admin_revoke_all_user_sessions(header: AuthorizationHeader, path: AdminUserPath):
     try:
-        payload, _admin_user, _target_user = _require_admin_for_user(header, path.user_uuid)
+        payload, _admin_user, _target_user = _require_admin_for_user(
+            header, path.user_uuid
+        )
     except AuthError as exc:
         return _unauthorized(str(exc))
 
@@ -1051,7 +1069,9 @@ def admin_audit_logs(header: AuthorizationHeader, query: AdminAuditLogQuery):
     tags=[auth_tag],
     responses={200: AdminAuditLogListResponse, 401: ErrorResponse},
 )
-def admin_audit_logs_search(header: AuthorizationHeader, query: AdminAuditLogSearchQuery):
+def admin_audit_logs_search(
+    header: AuthorizationHeader, query: AdminAuditLogSearchQuery
+):
     try:
         payload, _admin_user = _require_admin(header)
     except AuthError as exc:
@@ -1067,7 +1087,9 @@ def admin_audit_logs_search(header: AuthorizationHeader, query: AdminAuditLogSea
     if query.end_at:
         base_filter &= Q(created_at__lte=query.end_at)
     if query.user_uuid:
-        base_filter &= Q(actor_user_uuid=query.user_uuid) | Q(target_user_uuid=query.user_uuid)
+        base_filter &= Q(actor_user_uuid=query.user_uuid) | Q(
+            target_user_uuid=query.user_uuid
+        )
 
     page = query.page
     page_size = query.page_size

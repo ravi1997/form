@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Literal, Optional
 
-from pydantic import EmailStr, Field
+from pydantic import ConfigDict, EmailStr, Field
 
 from app.schemas.common import SchemaModel
 from app.schemas.user import UserOutput
@@ -33,6 +33,7 @@ class LogoutRequest(SchemaModel):
 
 
 class AuthorizationHeader(SchemaModel):
+    model_config = ConfigDict(extra="allow")
     Authorization: str = Field(min_length=10)
 
 

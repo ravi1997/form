@@ -8,7 +8,6 @@ from pydantic import Field, model_validator
 from app.schemas.common import SchemaModel
 from app.schemas.version import VersionCreateInput, VersionOutput, VersionUpdateInput
 
-
 DocumentStatus = Literal["active", "inactive", "deleted"]
 
 
@@ -41,7 +40,9 @@ class SectionBase(SchemaModel):
             and self.max_repeatable_count is not None
             and self.min_repeatable_count > self.max_repeatable_count
         ):
-            raise ValueError("min_repeatable_count cannot be greater than max_repeatable_count")
+            raise ValueError(
+                "min_repeatable_count cannot be greater than max_repeatable_count"
+            )
         return self
 
 

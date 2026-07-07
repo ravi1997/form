@@ -8,7 +8,6 @@ from pydantic import Field, model_validator
 from app.schemas.common import SchemaModel
 from app.schemas.version import VersionCreateInput, VersionOutput, VersionUpdateInput
 
-
 DocumentStatus = Literal["active", "inactive", "deleted"]
 FormWorkflowState = Literal["draft", "submitted", "in_review", "approved", "rejected"]
 
@@ -49,11 +48,19 @@ class FormBase(SchemaModel):
         if self.min_approvers_required > 0:
             self.requires_approver = True
 
-        if self.requires_reviewer and len(set(self.reviewers)) < max(1, self.min_reviewers_required):
-            raise ValueError("reviewers list does not satisfy requires_reviewer constraints")
+        if self.requires_reviewer and len(set(self.reviewers)) < max(
+            1, self.min_reviewers_required
+        ):
+            raise ValueError(
+                "reviewers list does not satisfy requires_reviewer constraints"
+            )
 
-        if self.requires_approver and len(set(self.approvers)) < max(1, self.min_approvers_required):
-            raise ValueError("approvers list does not satisfy requires_approver constraints")
+        if self.requires_approver and len(set(self.approvers)) < max(
+            1, self.min_approvers_required
+        ):
+            raise ValueError(
+                "approvers list does not satisfy requires_approver constraints"
+            )
 
         return self
 

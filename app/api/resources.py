@@ -9,7 +9,15 @@ from typing import Any, Dict, List, Literal, Optional, Type
 from flask import current_app, g, request
 from mongoengine.errors import NotUniqueError, ValidationError
 
-from app.models.form import Choice, Form, FormWorkflowEvent, Project, Question, Section, Version
+from app.models.form import (
+    Choice,
+    Form,
+    FormWorkflowEvent,
+    Project,
+    Question,
+    Section,
+    Version,
+)
 from app.models.form import Condition
 from app.models.user import Organization, User
 from app.schemas.common import SchemaModel
@@ -25,7 +33,11 @@ from app.schemas.mappers import (
     to_version_output,
 )
 from app.schemas.project import ProjectCreateInput, ProjectOutput, ProjectUpdateInput
-from app.schemas.question import QuestionCreateInput, QuestionOutput, QuestionUpdateInput
+from app.schemas.question import (
+    QuestionCreateInput,
+    QuestionOutput,
+    QuestionUpdateInput,
+)
 from app.schemas.section import SectionCreateInput, SectionOutput, SectionUpdateInput
 from app.schemas.version import VersionCreateInput, VersionOutput, VersionUpdateInput
 from app.services.auth import AuthError
@@ -44,7 +56,9 @@ except ImportError as exc:  # pragma: no cover
     ) from exc
 
 
-resources_tag = Tag(name="Resources", description="Project/Form/Section/Question resource APIs")
+resources_tag = Tag(
+    name="Resources", description="Project/Form/Section/Question resource APIs"
+)
 version_tag = Tag(name="Versions", description="Version append/update APIs")
 resources_api = APIBlueprint("resources", __name__, url_prefix="/api/v1")
 logger = logging.getLogger(__name__)
@@ -271,7 +285,9 @@ def _security_event(
 
 def _resources_rate_limit() -> Optional[tuple]:
     max_requests = int(current_app.config.get("RESOURCE_RATE_LIMIT_MAX", 300))
-    window_seconds = int(current_app.config.get("RESOURCE_RATE_LIMIT_WINDOW_SECONDS", 60))
+    window_seconds = int(
+        current_app.config.get("RESOURCE_RATE_LIMIT_WINDOW_SECONDS", 60)
+    )
     result = check_and_increment_rate_limit(
         scope="resources_api",
         key=f"ip:{_client_ip()}",
@@ -366,7 +382,9 @@ def _can_read_project(user: User, project: Project) -> bool:
         return True
 
     role_set = _project_role_set(user, project)
-    return bool({"admin", "editor", "viewer", "reviewer", "approver", "submitter"} & role_set)
+    return bool(
+        {"admin", "editor", "viewer", "reviewer", "approver", "submitter"} & role_set
+    )
 
 
 def _can_write_project(user: User, project: Project) -> bool:
@@ -431,7 +449,9 @@ def _validate_project_membership_role_alignment(project: Project) -> None:
     org_keys = _project_org_scope_keys(project)
     if not org_keys:
         if project.admins or project.members or project.viewers:
-            raise ValueError("Project organizations are required when membership lists are set")
+            raise ValueError(
+                "Project organizations are required when membership lists are set"
+            )
         return
 
     rules = {
@@ -444,7 +464,9 @@ def _validate_project_membership_role_alignment(project: Project) -> None:
         for user in getattr(project, attr, None) or []:
             matched = False
             for org_key, roles in (user.roles or {}).items():
-                if str(org_key) in org_keys and required_roles.intersection(set(roles or [])):
+                if str(org_key) in org_keys and required_roles.intersection(
+                    set(roles or [])
+                ):
                     matched = True
                     break
             if not matched:
@@ -454,11 +476,17 @@ def _validate_project_membership_role_alignment(project: Project) -> None:
 
 
 def _paginate_items(items: List[Any], query: ListQuery, sort_field: str = "updated_at"):
-    ordered = sorted(items, key=lambda item: getattr(item, sort_field, datetime.min), reverse=True)
+    ordered = sorted(
+        items, key=lambda item: getattr(item, sort_field, datetime.min), reverse=True
+    )
 
     if query.cursor:
         cursor_dt = _decode_cursor(query.cursor)
-        filtered = [item for item in ordered if getattr(item, sort_field, datetime.min) < cursor_dt]
+        filtered = [
+            item
+            for item in ordered
+            if getattr(item, sort_field, datetime.min) < cursor_dt
+        ]
         selected = filtered[: query.page_size]
         next_cursor = (
             _encode_cursor(getattr(selected[-1], sort_field, datetime.min))
@@ -491,7 +519,47 @@ def _paginate_items(items: List[Any], query: ListQuery, sort_field: str = "updat
     return selected, page, page_size, total_items, total_pages, next_cursor
 
 
-def _apply_form_workflow_action(form: Form, action: str, actor_user_uuid: str, note: Optional[str]) -> str:
+def _paginate_queryset(qs: Any, query: ListQuery, sort_field: str = "updated_at"):
+    ordered = qs.order_by(f"-{sort_field}")
+
+    if query.cursor:
+        cursor_dt = _decode_cursor(query.cursor)
+        filtered = ordered.filter(**{f"{sort_field}__lt": cursor_dt})
+        selected = list(filtered.limit(query.page_size))
+        next_cursor = (
+            _encode_cursor(getattr(selected[-1], sort_field, datetime.min))
+            if len(selected) == query.page_size
+            else None
+        )
+        return selected, query.page, query.page_size, None, None, next_cursor
+
+    if query.offset is not None or query.limit is not None:
+        limit = query.limit or 50
+        offset = query.offset or 0
+        selected = list(ordered.skip(offset).limit(limit))
+        page = (offset // max(limit, 1)) + 1
+        page_size = limit
+        total_items = ordered.count()
+        total_pages = (total_items + page_size - 1) // page_size if total_items else 0
+        return selected, page, page_size, total_items, total_pages, None
+
+    page = max(query.page, 1)
+    page_size = max(query.page_size, 1)
+    skip = (page - 1) * page_size
+    selected = list(ordered.skip(skip).limit(page_size))
+    total_items = ordered.count()
+    total_pages = (total_items + page_size - 1) // page_size if total_items else 0
+    next_cursor = (
+        _encode_cursor(getattr(selected[-1], sort_field, datetime.min))
+        if len(selected) == page_size
+        else None
+    )
+    return selected, page, page_size, total_items, total_pages, next_cursor
+
+
+def _apply_form_workflow_action(
+    form: Form, action: str, actor_user_uuid: str, note: Optional[str]
+) -> str:
     strict_review = bool(
         current_app.config.get(
             "WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE",
@@ -524,7 +592,9 @@ def _apply_form_workflow_action(form: Form, action: str, actor_user_uuid: str, n
         elif current_state == "approved":
             outcome = "idempotent"
             message = "review_already_processed"
-        elif current_state == "submitted" or (not strict_review and current_state in {"draft", "rejected"}):
+        elif current_state == "submitted" or (
+            not strict_review and current_state in {"draft", "rejected"}
+        ):
             target_state = "in_review"
         else:
             outcome = "rejected"
@@ -540,7 +610,9 @@ def _apply_form_workflow_action(form: Form, action: str, actor_user_uuid: str, n
         elif strict_review and form.requires_reviewer and current_state != "in_review":
             outcome = "rejected"
             message = "approve_requires_review"
-        elif current_state in {"submitted", "in_review"} or (not strict_review and current_state in {"draft", "rejected"}):
+        elif current_state in {"submitted", "in_review"} or (
+            not strict_review and current_state in {"draft", "rejected"}
+        ):
             target_state = "approved"
         else:
             outcome = "rejected"
@@ -749,7 +821,9 @@ def _apply_project_update(project: Project, body: ProjectUpdateInput) -> None:
     if "forms" in data:
         project.forms = _resolve_refs(Form, data["forms"], "form")
     if "organizations" in data:
-        project.organizations = _resolve_refs(Organization, data["organizations"], "organization")
+        project.organizations = _resolve_refs(
+            Organization, data["organizations"], "organization"
+        )
     if "tags" in data:
         project.tags = data["tags"]
     if "status" in data:
@@ -819,9 +893,13 @@ def _apply_section_update(section: Section, body: SectionUpdateInput) -> None:
             setattr(section, key, data[key])
 
     if "repeatable_condition" in data:
-        section.repeatable_condition = Condition.objects(uuid=data["repeatable_condition"]).first()
+        section.repeatable_condition = Condition.objects(
+            uuid=data["repeatable_condition"]
+        ).first()
     if "visibility_condition" in data:
-        section.visibility_condition = Condition.objects(uuid=data["visibility_condition"]).first()
+        section.visibility_condition = Condition.objects(
+            uuid=data["visibility_condition"]
+        ).first()
     if "validation_conditions" in data:
         section.validation_conditions = _resolve_refs(
             Condition, data["validation_conditions"], "validation_condition"
@@ -870,7 +948,9 @@ def _apply_question_update(question: Question, body: QuestionUpdateInput) -> Non
             Condition, data["visibility_conditions"], "visibility_condition"
         )
     if "repeatable_condition" in data:
-        question.repeatable_condition = Condition.objects(uuid=data["repeatable_condition"]).first()
+        question.repeatable_condition = Condition.objects(
+            uuid=data["repeatable_condition"]
+        ).first()
     if "choices" in data:
         choices = []
         for choice in body.choices or []:
@@ -879,11 +959,11 @@ def _apply_question_update(question: Question, body: QuestionUpdateInput) -> Non
                     "uuid": choice.uuid,
                     "label": choice.label,
                     "value": choice.value,
-                    "visibility_condition": Condition.objects(
-                        uuid=choice.visibility_condition
-                    ).first()
-                    if choice.visibility_condition
-                    else None,
+                    "visibility_condition": (
+                        Condition.objects(uuid=choice.visibility_condition).first()
+                        if choice.visibility_condition
+                        else None
+                    ),
                 }
             )
         question.choices = choices
@@ -897,7 +977,11 @@ def _list_docs(model: Type[Any], query: ListQuery):
 
 
 def _project_form_uuids(project: Project) -> set[str]:
-    return {str(getattr(form, "uuid", "")) for form in (project.forms or []) if getattr(form, "uuid", None)}
+    return {
+        str(getattr(form, "uuid", ""))
+        for form in (project.forms or [])
+        if getattr(form, "uuid", None)
+    }
 
 
 def _form_section_uuids(form: Form) -> set[str]:
@@ -916,7 +1000,9 @@ def _section_question_uuids(section: Section) -> set[str]:
     return uuids
 
 
-def _resolve_version_key(versions: list[Any], versioned_map: Dict[str, list[str]], requested: Optional[str]) -> str:
+def _resolve_version_key(
+    versions: list[Any], versioned_map: Dict[str, list[str]], requested: Optional[str]
+) -> str:
     available = [str(v.uuid) for v in (versions or []) if getattr(v, "uuid", None)]
 
     if requested:
@@ -989,7 +1075,11 @@ def _update_version(doc: Any, version_uuid: str, body: VersionUpdateInput) -> Ve
     raise ValueError("Version not found")
 
 
-@resources_api.post("/projects", tags=[resources_tag], responses={201: ProjectOutput, 400: ErrorResponse})
+@resources_api.post(
+    "/projects",
+    tags=[resources_tag],
+    responses={201: ProjectOutput, 400: ErrorResponse},
+)
 def create_project(body: ProjectCreateInput):
     try:
         project = Project(
@@ -1000,7 +1090,9 @@ def create_project(body: ProjectCreateInput):
             members=_resolve_refs(User, body.members, "member"),
             viewers=_resolve_refs(User, body.viewers, "viewer"),
             forms=_resolve_refs(Form, body.forms, "form"),
-            organizations=_resolve_refs(Organization, body.organizations, "organization"),
+            organizations=_resolve_refs(
+                Organization, body.organizations, "organization"
+            ),
             tags=body.tags,
             status=body.status,
         )
@@ -1011,14 +1103,18 @@ def create_project(body: ProjectCreateInput):
     return to_json_ready(to_project_output(project)), 201
 
 
-@resources_api.get("/projects", tags=[resources_tag], responses={200: ProjectListResponse})
+@resources_api.get(
+    "/projects", tags=[resources_tag], responses={200: ProjectListResponse}
+)
 def list_projects(query: ListQuery):
     user = getattr(g, "resources_user", None)
     qs = Project.objects
     if query.status:
         qs = qs(status=query.status)
 
-    visible_items = [project for project in list(qs) if _can_read_project(user, project)]
+    visible_items = [
+        project for project in list(qs) if _can_read_project(user, project)
+    ]
     try:
         items, page, page_size, total_items, total_pages, next_cursor = _paginate_items(
             visible_items,
@@ -1038,7 +1134,11 @@ def list_projects(query: ListQuery):
     )
 
 
-@resources_api.get("/projects/<uuid>", tags=[resources_tag], responses={200: ProjectOutput, 404: ErrorResponse})
+@resources_api.get(
+    "/projects/<uuid>",
+    tags=[resources_tag],
+    responses={200: ProjectOutput, 404: ErrorResponse},
+)
 def get_project(path: UUIDPath):
     item = Project.objects(uuid=path.uuid).first()
     if not item:
@@ -1046,7 +1146,11 @@ def get_project(path: UUIDPath):
     return to_json_ready(to_project_output(item))
 
 
-@resources_api.patch("/projects/<uuid>", tags=[resources_tag], responses={200: ProjectOutput, 400: ErrorResponse, 404: ErrorResponse})
+@resources_api.patch(
+    "/projects/<uuid>",
+    tags=[resources_tag],
+    responses={200: ProjectOutput, 400: ErrorResponse, 404: ErrorResponse},
+)
 def update_project(path: UUIDPath, body: ProjectUpdateInput):
     item = Project.objects(uuid=path.uuid).first()
     if not item:
@@ -1060,7 +1164,11 @@ def update_project(path: UUIDPath, body: ProjectUpdateInput):
     return to_json_ready(to_project_output(item))
 
 
-@resources_api.delete("/projects/<uuid>", tags=[resources_tag], responses={200: MessageResponse, 404: ErrorResponse})
+@resources_api.delete(
+    "/projects/<uuid>",
+    tags=[resources_tag],
+    responses={200: MessageResponse, 404: ErrorResponse},
+)
 def delete_project(path: UUIDPath):
     item = Project.objects(uuid=path.uuid).first()
     if not item:
@@ -1160,9 +1268,13 @@ def list_forms(path: ProjectPath, query: ListQuery):
 
     forms = [form for form in (project.forms or []) if getattr(form, "uuid", None)]
     if query.status:
-        forms = [form for form in forms if getattr(form, "status", None) == query.status]
+        forms = [
+            form for form in forms if getattr(form, "status", None) == query.status
+        ]
     try:
-        items, page, page_size, total_items, total_pages, next_cursor = _paginate_items(forms, query)
+        items, page, page_size, total_items, total_pages, next_cursor = _paginate_items(
+            forms, query
+        )
     except ValueError as exc:
         return _error(str(exc), 400)
     return to_json_ready(
@@ -1278,7 +1390,12 @@ def update_form_version(path: FormVersionPath, body: VersionUpdateInput):
 @resources_api.post(
     "/projects/<project_uuid>/forms/<form_uuid>/workflow/submit",
     tags=[resources_tag],
-    responses={200: WorkflowActionResponse, 400: ErrorResponse, 404: ErrorResponse, 409: ErrorResponse},
+    responses={
+        200: WorkflowActionResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        409: ErrorResponse,
+    },
 )
 def submit_form_workflow(path: FormPath, body: WorkflowActionRequest):
     project, project_err = _get_project_or_error(path.project_uuid)
@@ -1315,7 +1432,11 @@ def submit_form_workflow(path: FormPath, body: WorkflowActionRequest):
     _security_event(
         event="resources_workflow_submit",
         outcome="success",
-        details={"project_uuid": project.uuid, "form_uuid": form.uuid, "message": message},
+        details={
+            "project_uuid": project.uuid,
+            "form_uuid": form.uuid,
+            "message": message,
+        },
     )
     return to_json_ready(payload)
 
@@ -1323,7 +1444,12 @@ def submit_form_workflow(path: FormPath, body: WorkflowActionRequest):
 @resources_api.post(
     "/projects/<project_uuid>/forms/<form_uuid>/workflow/review",
     tags=[resources_tag],
-    responses={200: WorkflowActionResponse, 400: ErrorResponse, 404: ErrorResponse, 409: ErrorResponse},
+    responses={
+        200: WorkflowActionResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        409: ErrorResponse,
+    },
 )
 def review_form_workflow(path: FormPath, body: WorkflowActionRequest):
     project, project_err = _get_project_or_error(path.project_uuid)
@@ -1360,7 +1486,11 @@ def review_form_workflow(path: FormPath, body: WorkflowActionRequest):
     _security_event(
         event="resources_workflow_review",
         outcome="success",
-        details={"project_uuid": project.uuid, "form_uuid": form.uuid, "message": message},
+        details={
+            "project_uuid": project.uuid,
+            "form_uuid": form.uuid,
+            "message": message,
+        },
     )
     return to_json_ready(payload)
 
@@ -1368,7 +1498,12 @@ def review_form_workflow(path: FormPath, body: WorkflowActionRequest):
 @resources_api.post(
     "/projects/<project_uuid>/forms/<form_uuid>/workflow/approve",
     tags=[resources_tag],
-    responses={200: WorkflowActionResponse, 400: ErrorResponse, 404: ErrorResponse, 409: ErrorResponse},
+    responses={
+        200: WorkflowActionResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        409: ErrorResponse,
+    },
 )
 def approve_form_workflow(path: FormPath, body: WorkflowActionRequest):
     project, project_err = _get_project_or_error(path.project_uuid)
@@ -1405,7 +1540,11 @@ def approve_form_workflow(path: FormPath, body: WorkflowActionRequest):
     _security_event(
         event="resources_workflow_approve",
         outcome="success",
-        details={"project_uuid": project.uuid, "form_uuid": form.uuid, "message": message},
+        details={
+            "project_uuid": project.uuid,
+            "form_uuid": form.uuid,
+            "message": message,
+        },
     )
     return to_json_ready(payload)
 
@@ -1424,7 +1563,9 @@ def create_section(path: FormPath, query: VersionLinkQuery, body: SectionCreateI
         return form_err
 
     try:
-        version_key = _resolve_version_key(form.versions or [], form.sections or {}, query.version_uuid)
+        version_key = _resolve_version_key(
+            form.versions or [], form.sections or {}, query.version_uuid
+        )
 
         section = Section(
             uuid=body.uuid,
@@ -1432,22 +1573,30 @@ def create_section(path: FormPath, query: VersionLinkQuery, body: SectionCreateI
             questions=body.questions,
             add_button=body.add_button,
             is_repeatable=body.is_repeatable,
-            repeatable_condition=Condition.objects(uuid=body.repeatable_condition).first()
-            if body.repeatable_condition
-            else None,
+            repeatable_condition=(
+                Condition.objects(uuid=body.repeatable_condition).first()
+                if body.repeatable_condition
+                else None
+            ),
             check_repeat_on=body.check_repeat_on,
             min_repeatable_count=body.min_repeatable_count,
             max_repeatable_count=body.max_repeatable_count,
             title=body.title,
             description=body.description,
             isDeleted=body.isDeleted,
-            deletedBy=User.objects(uuid=body.deletedBy).first() if body.deletedBy else None,
+            deletedBy=(
+                User.objects(uuid=body.deletedBy).first() if body.deletedBy else None
+            ),
             deletedAt=body.deletedAt,
             deleted_at=body.deleted_at,
-            deleted_by=User.objects(uuid=body.deleted_by).first() if body.deleted_by else None,
-            visibility_condition=Condition.objects(uuid=body.visibility_condition).first()
-            if body.visibility_condition
-            else None,
+            deleted_by=(
+                User.objects(uuid=body.deleted_by).first() if body.deleted_by else None
+            ),
+            visibility_condition=(
+                Condition.objects(uuid=body.visibility_condition).first()
+                if body.visibility_condition
+                else None
+            ),
             validation_conditions=_resolve_refs(
                 Condition, body.validation_conditions, "validation_condition"
             ),
@@ -1484,9 +1633,10 @@ def list_sections(path: FormPath, query: ListQuery):
     qs = Section.objects(uuid__in=uuids)
     if query.status:
         qs = qs(status=query.status)
-    items = list(qs)
     try:
-        items, page, page_size, total_items, total_pages, next_cursor = _paginate_items(items, query)
+        items, page, page_size, total_items, total_pages, next_cursor = (
+            _paginate_queryset(qs, query)
+        )
     except ValueError as exc:
         return _error(str(exc), 400)
     return to_json_ready(
@@ -1564,7 +1714,9 @@ def delete_section(path: SectionPath):
 
     form.sections = dict(form.sections or {})
     for key, values in form.sections.items():
-        form.sections[key] = [value for value in (values or []) if value != section.uuid]
+        form.sections[key] = [
+            value for value in (values or []) if value != section.uuid
+        ]
     form.save()
 
     return to_json_ready(MessageResponse(message="section_deleted"))
@@ -1625,7 +1777,9 @@ def update_section_version(path: SectionVersionPath, body: VersionUpdateInput):
     tags=[resources_tag],
     responses={201: QuestionOutput, 400: ErrorResponse, 404: ErrorResponse},
 )
-def create_question(path: SectionPath, query: VersionLinkQuery, body: QuestionCreateInput):
+def create_question(
+    path: SectionPath, query: VersionLinkQuery, body: QuestionCreateInput
+):
     project, project_err = _get_project_or_error(path.project_uuid)
     if project_err:
         return project_err
@@ -1650,11 +1804,11 @@ def create_question(path: SectionPath, query: VersionLinkQuery, body: QuestionCr
                     uuid=choice.uuid,
                     label=choice.label,
                     value=choice.value,
-                    visibility_condition=Condition.objects(
-                        uuid=choice.visibility_condition
-                    ).first()
-                    if choice.visibility_condition
-                    else None,
+                    visibility_condition=(
+                        Condition.objects(uuid=choice.visibility_condition).first()
+                        if choice.visibility_condition
+                        else None
+                    ),
                 )
             )
 
@@ -1677,9 +1831,11 @@ def create_question(path: SectionPath, query: VersionLinkQuery, body: QuestionCr
             ),
             add_button=body.add_button,
             is_repeatable=body.is_repeatable,
-            repeatable_condition=Condition.objects(uuid=body.repeatable_condition).first()
-            if body.repeatable_condition
-            else None,
+            repeatable_condition=(
+                Condition.objects(uuid=body.repeatable_condition).first()
+                if body.repeatable_condition
+                else None
+            ),
             check_repeat_on=body.check_repeat_on,
             min_repeatable_count=body.min_repeatable_count,
             max_repeatable_count=body.max_repeatable_count,
@@ -1724,9 +1880,10 @@ def list_questions(path: SectionPath, query: ListQuery):
     qs = Question.objects(uuid__in=uuids)
     if query.status:
         qs = qs(status=query.status)
-    items = list(qs)
     try:
-        items, page, page_size, total_items, total_pages, next_cursor = _paginate_items(items, query)
+        items, page, page_size, total_items, total_pages, next_cursor = (
+            _paginate_queryset(qs, query)
+        )
     except ValueError as exc:
         return _error(str(exc), 400)
     return to_json_ready(
@@ -1813,7 +1970,9 @@ def delete_question(path: QuestionPath):
 
     section.questions = dict(section.questions or {})
     for key, values in section.questions.items():
-        section.questions[key] = [value for value in (values or []) if value != question.uuid]
+        section.questions[key] = [
+            value for value in (values or []) if value != question.uuid
+        ]
     section.save()
 
     return to_json_ready(MessageResponse(message="question_deleted"))
@@ -1901,9 +2060,11 @@ def create_choice(path: QuestionPath, body: ChoiceCreateInput):
         uuid=body.uuid,
         label=body.label,
         value=body.value,
-        visibility_condition=Condition.objects(uuid=body.visibility_condition).first()
-        if body.visibility_condition
-        else None,
+        visibility_condition=(
+            Condition.objects(uuid=body.visibility_condition).first()
+            if body.visibility_condition
+            else None
+        ),
     )
     question.choices = list(question.choices or [])
     question.choices.append(choice)
@@ -2027,7 +2188,9 @@ def update_choice(path: ChoicePath, body: ChoiceUpdateInput):
     if body.value is not None:
         choice.value = body.value
     if body.visibility_condition is not None:
-        choice.visibility_condition = Condition.objects(uuid=body.visibility_condition).first()
+        choice.visibility_condition = Condition.objects(
+            uuid=body.visibility_condition
+        ).first()
 
     try:
         question.save()

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, Set, Tuple
+from typing import Set, Tuple
 
 from app.models.user import User
 from app.services.auth import AuthError, decode_token
@@ -22,8 +22,16 @@ def get_user_by_uuid(user_uuid: str) -> User:
 
 
 def has_global_admin_privileges(user: User) -> bool:
+    return bool(user.is_super_admin)
+
+
+def has_org_admin_privileges(user: User) -> bool:
     has_admin_role = any("admin" in roles for roles in (user.roles or {}).values())
-    return bool(user.is_super_admin) or bool(user.is_organisation_admin) or has_admin_role
+    return bool(user.is_organisation_admin) or has_admin_role
+
+
+def has_elevated_admin_privileges(user: User) -> bool:
+    return has_global_admin_privileges(user) or has_org_admin_privileges(user)
 
 
 def user_org_scope_keys(user: User) -> Set[str]:
@@ -49,8 +57,15 @@ def admin_org_scope_keys(user: User) -> Set[str]:
 
 def require_admin_by_payload(payload: dict) -> Tuple[dict, User]:
     user = get_user_by_uuid(payload["sub"])
-    if not has_global_admin_privileges(user):
+    if not has_elevated_admin_privileges(user):
         raise AuthError("Admin privileges required")
+    return payload, user
+
+
+def require_global_admin_by_payload(payload: dict) -> Tuple[dict, User]:
+    user = get_user_by_uuid(payload["sub"])
+    if not has_global_admin_privileges(user):
+        raise AuthError("Global admin privileges required")
     return payload, user
 
 

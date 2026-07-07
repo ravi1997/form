@@ -9,7 +9,6 @@ from app.schemas.choice import ChoiceCreateInput, ChoiceOutput, ChoiceUpdateInpu
 from app.schemas.common import SchemaModel
 from app.schemas.version import VersionCreateInput, VersionOutput, VersionUpdateInput
 
-
 DocumentStatus = Literal["active", "inactive", "deleted"]
 
 
@@ -53,7 +52,9 @@ class QuestionBase(SchemaModel):
             and self.max_repeatable_count is not None
             and self.min_repeatable_count > self.max_repeatable_count
         ):
-            raise ValueError("min_repeatable_count cannot be greater than max_repeatable_count")
+            raise ValueError(
+                "min_repeatable_count cannot be greater than max_repeatable_count"
+            )
 
         if self.isAction and (not self.actionType or not self.actionLabel):
             raise ValueError("action questions require actionType and actionLabel")

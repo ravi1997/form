@@ -2,7 +2,6 @@ from app.extensions import db
 from datetime import datetime
 from mongoengine.errors import ValidationError
 
-
 ROLE_CHOICES = (
     "admin",
     "editor",
@@ -25,6 +24,7 @@ ORGANIZATION_STATUS_CHOICES = (
     "inactive",
     "deleted",
 )
+
 
 class Organization(db.Document):
     uuid = db.StringField(required=True, unique=True)  # DD-MM-YY-XXXX
@@ -130,7 +130,9 @@ class User(db.Document):
                 if getattr(org, "uuid", None):
                     organization_keys.add(org.uuid)
 
-            unknown_keys = [key for key in self.roles.keys() if key not in organization_keys]
+            unknown_keys = [
+                key for key in self.roles.keys() if key not in organization_keys
+            ]
             if unknown_keys:
                 raise ValidationError(
                     "roles contains keys that are not in organizations: "

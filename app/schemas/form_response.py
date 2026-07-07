@@ -12,7 +12,6 @@ from app.schemas.response_item import (
     ResponseItemUpdateInput,
 )
 
-
 FormResponseStatus = Literal[
     "draft",
     "submitted",

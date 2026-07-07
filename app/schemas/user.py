@@ -7,7 +7,6 @@ from pydantic import Field, model_validator
 
 from app.schemas.common import SchemaModel
 
-
 Role = Literal["admin", "editor", "viewer", "reviewer", "approver", "submitter"]
 UserStatus = Literal["active", "inactive", "deleted", "suspended", "locked"]
 AuthProvider = Literal["local", "sso"]
@@ -31,7 +30,9 @@ class UserBase(SchemaModel):
     @model_validator(mode="after")
     def validate_admin_flag_against_roles(self) -> "UserBase":
         if self.is_organisation_admin and self.roles:
-            has_admin_role = any("admin" in org_roles for org_roles in self.roles.values())
+            has_admin_role = any(
+                "admin" in org_roles for org_roles in self.roles.values()
+            )
             if not has_admin_role:
                 raise ValueError(
                     "is_organisation_admin cannot be true when no organization has admin role"
