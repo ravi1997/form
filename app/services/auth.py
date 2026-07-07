@@ -27,6 +27,26 @@ def _jwt_secret() -> str:
     return secret
 
 
+def _jwt_active_kid() -> str:
+    kid = current_app.config.get("JWT_ACTIVE_KID", BaseConfig.JWT_ACTIVE_KID)
+    if not kid:
+        raise AuthError("JWT active key id is not configured")
+    return str(kid)
+
+
+def _jwt_keyring() -> Dict[str, str]:
+    keyring = {_jwt_active_kid(): _jwt_secret()}
+
+    additional = current_app.config.get("JWT_ADDITIONAL_KEYS", BaseConfig.JWT_ADDITIONAL_KEYS)
+    if additional and isinstance(additional, dict):
+        for kid, secret in additional.items():
+            if not kid or not secret:
+                continue
+            keyring[str(kid)] = str(secret)
+
+    return keyring
+
+
 def _jwt_algorithm() -> str:
     return current_app.config.get("JWT_ALGORITHM", BaseConfig.JWT_ALGORITHM)
 
@@ -55,10 +75,16 @@ def create_access_token(user_uuid: str, email: str, session_uuid: str) -> str:
         "sid": session_uuid,
         "jti": str(uuid4()),
         "type": "access",
+        "kid": _jwt_active_kid(),
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(seconds=ttl)).timestamp()),
     }
-    return jwt.encode(payload, _jwt_secret(), algorithm=_jwt_algorithm())
+    return jwt.encode(
+        payload,
+        _jwt_secret(),
+        algorithm=_jwt_algorithm(),
+        headers={"kid": _jwt_active_kid()},
+    )
 
 
 def create_refresh_token(user_uuid: str, email: str, session_uuid: str) -> str:
@@ -70,10 +96,16 @@ def create_refresh_token(user_uuid: str, email: str, session_uuid: str) -> str:
         "sid": session_uuid,
         "jti": str(uuid4()),
         "type": "refresh",
+        "kid": _jwt_active_kid(),
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(seconds=ttl)).timestamp()),
     }
-    return jwt.encode(payload, _jwt_secret(), algorithm=_jwt_algorithm())
+    return jwt.encode(
+        payload,
+        _jwt_secret(),
+        algorithm=_jwt_algorithm(),
+        headers={"kid": _jwt_active_kid()},
+    )
 
 
 def _token_hash(token: str) -> str:
@@ -81,12 +113,43 @@ def _token_hash(token: str) -> str:
 
 
 def decode_token(token: str, expected_type: str) -> Dict[str, Any]:
+    token_kid = None
+    keyring = _jwt_keyring()
+
     try:
-        payload = jwt.decode(token, _jwt_secret(), algorithms=[_jwt_algorithm()])
-    except jwt.ExpiredSignatureError as exc:
-        raise AuthError("Token has expired") from exc
-    except jwt.InvalidTokenError as exc:
-        raise AuthError("Invalid token") from exc
+        token_kid = jwt.get_unverified_header(token).get("kid")
+    except jwt.InvalidTokenError:
+        token_kid = None
+
+    keys_to_try: List[str] = []
+    if token_kid and token_kid in keyring:
+        keys_to_try.append(keyring[token_kid])
+
+    for kid, key in keyring.items():
+        if token_kid and kid == token_kid:
+            continue
+        keys_to_try.append(key)
+
+    last_error: Exception | None = None
+    payload = None
+    try:
+        for key in keys_to_try:
+            try:
+                payload = jwt.decode(token, key, algorithms=[_jwt_algorithm()])
+                break
+            except jwt.ExpiredSignatureError as exc:
+                last_error = exc
+                continue
+            except jwt.InvalidTokenError as exc:
+                last_error = exc
+                continue
+
+        if payload is None:
+            if isinstance(last_error, jwt.ExpiredSignatureError):
+                raise AuthError("Token has expired") from last_error
+            raise AuthError("Invalid token") from last_error
+    except AuthError:
+        raise
 
     token_type = payload.get("type")
     if token_type != expected_type:
@@ -96,6 +159,7 @@ def decode_token(token: str, expected_type: str) -> Dict[str, Any]:
     email = payload.get("email")
     session_uuid = payload.get("sid")
     jti = payload.get("jti")
+    kid = payload.get("kid")
     exp = payload.get("exp")
     if not subject or not email or not session_uuid or not jti or not exp:
         raise AuthError("Token payload is invalid")
@@ -105,6 +169,7 @@ def decode_token(token: str, expected_type: str) -> Dict[str, Any]:
         "email": str(email),
         "sid": str(session_uuid),
         "jti": str(jti),
+        "kid": str(kid) if kid else str(token_kid or ""),
         "exp": int(exp),
         "type": str(token_type),
     }

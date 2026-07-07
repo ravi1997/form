@@ -7,6 +7,7 @@ from typing import Optional
 from uuid import uuid4
 
 from flask import current_app, request
+from flask import g
 from mongoengine.queryset.visitor import Q
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -102,6 +103,9 @@ def _is_audit_enabled() -> bool:
 
 def _audit_log(**kwargs):
     if _is_audit_enabled():
+        metadata = dict(kwargs.get("metadata") or {})
+        metadata["request_id"] = getattr(g, "request_id", None)
+        kwargs["metadata"] = metadata
         log_session_audit_event(**kwargs)
 
 
@@ -126,6 +130,7 @@ def _security_event(
         "limit_scope": limit_scope,
         "reason": reason,
         "details": details or {},
+        "request_id": getattr(g, "request_id", None),
         "timestamp": datetime.utcnow().isoformat() + "Z",
     }
     logger.info("security_event=%s", payload)

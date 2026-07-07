@@ -13,6 +13,8 @@ ENV_APP_ENV = "APP_ENV"
 ENV_FLASK_ENV = "FLASK_ENV"
 
 ENV_JWT_SECRET_KEY = "JWT_SECRET_KEY"
+ENV_JWT_ACTIVE_KID = "JWT_ACTIVE_KID"
+ENV_JWT_ADDITIONAL_KEYS = "JWT_ADDITIONAL_KEYS"
 ENV_JWT_ALGORITHM = "JWT_ALGORITHM"
 ENV_JWT_ACCESS_TOKEN_EXPIRES_MINUTES = "JWT_ACCESS_TOKEN_EXPIRES_MINUTES"
 ENV_JWT_REFRESH_TOKEN_EXPIRES_DAYS = "JWT_REFRESH_TOKEN_EXPIRES_DAYS"
@@ -24,12 +26,15 @@ ENV_AUTH_RATE_LIMIT_REFRESH_WINDOW_SECONDS = "AUTH_RATE_LIMIT_REFRESH_WINDOW_SEC
 ENV_AUTH_RATE_LIMIT_LOGOUT_MAX = "AUTH_RATE_LIMIT_LOGOUT_MAX"
 ENV_AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS = "AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS"
 ENV_ENABLE_AUDIT_LOGS = "ENABLE_AUDIT_LOGS"
+ENV_REQUEST_ID_HEADER = "REQUEST_ID_HEADER"
 
 
 KNOWN_ENV_KEYS = {
     ENV_APP_ENV,
     ENV_FLASK_ENV,
     ENV_JWT_SECRET_KEY,
+    ENV_JWT_ACTIVE_KID,
+    ENV_JWT_ADDITIONAL_KEYS,
     ENV_JWT_ALGORITHM,
     ENV_JWT_ACCESS_TOKEN_EXPIRES_MINUTES,
     ENV_JWT_REFRESH_TOKEN_EXPIRES_DAYS,
@@ -40,6 +45,7 @@ KNOWN_ENV_KEYS = {
     ENV_AUTH_RATE_LIMIT_LOGOUT_MAX,
     ENV_AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS,
     ENV_ENABLE_AUDIT_LOGS,
+    ENV_REQUEST_ID_HEADER,
 }
 
 
@@ -51,8 +57,10 @@ class BaseConfig:
     ENV_NAME = "base"
 
     JWT_ALGORITHM = "HS256"
+    JWT_ACTIVE_KID = "v1"
     JWT_ACCESS_TOKEN_EXPIRES_MINUTES = 30
     JWT_REFRESH_TOKEN_EXPIRES_DAYS = 7
+    JWT_ADDITIONAL_KEYS: Dict[str, str] = {}
 
     AUTH_RATE_LIMIT_LOGIN_MAX = 10
     AUTH_RATE_LIMIT_LOGIN_WINDOW_SECONDS = 60
@@ -61,6 +69,7 @@ class BaseConfig:
     AUTH_RATE_LIMIT_LOGOUT_MAX = 20
     AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS = 60
     ENABLE_AUDIT_LOGS = True
+    REQUEST_ID_HEADER = "X-Request-Id"
 
     ALLOWED_JWT_ALGORITHMS = {"HS256"}
     REQUIRED_POSITIVE_INT_KEYS = (
@@ -101,6 +110,26 @@ class BaseConfig:
             return int(raw)
         except ValueError as exc:
             raise RuntimeError(f"{name} must be an integer") from exc
+
+    @staticmethod
+    def _env_key_map(name: str, default: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+        raw = os.getenv(name)
+        if raw is None or raw.strip() == "":
+            return dict(default or {})
+
+        items = [item.strip() for item in raw.split(",") if item.strip()]
+        parsed: Dict[str, str] = {}
+        for item in items:
+            if ":" not in item:
+                raise RuntimeError(f"{name} must be 'kid:secret,kid2:secret2'")
+            kid, secret = item.split(":", 1)
+            kid = kid.strip()
+            secret = secret.strip()
+            if not kid or not secret:
+                raise RuntimeError(f"{name} contains an empty kid or secret")
+            parsed[kid] = secret
+
+        return parsed
 
     @staticmethod
     def _env_bool(name: str, default: bool) -> bool:
@@ -168,6 +197,7 @@ class BaseConfig:
 
         config = {
             "JWT_ALGORITHM": cls._env_str(ENV_JWT_ALGORITHM, cls.JWT_ALGORITHM),
+            "JWT_ACTIVE_KID": cls._env_str(ENV_JWT_ACTIVE_KID, cls.JWT_ACTIVE_KID),
             "JWT_ACCESS_TOKEN_EXPIRES_MINUTES": cls._env_int(
                 ENV_JWT_ACCESS_TOKEN_EXPIRES_MINUTES,
                 cls.JWT_ACCESS_TOKEN_EXPIRES_MINUTES,
@@ -204,6 +234,14 @@ class BaseConfig:
                 ENV_ENABLE_AUDIT_LOGS,
                 cls.ENABLE_AUDIT_LOGS,
             ),
+            "REQUEST_ID_HEADER": cls._env_str(
+                ENV_REQUEST_ID_HEADER,
+                cls.REQUEST_ID_HEADER,
+            ),
+            "JWT_ADDITIONAL_KEYS": cls._env_key_map(
+                ENV_JWT_ADDITIONAL_KEYS,
+                cls.JWT_ADDITIONAL_KEYS,
+            ),
         }
 
         jwt_secret = os.getenv(ENV_JWT_SECRET_KEY)
@@ -231,6 +269,16 @@ class BaseConfig:
 
         cls.get_bool(app.config, "ENABLE_AUDIT_LOGS", cls.ENABLE_AUDIT_LOGS)
 
+        active_kid = cls.get_str(app.config, "JWT_ACTIVE_KID", cls.JWT_ACTIVE_KID)
+        if not active_kid:
+            raise RuntimeError("JWT_ACTIVE_KID cannot be empty")
+
+        additional_keys = app.config.get("JWT_ADDITIONAL_KEYS", cls.JWT_ADDITIONAL_KEYS)
+        if additional_keys is None:
+            additional_keys = {}
+        if not isinstance(additional_keys, dict):
+            raise RuntimeError("JWT_ADDITIONAL_KEYS must be a mapping of kid -> secret")
+
         if cls.ENV_NAME == "production" and not app.config.get("JWT_SECRET_KEY"):
             raise RuntimeError("JWT_SECRET_KEY is required in production")
 
@@ -239,6 +287,12 @@ class BaseConfig:
             cls._warn_or_raise(
                 "JWT_SECRET_KEY not set; using development fallback secret. "
                 "Set JWT_SECRET_KEY for secure environments."
+            )
+
+        if active_kid in additional_keys and app.config.get("JWT_SECRET_KEY") == additional_keys.get(active_kid):
+            cls._warn_or_raise(
+                "JWT_ACTIVE_KID should point to the primary JWT_SECRET_KEY, "
+                "not a duplicated key in JWT_ADDITIONAL_KEYS."
             )
 
     @classmethod
@@ -257,6 +311,7 @@ class BaseConfig:
             "env_name": cls.get_str(config, "ENV_NAME", cls.ENV_NAME),
             "debug": cls.get_bool(config, "DEBUG", cls.DEBUG),
             "jwt_algorithm": cls.get_str(config, "JWT_ALGORITHM", cls.JWT_ALGORITHM),
+            "jwt_active_kid": cls.get_str(config, "JWT_ACTIVE_KID", cls.JWT_ACTIVE_KID),
             "jwt_access_token_expires_minutes": cls.get_int(
                 config,
                 "JWT_ACCESS_TOKEN_EXPIRES_MINUTES",
@@ -301,6 +356,14 @@ class BaseConfig:
                 config,
                 "ENABLE_AUDIT_LOGS",
                 cls.ENABLE_AUDIT_LOGS,
+            ),
+            "request_id_header": cls.get_str(
+                config,
+                "REQUEST_ID_HEADER",
+                cls.REQUEST_ID_HEADER,
+            ),
+            "jwt_additional_key_ids": sorted(
+                list((config.get("JWT_ADDITIONAL_KEYS") or {}).keys())
             ),
             "jwt_secret_configured": bool(config.get("JWT_SECRET_KEY")),
         }

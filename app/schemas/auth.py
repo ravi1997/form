@@ -114,6 +114,8 @@ class AdminConfigHealthResponse(SchemaModel):
     env_name: str
     debug: bool
     jwt_algorithm: str
+    jwt_active_kid: str
+    jwt_additional_key_ids: List[str]
     jwt_access_token_expires_minutes: int
     jwt_refresh_token_expires_days: int
     auth_rate_limit_login_max: int
@@ -123,6 +125,7 @@ class AdminConfigHealthResponse(SchemaModel):
     auth_rate_limit_logout_max: int
     auth_rate_limit_logout_window_seconds: int
     enable_audit_logs: bool
+    request_id_header: str
 
 
 class AdminAuditLogQuery(SchemaModel):

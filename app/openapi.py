@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 from app.api import register_api_routes
 from app.config import apply_app_config
 from app.extensions import db
+from app.middleware.request_id import register_request_id_middleware
 
 try:
     from flask_openapi3 import Info, OpenAPI
@@ -27,6 +28,7 @@ def create_openapi_app(config: Optional[Dict[str, Any]] = None):
 
     env_name = config.get("APP_ENV") if config else None
     apply_app_config(app, overrides=config, env_name=env_name)
+    register_request_id_middleware(app)
 
     db.init_app(app)
     register_api_routes(app)
