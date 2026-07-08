@@ -1,0 +1,9 @@
+services:
+  app:
+    environment:
+      APP_ENV: development
+      MONGODB_URI: mongodb://mongo:27017/form_dev
+      MONGODB_DB: form_dev
+      LOG_LEVEL: DEBUG
+    volumes:
+      - ./:/app

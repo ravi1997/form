@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-test.txt
+          pip install ruff mypy pip-audit
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Type check
+        run: mypy app tests
+
+      - name: Test
+        run: pytest -q --cov=app --cov-report=term --cov-report=xml
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+      - name: Dependency vulnerability audit
+        run: pip-audit -r requirements.txt
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+
+      - name: Validate docker compose file
+        env:
+          JWT_SECRET_KEY: ci-secret
+        run: docker compose config
+
+      - name: Docker compose smoke test
+        env:
+          JWT_SECRET_KEY: ci-secret
+          JWT_ACTIVE_KID: v1
+        run: |
+          docker compose up -d --build
+          for _ in {1..20}; do
+            if curl -fsS http://127.0.0.1:8000/api/v1/health >/dev/null; then
+              break
+            fi
+            sleep 3
+          done
+          curl -fsS http://127.0.0.1:8000/api/v1/health
+          curl -fsS http://127.0.0.1:8000/api/v1/readiness
+          curl -fsS http://127.0.0.1:8000/api/v1/metrics
+          docker compose down -v

@@ -1,0 +1,57 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: form-service:latest
+    container_name: form-service
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      MONGODB_URI: mongodb://mongo:27017/form_prod
+      MONGODB_DB: form_prod
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in your environment}
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID:-v1}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_DIR: /app/logs
+      ENABLE_COMPRESSION: ${ENABLE_COMPRESSION:-true}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-}
+    ports:
+      - "8000:8000"
+    volumes:
+      - app_logs:/app/logs
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - appnet
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  mongo:
+    image: mongo:8
+    container_name: form-mongo
+    restart: unless-stopped
+    command: ["--bind_ip_all"]
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - appnet
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  mongo_data:
+  app_logs:
+
+networks:
+  appnet:
+    driver: bridge
