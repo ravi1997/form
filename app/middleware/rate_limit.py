@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from functools import wraps
 from flask import request, g, jsonify
 from mongoengine.errors import OperationError, ValidationError
@@ -92,14 +93,13 @@ def rate_limit(
                     response.headers["X-RateLimit-Limit"] = str(
                         metadata.get("max_allowed", 0)
                     )
-                    response.headers["X-RateLimit-Remaining"] = str(
-                        max(
-                            0,
-                            metadata.get("max_allowed", 0)
-                            - metadata.get("current_count", 0),
-                        )
-                    )
+                    response.headers["X-RateLimit-Remaining"] = "0"
                     response.headers["X-RateLimit-Reset"] = str(reset_time or 0)
+                    retry_after = max(
+                        1,
+                        int((reset_time or 0) - datetime.now(timezone.utc).timestamp()),
+                    )
+                    response.headers["Retry-After"] = str(retry_after)
 
                     return response
 
@@ -221,14 +221,11 @@ def rate_limit_by_endpoint(
                     response.headers["X-RateLimit-Limit"] = str(
                         metadata.get("max_allowed", 0)
                     )
-                    response.headers["X-RateLimit-Remaining"] = str(
-                        max(
-                            0,
-                            metadata.get("max_allowed", 0)
-                            - metadata.get("current_count", 0),
-                        )
-                    )
+                    response.headers["X-RateLimit-Remaining"] = "0"
                     response.headers["X-RateLimit-Reset"] = str(reset_time or 0)
+                    response.headers["Retry-After"] = str(
+                        max(1, int((reset_time or 0) - datetime.now(timezone.utc).timestamp()))
+                    )
                     return response
 
                 return func(*args, **kwargs)

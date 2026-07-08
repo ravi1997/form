@@ -1,5 +1,5 @@
 from app.extensions import db
-from datetime import datetime
+from datetime import datetime, timezone
 from mongoengine.errors import ValidationError
 
 VERSION_STATUS_CHOICES = (
@@ -125,7 +125,7 @@ class Version(db.EmbeddedDocument):
     minor = db.IntField(required=True, min_value=0, default=0)
     patch = db.IntField(required=True, min_value=0, default=0)
 
-    created = db.DateTimeField(default=datetime.utcnow)
+    created = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
     created_by = db.ReferenceField("User")
 
     updated = db.DateTimeField()
@@ -179,8 +179,8 @@ class Condition(db.Document):
     published_at = db.DateTimeField()
     deprecated_at = db.DateTimeField()
 
-    created_at = db.DateTimeField(default=datetime.utcnow)
-    updated_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
+    updated_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
     status = db.StringField(choices=DOCUMENT_STATUS_CHOICES, default="active")
 
     meta = {
@@ -263,7 +263,7 @@ class Condition(db.Document):
             saving_ids = set()
         current_id = id(self)
         if current_id in saving_ids:
-            self.updated_at = datetime.utcnow()
+            self.updated_at = datetime.now(timezone.utc)
             return super().save(*args, **kwargs)
 
         saving_ids.add(current_id)
@@ -276,7 +276,7 @@ class Condition(db.Document):
         if unsaved_sub_conditions:
             original_sub_conditions = list(self.subConditions or [])
             self.subConditions = []
-            self.updated_at = datetime.utcnow()
+            self.updated_at = datetime.now(timezone.utc)
             super().save(*args, validate=False, **kwargs)
 
             for sub_condition in unsaved_sub_conditions:
@@ -287,7 +287,7 @@ class Condition(db.Document):
 
             self.subConditions = original_sub_conditions
 
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         return super().save(*args, **kwargs)
 
 
@@ -308,14 +308,14 @@ class FormWorkflowEvent(db.EmbeddedDocument):
     outcome = db.StringField(
         required=True, choices=("success", "idempotent", "rejected")
     )
-    created_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
     request_id = db.StringField()
 
 
 class FormResponseStatusEvent(db.EmbeddedDocument):
     transition_from = db.StringField(choices=FORM_RESPONSE_STATUS_CHOICES)
     transition_to = db.StringField(required=True, choices=FORM_RESPONSE_STATUS_CHOICES)
-    changed_at = db.DateTimeField(default=datetime.utcnow)
+    changed_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
     reason = db.StringField()
 
 
@@ -394,8 +394,8 @@ class Question(db.Document):
 
     actionIcon = db.StringField()
 
-    created_at = db.DateTimeField(default=datetime.utcnow)
-    updated_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
+    updated_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
     status = db.StringField(choices=DOCUMENT_STATUS_CHOICES, default="active")
 
     meta = {
@@ -443,7 +443,7 @@ class Question(db.Document):
             _ensure_unique_values(choice_values, "Question.choices.value")
 
     def save(self, *args, **kwargs):
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         return super().save(*args, **kwargs)
 
 
@@ -486,8 +486,8 @@ class Section(db.Document):
     tags = db.ListField(db.StringField())
     icon = db.StringField()
 
-    created_at = db.DateTimeField(default=datetime.utcnow)
-    updated_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
+    updated_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
     status = db.StringField(choices=DOCUMENT_STATUS_CHOICES, default="active")
 
     meta = {
@@ -512,7 +512,7 @@ class Section(db.Document):
 
         if self.isDeleted:
             if not self.deletedAt:
-                self.deletedAt = datetime.utcnow()
+                self.deletedAt = datetime.now(timezone.utc)
             if not self.deleted_at:
                 self.deleted_at = self.deletedAt
         elif self.deleted_at and not self.deletedAt:
@@ -524,7 +524,7 @@ class Section(db.Document):
             self.deleted_by = self.deletedBy
 
     def save(self, *args, **kwargs):
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         return super().save(*args, **kwargs)
 
 
@@ -563,13 +563,13 @@ class Form(db.Document):
     workflow_state = db.StringField(
         choices=FORM_WORKFLOW_STATE_CHOICES, default="draft"
     )
-    workflow_updated_at = db.DateTimeField(default=datetime.utcnow)
+    workflow_updated_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
     workflow_history = db.ListField(
         db.EmbeddedDocumentField(FormWorkflowEvent), default=list
     )
 
-    created_at = db.DateTimeField(default=datetime.utcnow)
-    updated_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
+    updated_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
     status = db.StringField(choices=DOCUMENT_STATUS_CHOICES, default="active")
 
     meta = {
@@ -632,8 +632,8 @@ class Form(db.Document):
                 raise ValidationError("approved workflow requires approver assignments")
 
     def save(self, *args, **kwargs):
-        self.updated_at = datetime.utcnow()
-        self.workflow_updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
+        self.workflow_updated_at = datetime.now(timezone.utc)
         return super().save(*args, **kwargs)
 
 
@@ -653,8 +653,8 @@ class Project(db.Document):
 
     tags = db.ListField(db.StringField())
 
-    created_at = db.DateTimeField(default=datetime.utcnow)
-    updated_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
+    updated_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
     status = db.StringField(choices=DOCUMENT_STATUS_CHOICES, default="active")
 
     meta = {
@@ -668,7 +668,7 @@ class Project(db.Document):
         )
 
     def save(self, *args, **kwargs):
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         return super().save(*args, **kwargs)
 
 
@@ -721,8 +721,8 @@ class FormResponse(db.Document):
     approved_at = db.DateTimeField()
     approved_by = db.ListField(db.ReferenceField("User"), default=list)
 
-    created_at = db.DateTimeField(default=datetime.utcnow)
-    updated_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
+    updated_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
     deleted_at = db.DateTimeField()
     deleted_by = db.ReferenceField("User")
 
@@ -778,7 +778,7 @@ class FormResponse(db.Document):
             self.status in ("submitted", "in_review", "approved", "rejected")
             and not self.submitted_at
         ):
-            self.submitted_at = datetime.utcnow()
+            self.submitted_at = datetime.now(timezone.utc)
 
         requires_reviewer = bool(self.form and self.form.requires_reviewer)
         requires_approver = bool(self.form and self.form.requires_approver)
@@ -810,19 +810,19 @@ class FormResponse(db.Document):
             self.status in ("in_review", "approved", "rejected")
             and not self.reviewed_at
         ):
-            self.reviewed_at = datetime.utcnow()
+            self.reviewed_at = datetime.now(timezone.utc)
         if self.status in ("draft", "submitted"):
             self.reviewed_at = None
             self.reviewed_by = []
 
         if self.status == "approved" and not self.approved_at:
-            self.approved_at = datetime.utcnow()
+            self.approved_at = datetime.now(timezone.utc)
         if self.status in ("draft", "submitted", "in_review", "rejected"):
             self.approved_at = None
             self.approved_by = []
 
         if self.status == "deleted" and not self.deleted_at:
-            self.deleted_at = datetime.utcnow()
+            self.deleted_at = datetime.now(timezone.utc)
 
         if self.status != "deleted":
             self.deleted_at = None
@@ -854,7 +854,7 @@ class FormResponse(db.Document):
             ]
 
     def save(self, *args, **kwargs):
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         return super().save(*args, **kwargs)
 
 
@@ -879,8 +879,8 @@ class ActionExecution(db.Document):
     client_state = db.DictField(default=dict)
     output = db.DictField(default=dict)
     error = db.StringField()
-    created_at = db.DateTimeField(default=datetime.utcnow)
-    updated_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
+    updated_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
     completed_at = db.DateTimeField()
     request_id = db.StringField()
 
@@ -899,5 +899,5 @@ class ActionExecution(db.Document):
     }
 
     def save(self, *args, **kwargs):
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         return super().save(*args, **kwargs)

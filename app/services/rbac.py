@@ -1,3 +1,12 @@
+"""RBAC (Role-Based Access Control) service.
+
+Provides identity resolution (JWT → User), privilege checks, and admin scope
+validation.  All check helpers raise ``AuthError`` on failure rather than
+returning a boolean, so callers can propagate errors uniformly.
+
+Role hierarchy (highest to lowest):
+  is_super_admin > is_organisation_admin (with admin role) > per-org roles
+"""
 from __future__ import annotations
 
 from typing import Set, Tuple

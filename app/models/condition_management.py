@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.extensions import db
 
@@ -13,7 +13,7 @@ class ConditionPresetVersion(db.EmbeddedDocument):
     version = db.IntField(required=True, min_value=1)
     condition_snapshot = db.DictField(required=True)
     changelog = db.StringField()
-    created_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
 
 
 class ConditionPreset(db.Document):
@@ -34,8 +34,8 @@ class ConditionPreset(db.Document):
     )
     created_by = db.StringField()
     updated_by = db.StringField()
-    created_at = db.DateTimeField(default=datetime.utcnow)
-    updated_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
+    updated_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
 
     meta = {
         "collection": "condition_presets",
@@ -43,7 +43,7 @@ class ConditionPreset(db.Document):
     }
 
     def save(self, *args, **kwargs):
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         if not self.versions:
             self.versions = [
                 ConditionPresetVersion(
@@ -63,7 +63,7 @@ class ConditionVersion(db.Document):
     changelog = db.StringField()
     action = db.StringField(default="update")
     actor_user_uuid = db.StringField()
-    created_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
 
     meta = {
         "collection": "condition_versions",
@@ -78,7 +78,7 @@ class ConditionApprovalAudit(db.Document):
     actor_user_uuid = db.StringField()
     note = db.StringField()
     validation_errors = db.ListField(db.StringField(), default=list)
-    created_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
 
     meta = {
         "collection": "condition_approval_audit",
@@ -101,8 +101,8 @@ class ConditionAsyncJob(db.Document):
     timeout_ms = db.IntField(default=1000)
     started_at = db.DateTimeField()
     completed_at = db.DateTimeField()
-    created_at = db.DateTimeField(default=datetime.utcnow)
-    updated_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
+    updated_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
 
     meta = {
         "collection": "condition_async_jobs",
@@ -110,7 +110,7 @@ class ConditionAsyncJob(db.Document):
     }
 
     def save(self, *args, **kwargs):
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         return super().save(*args, **kwargs)
 
 
@@ -121,7 +121,7 @@ class ConditionEvaluationStat(db.Document):
     duration_ms = db.FloatField(required=True)
     operator = db.StringField()
     condition_type = db.StringField()
-    created_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
 
     meta = {
         "collection": "condition_evaluation_stats",

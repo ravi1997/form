@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import time
 import uuid
-from datetime import datetime, timedelta
-from threading import Lock, Thread
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone, timedelta
+from threading import Lock
 from typing import Any, Dict, Optional
 
 from app.models.condition_management import ConditionAsyncJob
@@ -14,16 +15,20 @@ from app.services.condition_evaluator import (
 )
 from app.services.condition_management_core import ConditionManagementError
 
+# Maximum concurrent async evaluation workers. Unbounded thread creation is a
+# denial-of-service risk; this cap prevents thread exhaustion under load.
+_MAX_ASYNC_WORKERS = 8
+
 
 class InMemoryConditionQueue:
-    """Queue abstraction for async evaluation."""
+    """Queue abstraction for async evaluation backed by a bounded thread pool."""
 
-    def __init__(self):
+    def __init__(self, max_workers: int = _MAX_ASYNC_WORKERS):
         self._lock = Lock()
+        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="cond-eval")
 
     def enqueue(self, func, *args, **kwargs) -> None:
-        thread = Thread(target=func, args=args, kwargs=kwargs, daemon=True)
-        thread.start()
+        self._executor.submit(func, *args, **kwargs)
 
 
 _default_queue = InMemoryConditionQueue()
@@ -46,7 +51,7 @@ def _run_async_job(job_id: str, retry_count: int = 0) -> None:
         timeout_ms=job.timeout_ms,
     )
     job.status = "running"
-    job.started_at = datetime.utcnow()
+    job.started_at = datetime.now(timezone.utc)
     job.save()
 
     try:
@@ -55,7 +60,7 @@ def _run_async_job(job_id: str, retry_count: int = 0) -> None:
         job.result = bool(result)
         job.trace = snapshot["trace"]
         job.status = "success"
-        job.completed_at = datetime.utcnow()
+        job.completed_at = datetime.now(timezone.utc)
         job.save()
     except ConditionEvaluationError as exc:
         job.error = str(exc)
@@ -64,7 +69,7 @@ def _run_async_job(job_id: str, retry_count: int = 0) -> None:
             return
         job.status = "timeout" if "timeout" in str(exc).lower() else "failed"
         job.result = bool(job.fallback_result)
-        job.completed_at = datetime.utcnow()
+        job.completed_at = datetime.now(timezone.utc)
         job.save()
 
 
@@ -127,8 +132,8 @@ def evaluate_condition_async(
         retries=0,
         fallback_result=False,
     )
-    deadline = datetime.utcnow() + timedelta(milliseconds=timeout_ms)
-    while datetime.utcnow() < deadline:
+    deadline = datetime.now(timezone.utc) + timedelta(milliseconds=timeout_ms)
+    while datetime.now(timezone.utc) < deadline:
         payload = get_async_job_status(job.job_id)
         if payload["status"] in {"success", "failed", "timeout"}:
             return {

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from functools import lru_cache
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -349,7 +349,7 @@ class ConditionEvaluator:
             "condition_uuid": condition.uuid,
             "condition_type": condition.conditionType,
             "result": result,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
             **extras,
         }
         self.trace.append(payload)
@@ -513,7 +513,8 @@ class ConditionEvaluator:
             return False
         reference = self._coerce_datetime(value)
         days = float(condition.operands[0])
-        now = datetime.utcnow()
+        # _coerce_datetime strips tzinfo, so keep now as naive UTC for the subtraction.
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         age_days = (now - reference).total_seconds() / 86400
 
         if condition.operator == "created_within_days":
@@ -620,7 +621,7 @@ class ConditionEvaluator:
         if isinstance(value, datetime):
             return value
         if isinstance(value, (int, float)):
-            return datetime.utcnow() - timedelta(seconds=float(value))
+            return datetime.now(timezone.utc) - timedelta(seconds=float(value))
         if isinstance(value, str):
             try:
                 return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(

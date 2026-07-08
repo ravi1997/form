@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from app.services.logging.formatter import StructuredFormatter
@@ -90,7 +90,7 @@ class LoggerService:
             "action": action,
             "resource_type": resource_type,
             "status": status,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         if resource_id:
             context["resource_id"] = resource_id

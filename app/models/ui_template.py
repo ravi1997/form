@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from mongoengine.errors import ValidationError
 
@@ -35,7 +35,7 @@ class TemplateRevision(db.EmbeddedDocument):
     config = db.DictField(default=dict)
     change_note = db.StringField()
     created_by = db.ReferenceField("User")
-    created_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
     status = db.StringField(
         choices=TEMPLATE_REVISION_STATUS_CHOICES,
         default="draft",
@@ -73,8 +73,8 @@ class _BaseTemplate(db.Document):
     usage_count = db.IntField(min_value=0, default=0)
 
     status = db.StringField(choices=TEMPLATE_STATUS_CHOICES, default="draft")
-    created_at = db.DateTimeField(default=datetime.utcnow)
-    updated_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
+    updated_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
     deleted_at = db.DateTimeField()
     deleted_by = db.ReferenceField("User")
 
@@ -111,13 +111,13 @@ class _BaseTemplate(db.Document):
 
         if self.status == "deprecated":
             if not self.deleted_at:
-                self.deleted_at = datetime.utcnow()
+                self.deleted_at = datetime.now(timezone.utc)
         elif self.status != "deprecated":
             self.deleted_at = None
             self.deleted_by = None
 
     def save(self, *args, **kwargs):
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         return super().save(*args, **kwargs)
 
 

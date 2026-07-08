@@ -60,11 +60,11 @@ class UserUpdateInput(SchemaModel):
     roles: Optional[Dict[str, List[Role]]] = None
     status: Optional[UserStatus] = None
     auth_provider: Optional[AuthProvider] = None
-    password_hash: Optional[str] = None
+    # password_hash and otp_secret are intentionally excluded — callers must use
+    # the dedicated /auth/change-password and /auth/otp endpoints instead.
     password_reset_token: Optional[str] = None
     password_reset_token_expiry: Optional[datetime] = None
     password_reset_token_created_at: Optional[datetime] = None
-    otp_secret: Optional[str] = None
     otp_secret_created_at: Optional[datetime] = None
     is_email_verified: Optional[bool] = None
     is_phone_verified: Optional[bool] = None

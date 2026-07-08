@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 
 from flask import g, has_request_context, request
 
@@ -13,7 +13,7 @@ class StructuredFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         log_data = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),

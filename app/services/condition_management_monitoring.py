@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List
 
 from app.models.condition_management import ConditionEvaluationStat
@@ -27,7 +27,7 @@ def record_evaluation_stat(
 
 
 def get_monitoring_snapshot(window_days: int = 30) -> Dict[str, Any]:
-    since = datetime.utcnow() - timedelta(days=window_days)
+    since = datetime.now(timezone.utc) - timedelta(days=window_days)
     rows = ConditionEvaluationStat.objects(created_at__gte=since)
 
     usage: Counter[str] = Counter()
@@ -84,7 +84,7 @@ def monitoring_dashboard_snapshot() -> Dict[str, Any]:
     snapshot = get_monitoring_snapshot()
     graph = build_dependency_graph()
     return {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
         "total_conditions": Condition.objects.count(),
         "active_conditions": Condition.objects(isActive=True).count(),
         "circular_references": detect_circular_references(graph),

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.models.form import Condition, FormResponse, Question
@@ -47,7 +47,7 @@ def impact_analysis(
         raise ConditionManagementError("Condition not found")
 
     contexts = sample_contexts or [{"value": "sample", "status": "draft", "score": 1}]
-    start = datetime.utcnow()
+    start = datetime.now(timezone.utc)
     evaluator = ConditionEvaluator(enable_tracing=False)
 
     current_matches = 0
@@ -63,7 +63,7 @@ def impact_analysis(
         "current_match_rate": current_matches / len(contexts) if contexts else 0,
         "affected_conditions": [condition_uuid]
         + discover_usage(condition_uuid)["reverse_dependencies"],
-        "analysis_time_ms": (datetime.utcnow() - start).total_seconds() * 1000,
+        "analysis_time_ms": (datetime.now(timezone.utc) - start).total_seconds() * 1000,
     }
 
 

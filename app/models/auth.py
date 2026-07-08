@@ -1,4 +1,12 @@
-from datetime import datetime
+"""MongoEngine authentication models.
+
+Collections:
+- user_sessions     : active JWT refresh-token sessions per user
+- rate_limit_counters: sliding-window counters for auth endpoint rate limiting
+- session_audit_logs: TTL-backed audit trail of auth events
+- token_blocklist   : revoked refresh-token JTIs (TTL-backed)
+"""
+from datetime import datetime, timezone
 
 from app.extensions import db
 
@@ -16,8 +24,8 @@ class UserSession(db.Document):
     user_agent = db.StringField()
     ip_address = db.StringField()
 
-    created_at = db.DateTimeField(default=datetime.utcnow)
-    last_seen_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
+    last_seen_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
 
     is_active = db.BooleanField(default=True)
     revoked_at = db.DateTimeField()
@@ -62,7 +70,7 @@ class SessionAuditLog(db.Document):
     ip_address = db.StringField()
     user_agent = db.StringField()
     metadata = db.DictField()
-    created_at = db.DateTimeField(default=datetime.utcnow)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
     expires_at = db.DateTimeField(required=True)
 
     meta = {
@@ -87,7 +95,7 @@ class TokenBlocklist(db.Document):
     token_hash = db.StringField(required=True, unique=True)
     user_uuid = db.StringField(required=True)
     token_type = db.StringField(choices=("refresh",), default="refresh")
-    revoked_at = db.DateTimeField(default=datetime.utcnow)
+    revoked_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
     expires_at = db.DateTimeField(required=True)
     reason = db.StringField(default="logout")
 

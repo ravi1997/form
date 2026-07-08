@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from mongoengine.errors import NotUniqueError, ValidationError
@@ -88,7 +88,7 @@ def export_presets() -> Dict[str, Any]:
                 "status": preset.status,
             }
         )
-    return {"presets": presets, "exported_at": datetime.utcnow().isoformat() + "Z"}
+    return {"presets": presets, "exported_at": datetime.now(timezone.utc).isoformat() + "Z"}
 
 
 def import_presets(

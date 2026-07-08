@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from mongoengine.errors import NotUniqueError, ValidationError
@@ -147,13 +147,13 @@ def test_condition(body: ConditionTestInput):
     evaluator = ConditionEvaluator(
         context=body.context, enable_tracing=body.enable_tracing
     )
-    started = datetime.utcnow()
+    started = datetime.now(timezone.utc)
     try:
         matched = evaluator.evaluate(condition)
     except ConditionEvaluationError as exc:
         return _error(str(exc), 400)
 
-    ended = datetime.utcnow()
+    ended = datetime.now(timezone.utc)
     duration_ms = (ended - started).total_seconds() * 1000
     record_evaluation_stat(condition, matched, duration_ms, endpoint="test")
 
@@ -177,7 +177,7 @@ def test_condition(body: ConditionTestInput):
     responses={200: BatchConditionTestResponse, 400: ErrorResponse},
 )
 def test_conditions_batch(body: BatchConditionTestInput):
-    started = datetime.utcnow()
+    started = datetime.now(timezone.utc)
     results: List[ConditionTestResult] = []
     matched = 0
     failed = 0
@@ -200,7 +200,7 @@ def test_conditions_batch(body: BatchConditionTestInput):
         evaluator = ConditionEvaluator(
             context=test.context, enable_tracing=test.enable_tracing
         )
-        run_start = datetime.utcnow()
+        run_start = datetime.now(timezone.utc)
         try:
             run_matched = evaluator.evaluate(condition)
         except ConditionEvaluationError as exc:
@@ -209,7 +209,7 @@ def test_conditions_batch(body: BatchConditionTestInput):
                 ConditionTestResult(
                     condition_uuid=condition.uuid,
                     matched=False,
-                    duration_ms=(datetime.utcnow() - run_start).total_seconds() * 1000,
+                    duration_ms=(datetime.now(timezone.utc) - run_start).total_seconds() * 1000,
                     trace=[{"error": str(exc)}],
                     execution_path=[],
                     operator=condition.operator,
@@ -218,7 +218,7 @@ def test_conditions_batch(body: BatchConditionTestInput):
             )
             continue
 
-        run_duration = (datetime.utcnow() - run_start).total_seconds() * 1000
+        run_duration = (datetime.now(timezone.utc) - run_start).total_seconds() * 1000
         if run_matched:
             matched += 1
         record_evaluation_stat(
@@ -237,7 +237,7 @@ def test_conditions_batch(body: BatchConditionTestInput):
             )
         )
 
-    completed = datetime.utcnow()
+    completed = datetime.now(timezone.utc)
     return to_json_ready(
         BatchConditionTestResponse(
             total=len(body.tests),
@@ -257,7 +257,7 @@ def cache_metrics():
     neg = get_global_negative_cache()
 
     response: Dict[str, Any] = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
         "regex_cache": get_regex_cache_stats(),
         "ttl_cache": ttl.get_stats().to_dict() if ttl else None,
         "historical_cache": hist.get_stats().to_dict() if hist else None,

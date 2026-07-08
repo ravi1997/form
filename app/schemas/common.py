@@ -1,3 +1,8 @@
+"""Pydantic v2 schema base classes shared across all schema modules.
+
+``SchemaModel`` adds ``extra="forbid"`` to every schema so unexpected fields
+in requests are rejected at validation time rather than silently ignored.
+"""
 from __future__ import annotations
 
 from datetime import datetime

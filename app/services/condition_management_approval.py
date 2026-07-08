@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.models.condition_management import (
@@ -53,11 +53,12 @@ def transition_approval_state(
 
     metadata = dict(condition.metadata or {})
     metadata["approval_state"] = target_state
-    metadata["approval_updated_at"] = datetime.utcnow().isoformat() + "Z"
+    metadata["approval_updated_at"] = datetime.now(timezone.utc).isoformat() + "Z"
     if target_state == "published":
-        metadata["published_at"] = datetime.utcnow().isoformat() + "Z"
+        metadata["published_at"] = datetime.now(timezone.utc).isoformat() + "Z"
 
     condition.metadata = metadata
+    condition.approval_state = target_state
     condition.save()
 
     ConditionApprovalAudit(
@@ -91,8 +92,9 @@ def rollback_approval_state(
     metadata = dict(condition.metadata or {})
     current_state = metadata.get("approval_state", "draft")
     metadata["approval_state"] = previous_state
-    metadata["approval_updated_at"] = datetime.utcnow().isoformat() + "Z"
+    metadata["approval_updated_at"] = datetime.now(timezone.utc).isoformat() + "Z"
     condition.metadata = metadata
+    condition.approval_state = previous_state
     condition.save()
 
     ConditionApprovalAudit(

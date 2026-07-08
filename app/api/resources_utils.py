@@ -102,7 +102,7 @@ def security_event(
         "reason": reason,
         "details": details or {},
         "request_id": getattr(g, "request_id", None),
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
     }
     logger.log_app_event("resources_security_event", context=payload)
 

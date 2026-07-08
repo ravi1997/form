@@ -1,3 +1,13 @@
+"""Mapper functions: MongoEngine documents → Pydantic output schemas.
+
+All ``to_*_output`` functions accept raw MongoEngine document instances (or any
+object with matching attributes) and return the corresponding Pydantic output
+schema instance.
+
+``to_json_ready`` recursively calls ``model_dump(mode="json")`` on nested
+Pydantic models so the result is safe to pass directly to Flask's response
+serialiser.
+"""
 from __future__ import annotations
 
 from typing import Any, List, Optional

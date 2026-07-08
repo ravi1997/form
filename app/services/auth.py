@@ -1,3 +1,12 @@
+"""JWT authentication service.
+
+Provides token creation (access + refresh), validation, rotation, revocation,
+and session lifecycle management.  All tokens carry a ``typ`` claim (``access``
+or ``refresh``) and a ``kid`` header for multi-key rotation via JWT_ADDITIONAL_KEYS.
+
+Token blocklisting is backed by the ``token_blocklist`` MongoDB collection with
+a TTL index aligned to the refresh token expiry.
+"""
 from __future__ import annotations
 
 import hashlib

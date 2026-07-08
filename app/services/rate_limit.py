@@ -176,9 +176,11 @@ class RateLimitService:
             if window_ts:
                 window_start = datetime.fromisoformat(window_ts)
                 if current_time > window_start + window_duration:
-                    # Window expired, reset counter
+                    # Window expired, reset counter and clear local reference so
+                    # the timestamp is written again below (BUG-01 fix).
                     self.redis_client.delete(key)
                     self.redis_client.delete(ts_key)
+                    window_ts = None
                     count = 0
                 else:
                     count = int(self.redis_client.get(key) or 0)

@@ -1,7 +1,7 @@
 """Shared helper functions for resources route handlers."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Type
 
 
@@ -34,7 +34,7 @@ def _version_from_create(version: VersionCreateInput) -> Version:
         minor=version.minor,
         patch=version.patch,
         status=version.status,
-        created=datetime.utcnow(),
+        created=datetime.now(timezone.utc),
         created_by=_resolve_user(version.created_by),
     )
 
@@ -50,7 +50,7 @@ def _apply_version_update(version: Version, body: VersionUpdateInput) -> None:
         version.status = body.status
     if body.updated_by is not None:
         version.updated_by = _resolve_user(body.updated_by)
-    version.updated = datetime.utcnow()
+    version.updated = datetime.now(timezone.utc)
 
 
 def _append_version(doc: Any, body: VersionCreateInput) -> None:

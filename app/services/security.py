@@ -1,3 +1,12 @@
+"""MongoDB-backed security helpers.
+
+Provides:
+- ``check_and_increment_rate_limit``: atomic upsert counter for auth endpoint
+  rate limiting.  Uses naive UTC internally so comparisons work against
+  MongoEngine DateTimeField values (which strip tzinfo on retrieval).
+- ``log_session_audit_event``: persists auth audit events to session_audit_logs
+  with TTL-based retention.
+"""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone

@@ -1,3 +1,13 @@
+"""Application configuration.
+
+Provides environment-specific config classes (BaseConfig, DevelopmentConfig,
+ProductionConfig), env-var parsing helpers, startup validation, and the
+RuntimeSettings Pydantic model used by the app factory.
+
+Environment selection is driven by the APP_ENV (or FLASK_ENV) variable.
+All supported keys are listed in KNOWN_ENV_KEYS; unknown JWT_*/AUTH_RATE_LIMIT_*
+variables produce a warning (or raise in production) to catch typos early.
+"""
 from __future__ import annotations
 
 import logging

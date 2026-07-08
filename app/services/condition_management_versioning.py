@@ -58,8 +58,6 @@ def restore_condition_version(
         data.pop(key, None)
 
     for key, value in data.items():
-        if key == "subConditions":
-            continue
         setattr(item, key, value)
 
     item.save()
@@ -112,7 +110,7 @@ def rollback_condition_to_version(
     actor_user_uuid: Optional[str] = None,
 ) -> Condition:
     try:
-        version_number = int(str(version_id).replace("v", ""))
+        version_number = int(str(version_id).lstrip("v"))
     except ValueError as exc:
         raise ConditionManagementError("Invalid version id") from exc
     return restore_condition_version(
@@ -126,8 +124,8 @@ def diff_condition_versions(
     condition: Condition, left_version: str, right_version: str
 ) -> Dict[str, Any]:
     try:
-        left = int(str(left_version).replace("v", ""))
-        right = int(str(right_version).replace("v", ""))
+        left = int(str(left_version).lstrip("v"))
+        right = int(str(right_version).lstrip("v"))
     except ValueError as exc:
         raise ConditionManagementError("Invalid version id") from exc
 

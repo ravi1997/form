@@ -1,7 +1,7 @@
 """Action trigger and execution list endpoints."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 from uuid import uuid4
 
@@ -108,7 +108,7 @@ def trigger_question_action(path: QuestionActionPath, body: ActionTriggerRequest
             "config": dict(step.config or {}),
             "on_error": step.on_error,
         }
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         if step.target == "frontend":
             frontend_steps.append(step_payload)
@@ -173,7 +173,7 @@ def trigger_question_action(path: QuestionActionPath, body: ActionTriggerRequest
         client_state=body.client_state or {},
         output={},
         error=execution_error,
-        completed_at=datetime.utcnow(),
+        completed_at=datetime.now(timezone.utc),
         request_id=getattr(g, "request_id", None),
     )
     execution.save()
