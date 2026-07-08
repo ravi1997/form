@@ -7,6 +7,7 @@ returning a boolean, so callers can propagate errors uniformly.
 Role hierarchy (highest to lowest):
   is_super_admin > is_organisation_admin (with admin role) > per-org roles
 """
+
 from __future__ import annotations
 
 from typing import Set, Tuple

@@ -101,7 +101,9 @@ class LoggerService:
         if details:
             context["details"] = details
         level = logging.INFO if status == "success" else logging.WARNING
-        self.log_with_context(level, f"Audit Event: {action} on {resource_type}", **context)
+        self.log_with_context(
+            level, f"Audit Event: {action} on {resource_type}", **context
+        )
 
     def log_error_event(
         self,

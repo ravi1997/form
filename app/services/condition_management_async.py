@@ -25,7 +25,9 @@ class InMemoryConditionQueue:
 
     def __init__(self, max_workers: int = _MAX_ASYNC_WORKERS):
         self._lock = Lock()
-        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="cond-eval")
+        self._executor = ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix="cond-eval"
+        )
 
     def enqueue(self, func, *args, **kwargs) -> None:
         self._executor.submit(func, *args, **kwargs)
@@ -34,7 +36,35 @@ class InMemoryConditionQueue:
 _default_queue = InMemoryConditionQueue()
 
 
-def _run_async_job(job_id: str, retry_count: int = 0) -> None:
+def recover_pending_async_jobs(
+    queue: Optional[InMemoryConditionQueue] = None,
+) -> Dict[str, int]:
+    """Requeue pending async jobs after a worker or process restart.
+
+    The queue itself is still in-memory, but the authoritative job state lives
+    in MongoDB. On startup we can recover jobs that were queued or running when
+    the previous process exited and make them visible again.
+    """
+    pending_queue = queue or _default_queue
+    stats = {"requeued": 0, "running_reset": 0}
+
+    for job in ConditionAsyncJob.objects(status__in=("queued", "running")):
+        if job.status == "running":
+            job.status = "queued"
+            job.started_at = None
+            job.save()
+            stats["running_reset"] += 1
+        pending_queue.enqueue(_run_async_job, job.job_id, 0, queue)
+        stats["requeued"] += 1
+
+    return stats
+
+
+def _run_async_job(
+    job_id: str,
+    retry_count: int = 0,
+    queue: Optional[InMemoryConditionQueue] = None,
+) -> None:
     job = ConditionAsyncJob.objects(job_id=job_id).first()
     if not job:
         return
@@ -65,7 +95,9 @@ def _run_async_job(job_id: str, retry_count: int = 0) -> None:
     except ConditionEvaluationError as exc:
         job.error = str(exc)
         if "timeout" in str(exc).lower() and retry_count < job.retries:
-            _run_async_job(job_id, retry_count + 1)
+            (queue or _default_queue).enqueue(
+                _run_async_job, job_id, retry_count + 1, queue
+            )
             return
         job.status = "timeout" if "timeout" in str(exc).lower() else "failed"
         job.result = bool(job.fallback_result)
@@ -97,8 +129,18 @@ def enqueue_async_evaluation(
     )
     job.save()
 
-    (queue or _default_queue).enqueue(_run_async_job, job.job_id)
+    (queue or _default_queue).enqueue(_run_async_job, job.job_id, 0, queue)
     return job
+
+
+def get_async_queue_status() -> Dict[str, int]:
+    """Return a coarse queue snapshot for observability and health endpoints."""
+    return {
+        "queued": ConditionAsyncJob.objects(status="queued").count(),
+        "running": ConditionAsyncJob.objects(status="running").count(),
+        "failed": ConditionAsyncJob.objects(status="failed").count(),
+        "timeout": ConditionAsyncJob.objects(status="timeout").count(),
+    }
 
 
 def get_async_job_status(job_id: str) -> Dict[str, Any]:

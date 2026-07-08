@@ -224,7 +224,13 @@ def rate_limit_by_endpoint(
                     response.headers["X-RateLimit-Remaining"] = "0"
                     response.headers["X-RateLimit-Reset"] = str(reset_time or 0)
                     response.headers["Retry-After"] = str(
-                        max(1, int((reset_time or 0) - datetime.now(timezone.utc).timestamp()))
+                        max(
+                            1,
+                            int(
+                                (reset_time or 0)
+                                - datetime.now(timezone.utc).timestamp()
+                            ),
+                        )
                     )
                     return response
 

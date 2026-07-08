@@ -1,4 +1,5 @@
 """Blueprint, tags, request hooks, and logger for the resources API."""
+
 from __future__ import annotations
 
 from flask import g, request
@@ -22,7 +23,9 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise RuntimeError("flask-openapi3 is required") from exc
 
-resources_tag = Tag(name="Resources", description="Project/Form/Section/Question resource APIs")
+resources_tag = Tag(
+    name="Resources", description="Project/Form/Section/Question resource APIs"
+)
 version_tag = Tag(name="Versions", description="Version append/update APIs")
 resources_api = APIBlueprint("resources", __name__, url_prefix="/api/v1")
 logger = get_rotating_logger()
@@ -31,6 +34,7 @@ logger = get_rotating_logger()
 def _error(message: str, status: int = 400):
     from app.schemas.mappers import to_json_ready
     from app.api.resources_schemas import ErrorResponse
+
     return to_json_ready(ErrorResponse(message=message)), status
 
 

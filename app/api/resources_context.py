@@ -1,4 +1,5 @@
 """Shared helper functions for resources route handlers."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -162,6 +163,7 @@ def _get_condition_or_error(condition_uuid: str):
 def _apply_project_update(project: Project, body) -> None:
     data = body.model_dump(exclude_none=True)
     from app.models.user import Organization
+
     if "name" in data:
         project.name = data["name"]
     if "admins" in data:
@@ -173,7 +175,9 @@ def _apply_project_update(project: Project, body) -> None:
     if "forms" in data:
         project.forms = _resolve_refs(Form, data["forms"], "form")
     if "organizations" in data:
-        project.organizations = _resolve_refs(Organization, data["organizations"], "organization")
+        project.organizations = _resolve_refs(
+            Organization, data["organizations"], "organization"
+        )
     if "tags" in data:
         project.tags = data["tags"]
     if "status" in data:
@@ -203,13 +207,23 @@ def _apply_form_update(form: Form, body) -> None:
     if "min_approvers_required" in data:
         form.min_approvers_required = data["min_approvers_required"]
     if "validation_conditions" in data:
-        form.validation_conditions = _resolve_refs(Condition, data["validation_conditions"], "validation_condition")
+        form.validation_conditions = _resolve_refs(
+            Condition, data["validation_conditions"], "validation_condition"
+        )
     if "validation_condition_messages" in data:
         form.validation_condition_messages = data["validation_condition_messages"]
     if "child_sections" in data:
         form.child_sections = _resolve_refs(Section, data["child_sections"], "section")
-    for key in ("tags", "icon", "theme_template_uuid", "theme_revision_uuid",
-                "layout_template_uuid", "layout_revision_uuid", "ui_overrides", "status"):
+    for key in (
+        "tags",
+        "icon",
+        "theme_template_uuid",
+        "theme_revision_uuid",
+        "layout_template_uuid",
+        "layout_revision_uuid",
+        "ui_overrides",
+        "status",
+    ):
         if key in data:
             setattr(form, key, data[key])
 
@@ -217,19 +231,36 @@ def _apply_form_update(form: Form, body) -> None:
 def _apply_section_update(section: Section, body) -> None:
     data = body.model_dump(exclude_none=True)
     for key in (
-        "questions", "add_button", "is_repeatable", "check_repeat_on",
-        "min_repeatable_count", "max_repeatable_count", "title", "description",
-        "isDeleted", "deletedAt", "deleted_at", "tags", "icon", "status",
+        "questions",
+        "add_button",
+        "is_repeatable",
+        "check_repeat_on",
+        "min_repeatable_count",
+        "max_repeatable_count",
+        "title",
+        "description",
+        "isDeleted",
+        "deletedAt",
+        "deleted_at",
+        "tags",
+        "icon",
+        "status",
         "validation_condition_messages",
     ):
         if key in data:
             setattr(section, key, data[key])
     if "repeatable_condition" in data:
-        section.repeatable_condition = Condition.objects(uuid=data["repeatable_condition"]).first()
+        section.repeatable_condition = Condition.objects(
+            uuid=data["repeatable_condition"]
+        ).first()
     if "visibility_condition" in data:
-        section.visibility_condition = Condition.objects(uuid=data["visibility_condition"]).first()
+        section.visibility_condition = Condition.objects(
+            uuid=data["visibility_condition"]
+        ).first()
     if "validation_conditions" in data:
-        section.validation_conditions = _resolve_refs(Condition, data["validation_conditions"], "validation_condition")
+        section.validation_conditions = _resolve_refs(
+            Condition, data["validation_conditions"], "validation_condition"
+        )
     if "deletedBy" in data:
         section.deletedBy = User.objects(uuid=data["deletedBy"]).first()
     if "deleted_by" in data:
@@ -238,34 +269,60 @@ def _apply_section_update(section: Section, body) -> None:
 
 def _apply_question_update(question: Question, body) -> None:
     from app.api.resources_utils import build_action_definitions
+
     data = body.model_dump(exclude_none=True)
     for key in (
-        "type", "label", "placeholder", "description", "default_value",
-        "help_text", "tooltip", "add_button", "is_repeatable", "check_repeat_on",
-        "min_repeatable_count", "max_repeatable_count", "isAction", "actionButtonType",
-        "actionType", "actionLabel", "tags", "hideButton", "actionIcon", "status",
+        "type",
+        "label",
+        "placeholder",
+        "description",
+        "default_value",
+        "help_text",
+        "tooltip",
+        "add_button",
+        "is_repeatable",
+        "check_repeat_on",
+        "min_repeatable_count",
+        "max_repeatable_count",
+        "isAction",
+        "actionButtonType",
+        "actionType",
+        "actionLabel",
+        "tags",
+        "hideButton",
+        "actionIcon",
+        "status",
         "validation_condition_messages",
     ):
         if key in data:
             setattr(question, key, data[key])
     if "validation_conditions" in data:
-        question.validation_conditions = _resolve_refs(Condition, data["validation_conditions"], "validation_condition")
+        question.validation_conditions = _resolve_refs(
+            Condition, data["validation_conditions"], "validation_condition"
+        )
     if "visibility_conditions" in data:
-        question.visibility_conditions = _resolve_refs(Condition, data["visibility_conditions"], "visibility_condition")
+        question.visibility_conditions = _resolve_refs(
+            Condition, data["visibility_conditions"], "visibility_condition"
+        )
     if "repeatable_condition" in data:
-        question.repeatable_condition = Condition.objects(uuid=data["repeatable_condition"]).first()
+        question.repeatable_condition = Condition.objects(
+            uuid=data["repeatable_condition"]
+        ).first()
     if "choices" in data:
         choices = []
         for choice in body.choices or []:
-            choices.append({
-                "uuid": choice.uuid,
-                "label": choice.label,
-                "value": choice.value,
-                "visibility_condition": (
-                    Condition.objects(uuid=choice.visibility_condition).first()
-                    if choice.visibility_condition else None
-                ),
-            })
+            choices.append(
+                {
+                    "uuid": choice.uuid,
+                    "label": choice.label,
+                    "value": choice.value,
+                    "visibility_condition": (
+                        Condition.objects(uuid=choice.visibility_condition).first()
+                        if choice.visibility_condition
+                        else None
+                    ),
+                }
+            )
         question.choices = choices
     if "actions" in data:
         question.actions = build_action_definitions(body.actions or [])

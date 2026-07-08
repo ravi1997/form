@@ -71,7 +71,9 @@ def get_monitoring_snapshot(window_days: int = 30) -> Dict[str, Any]:
         "graph": graph,
         "heatmap": {day: dict(values) for day, values in heatmap.items()},
         "unused": unused,
-        "most_used": [{"condition_uuid": cid, "count": count} for cid, count in most_used],
+        "most_used": [
+            {"condition_uuid": cid, "count": count} for cid, count in most_used
+        ],
         "evaluation_stats": evaluation_stats,
     }
 

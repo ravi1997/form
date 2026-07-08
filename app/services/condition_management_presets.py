@@ -7,7 +7,10 @@ from mongoengine.errors import NotUniqueError, ValidationError
 
 from app.models.condition_management import ConditionPreset, ConditionPresetVersion
 from app.models.form import Condition
-from app.services.condition_management_core import ConditionManagementError, serialize_condition
+from app.services.condition_management_core import (
+    ConditionManagementError,
+    serialize_condition,
+)
 
 
 def create_or_update_preset(
@@ -79,7 +82,9 @@ def export_presets() -> Dict[str, Any]:
                         "version": v.version,
                         "condition_snapshot": v.condition_snapshot,
                         "changelog": v.changelog,
-                        "created_at": v.created_at.isoformat() if v.created_at else None,
+                        "created_at": v.created_at.isoformat()
+                        if v.created_at
+                        else None,
                     }
                     for v in (preset.versions or [])
                 ],
@@ -88,7 +93,10 @@ def export_presets() -> Dict[str, Any]:
                 "status": preset.status,
             }
         )
-    return {"presets": presets, "exported_at": datetime.now(timezone.utc).isoformat() + "Z"}
+    return {
+        "presets": presets,
+        "exported_at": datetime.now(timezone.utc).isoformat() + "Z",
+    }
 
 
 def import_presets(
@@ -138,7 +146,9 @@ def import_presets(
 
 def sync_auto_update_presets(condition: Condition) -> int:
     count = 0
-    for preset in ConditionPreset.objects(condition_uuid=condition.uuid, auto_update=True):
+    for preset in ConditionPreset.objects(
+        condition_uuid=condition.uuid, auto_update=True
+    ):
         preset.current_version += 1
         snapshot = serialize_condition(condition)
         preset.condition_snapshot = snapshot

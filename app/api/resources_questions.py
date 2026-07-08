@@ -1,15 +1,26 @@
 """Question CRUD and version endpoints."""
+
 from __future__ import annotations
 
 from mongoengine.errors import NotUniqueError, ValidationError
 
 from app.models.form import Choice, Condition, Question
 from app.schemas.mappers import to_json_ready, to_question_output, to_version_output
-from app.schemas.question import QuestionCreateInput, QuestionOutput, QuestionUpdateInput
+from app.schemas.question import (
+    QuestionCreateInput,
+    QuestionOutput,
+    QuestionUpdateInput,
+)
 from app.schemas.version import VersionCreateInput, VersionOutput, VersionUpdateInput
 from app.api.resources_schemas import (
-    ErrorResponse, ListQuery, MessageResponse, QuestionListResponse,
-    QuestionPath, QuestionVersionPath, SectionPath, VersionLinkQuery,
+    ErrorResponse,
+    ListQuery,
+    MessageResponse,
+    QuestionListResponse,
+    QuestionPath,
+    QuestionVersionPath,
+    SectionPath,
+    VersionLinkQuery,
 )
 from app.api.resources_support import _error, resources_api, resources_tag, version_tag
 from app.api.resources_context import (
@@ -36,7 +47,9 @@ from app.api.resources_utils import (
     tags=[resources_tag],
     responses={201: QuestionOutput, 400: ErrorResponse, 404: ErrorResponse},
 )
-def create_question(path: SectionPath, query: VersionLinkQuery, body: QuestionCreateInput):
+def create_question(
+    path: SectionPath, query: VersionLinkQuery, body: QuestionCreateInput
+):
     project, project_err = _get_project_or_error(path.project_uuid)
     if project_err:
         return project_err
@@ -47,18 +60,23 @@ def create_question(path: SectionPath, query: VersionLinkQuery, body: QuestionCr
     if section_err:
         return section_err
     try:
-        version_key = _resolve_version_key(section.versions or [], section.questions or {}, query.version_uuid)
+        version_key = _resolve_version_key(
+            section.versions or [], section.questions or {}, query.version_uuid
+        )
         choices = []
         for choice in body.choices:
-            choices.append(Choice(
-                uuid=choice.uuid,
-                label=choice.label,
-                value=choice.value,
-                visibility_condition=(
-                    Condition.objects(uuid=choice.visibility_condition).first()
-                    if choice.visibility_condition else None
-                ),
-            ))
+            choices.append(
+                Choice(
+                    uuid=choice.uuid,
+                    label=choice.label,
+                    value=choice.value,
+                    visibility_condition=(
+                        Condition.objects(uuid=choice.visibility_condition).first()
+                        if choice.visibility_condition
+                        else None
+                    ),
+                )
+            )
         question = Question(
             uuid=body.uuid,
             versions=[_version_from_create(v) for v in body.versions],
@@ -69,14 +87,19 @@ def create_question(path: SectionPath, query: VersionLinkQuery, body: QuestionCr
             default_value=body.default_value,
             help_text=body.help_text,
             tooltip=body.tooltip,
-            validation_conditions=_resolve_refs(Condition, body.validation_conditions, "validation_condition"),
+            validation_conditions=_resolve_refs(
+                Condition, body.validation_conditions, "validation_condition"
+            ),
             validation_condition_messages=body.validation_condition_messages,
-            visibility_conditions=_resolve_refs(Condition, body.visibility_conditions, "visibility_condition"),
+            visibility_conditions=_resolve_refs(
+                Condition, body.visibility_conditions, "visibility_condition"
+            ),
             add_button=body.add_button,
             is_repeatable=body.is_repeatable,
             repeatable_condition=(
                 Condition.objects(uuid=body.repeatable_condition).first()
-                if body.repeatable_condition else None
+                if body.repeatable_condition
+                else None
             ),
             check_repeat_on=body.check_repeat_on,
             min_repeatable_count=body.min_repeatable_count,
@@ -122,14 +145,21 @@ def list_questions(path: SectionPath, query: ListQuery):
     if query.status:
         qs = qs(status=query.status)
     try:
-        items, page, page_size, total_items, total_pages, next_cursor = _paginate_queryset(qs, query)
+        items, page, page_size, total_items, total_pages, next_cursor = (
+            _paginate_queryset(qs, query)
+        )
     except ValueError as exc:
         return _error(str(exc), 400)
-    return to_json_ready(QuestionListResponse(
-        items=[to_question_output(item) for item in items],
-        page=page, page_size=page_size, total_items=total_items,
-        total_pages=total_pages, next_cursor=next_cursor,
-    ))
+    return to_json_ready(
+        QuestionListResponse(
+            items=[to_question_output(item) for item in items],
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+            next_cursor=next_cursor,
+        )
+    )
 
 
 @resources_api.get(

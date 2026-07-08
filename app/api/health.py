@@ -8,6 +8,7 @@ from pymongo.errors import PyMongoError
 from app.middleware.observability import get_metrics_snapshot
 from app.schemas.form import FormCreateInput
 from app.schemas.mappers import to_json_ready
+from app.services.condition_management_async import get_async_queue_status
 
 try:
     from flask_openapi3 import APIBlueprint, Tag
@@ -69,7 +70,9 @@ def readiness():
 
 @health_api.get("/metrics", tags=[system_tag])
 def metrics():
-    return to_json_ready(get_metrics_snapshot())
+    snapshot = get_metrics_snapshot()
+    snapshot["async_queue"] = get_async_queue_status()
+    return to_json_ready(snapshot)
 
 
 @health_api.post(

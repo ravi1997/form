@@ -2,6 +2,8 @@
 
 Production-ready Flask OpenAPI service for form/resource management, auth/session lifecycle, condition evaluation, rate limiting, and UI template management backed by MongoDB.
 
+Current release status: READY.
+
 ## Features
 
 - OpenAPI 3 endpoints under `/api/v1` with Pydantic v2 schema validation
@@ -25,8 +27,11 @@ Production-ready Flask OpenAPI service for form/resource management, auth/sessio
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Local setup, debugging, IDE setup, conventions |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Docker, production checklist, Kubernetes probes, JWT key rotation |
 | [SECURITY.md](SECURITY.md) | Security model, headers, rate limiting, known limitations |
+| [OBSERVABILITY.md](OBSERVABILITY.md) | Metrics, logging, async visibility |
+| [FUTURE_IMPROVEMENTS.md](FUTURE_IMPROVEMENTS.md) | Deferred roadmap and design decisions for the next phase |
 | [TESTING.md](TESTING.md) | Test strategy, fixtures, writing tests, coverage |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Branch naming, commit conventions, PR process |
+| [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) | Deferred engineering work and non-blocking improvements |
 | [CHANGELOG.md](CHANGELOG.md) | Change history |
 | [.env.example](.env.example) | All environment variables with descriptions |
 
@@ -52,7 +57,9 @@ Or use the Makefile:
 make install    # install deps
 make test       # run test suite with coverage
 make lint       # ruff check
+make format     # ruff format + ruff check --fix
 make type-check # mypy
+make audit      # pip-audit vulnerability scan
 make docker-up  # docker compose up --build -d
 ```
 
@@ -86,6 +93,7 @@ The OpenAPI schema is served at `/openapi.json` by flask-openapi3.
 ```bash
 docker build -t form-service:latest .
 export JWT_SECRET_KEY='replace-me'
+export MONGO_INITDB_ROOT_PASSWORD='replace-me-too'
 docker compose up --build
 ```
 
@@ -97,11 +105,13 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push:
 
 1. Ruff lint
 2. Mypy type checks
-3. Pytest suite (324 tests, mongomock)
+3. Pytest suite (329 tests, mongomock)
 4. Coverage artifact upload
 5. `pip-audit` vulnerability scan
 6. Docker image build
 7. Docker Compose smoke test (health, readiness, metrics)
+
+The full test suite currently passes at 329 tests.
 
 ## Troubleshooting
 
@@ -110,4 +120,3 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push:
 - **429 errors**: inspect the `Retry-After` response header and rate-limit configuration in `rate_limit_configs`.
 - **Readiness 503**: MongoDB `ping` failed — check the DB service and network connectivity.
 - **Verbose logs**: set `LOG_LEVEL=DEBUG` to see detailed JWT decode, DB query, and RBAC trace entries.
-

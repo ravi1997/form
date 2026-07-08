@@ -21,7 +21,9 @@ def record_condition_version(
     changelog: str = "",
 ) -> ConditionVersion:
     latest = (
-        ConditionVersion.objects(condition_uuid=condition.uuid).order_by("-version").first()
+        ConditionVersion.objects(condition_uuid=condition.uuid)
+        .order_by("-version")
+        .first()
     )
     new_version = (latest.version + 1) if latest else 1
     snapshot = serialize_condition(condition)
@@ -40,7 +42,9 @@ def record_condition_version(
 
 
 def list_condition_versions(condition_uuid: str) -> List[ConditionVersion]:
-    return list(ConditionVersion.objects(condition_uuid=condition_uuid).order_by("version"))
+    return list(
+        ConditionVersion.objects(condition_uuid=condition_uuid).order_by("version")
+    )
 
 
 def restore_condition_version(
@@ -49,7 +53,9 @@ def restore_condition_version(
     item = Condition.objects(uuid=condition_uuid).first()
     if not item:
         raise ConditionManagementError("Condition not found")
-    version_entry = ConditionVersion.objects(condition_uuid=condition_uuid, version=version).first()
+    version_entry = ConditionVersion.objects(
+        condition_uuid=condition_uuid, version=version
+    ).first()
     if not version_entry:
         raise ConditionManagementError("Version not found")
 
@@ -129,8 +135,12 @@ def diff_condition_versions(
     except ValueError as exc:
         raise ConditionManagementError("Invalid version id") from exc
 
-    left_entry = ConditionVersion.objects(condition_uuid=condition.uuid, version=left).first()
-    right_entry = ConditionVersion.objects(condition_uuid=condition.uuid, version=right).first()
+    left_entry = ConditionVersion.objects(
+        condition_uuid=condition.uuid, version=left
+    ).first()
+    right_entry = ConditionVersion.objects(
+        condition_uuid=condition.uuid, version=right
+    ).first()
     if not left_entry or not right_entry:
         raise ConditionManagementError("Version not found")
     return {

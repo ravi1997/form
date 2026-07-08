@@ -27,7 +27,9 @@ def serialize_condition(condition: Condition) -> Dict[str, Any]:
         "operator": condition.operator,
         "operands": list(condition.operands or []),
         "isNegated": bool(condition.isNegated),
-        "subConditions": [str(getattr(c, "id", c)) for c in (condition.subConditions or [])],
+        "subConditions": [
+            str(getattr(c, "id", c)) for c in (condition.subConditions or [])
+        ],
         "logicalJoinType": condition.logicalJoinType,
         "isActive": bool(condition.isActive),
         "errorMessage": condition.errorMessage,
@@ -36,7 +38,9 @@ def serialize_condition(condition: Condition) -> Dict[str, Any]:
         "stopEvaluationIfTrue": bool(condition.stopEvaluationIfTrue),
         "metadata": dict(condition.metadata or {}),
         "status": condition.status,
-        "updated_at": condition.updated_at.isoformat() if condition.updated_at else None,
+        "updated_at": condition.updated_at.isoformat()
+        if condition.updated_at
+        else None,
     }
 
 

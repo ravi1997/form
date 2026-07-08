@@ -8,6 +8,7 @@ schema instance.
 Pydantic models so the result is safe to pass directly to Flask's response
 serialiser.
 """
+
 from __future__ import annotations
 
 from typing import Any, List, Optional

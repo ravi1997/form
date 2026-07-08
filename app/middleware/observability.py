@@ -15,7 +15,9 @@ class _MetricsState:
     requests_total: int = 0
     requests_inflight: int = 0
     request_duration_ms_sum: float = 0.0
-    responses_by_status: Dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    responses_by_status: Dict[str, int] = field(
+        default_factory=lambda: defaultdict(int)
+    )
 
 
 _metrics_state = _MetricsState()
@@ -46,7 +48,9 @@ def register_observability_middleware(app) -> None:
 
         with _metrics_lock:
             _metrics_state.requests_total += 1
-            _metrics_state.requests_inflight = max(0, _metrics_state.requests_inflight - 1)
+            _metrics_state.requests_inflight = max(
+                0, _metrics_state.requests_inflight - 1
+            )
             _metrics_state.request_duration_ms_sum += duration_ms
             _metrics_state.responses_by_status[str(response.status_code)] += 1
 
@@ -54,7 +58,9 @@ def register_observability_middleware(app) -> None:
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         response.headers.setdefault("X-XSS-Protection", "0")
-        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        response.headers.setdefault(
+            "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
+        )
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
@@ -68,7 +74,9 @@ def register_observability_middleware(app) -> None:
         origin = request.headers.get("Origin")
         if _is_origin_allowed(origin, allowed_origins):
             allow_any = "*" in allowed_origins
-            response.headers["Access-Control-Allow-Origin"] = "*" if allow_any else (origin or "")
+            response.headers["Access-Control-Allow-Origin"] = (
+                "*" if allow_any else (origin or "")
+            )
             response.headers["Vary"] = "Origin"
             if not allow_any:
                 response.headers["Access-Control-Allow-Credentials"] = "true"

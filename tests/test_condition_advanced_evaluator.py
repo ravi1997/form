@@ -3,6 +3,7 @@ from datetime import datetime, timezone, timedelta
 import pytest
 
 from app.models.form import Condition
+from app.services.condition_dsl import Parser, Tokenizer
 from app.services.condition_evaluator import (
     ConditionEvaluationError,
     ConditionEvaluator,
@@ -19,6 +20,20 @@ def test_temporal_created_within_days():
         isActive=True,
     )
     ctx = {"created_at": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()}
+    assert ConditionEvaluator(ctx).evaluate(c) is True
+
+
+def test_temporal_numeric_value_treated_as_unix_timestamp():
+    c = Condition(
+        uuid="t2",
+        conditionType="temporal",
+        targetField="created_at",
+        operator="created_within_days",
+        operands=["2"],
+        isActive=True,
+    )
+    ts = datetime.now(timezone.utc) - timedelta(hours=12)
+    ctx = {"created_at": ts.timestamp()}
     assert ConditionEvaluator(ctx).evaluate(c) is True
 
 
@@ -85,3 +100,9 @@ def test_complexity_and_observability():
     snap = ev.get_observability_snapshot()
     assert snap["execution_path"] == ["obs1"]
     assert ev.complexity_score(c) >= 1
+
+
+def test_dsl_string_literal_preserves_unicode():
+    tokens = Tokenizer().tokenize('"café ☕"')
+    node = Parser(tokens).parse()
+    assert node.value == "café ☕"

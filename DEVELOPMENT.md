@@ -26,7 +26,7 @@ cp .env.example .env
 # At minimum set JWT_SECRET_KEY for anything beyond unit tests.
 
 # 5. Run tests (uses mongomock — no MongoDB required)
-pytest
+pytest -q --cov=app --cov-report=term
 
 # 6. Start the development server (requires MongoDB)
 flask --app app.wsgi:app run --reload --port 8000
@@ -50,6 +50,9 @@ make docker-up   # docker compose up --build -d
 make docker-down
 make clean       # remove __pycache__, .coverage, etc.
 ```
+
+CI runs the same core checks and additionally enforces `ruff format --check .`
+before linting, plus `pip-audit -r requirements.txt`.
 
 ---
 
@@ -88,7 +91,7 @@ Full documentation: see `ARCHITECTURE.md` and `.env.example`.
 
 ```bash
 # All tests (uses mongomock — no real MongoDB needed)
-pytest
+pytest -q
 
 # With coverage report
 pytest --cov=app --cov-report=term
@@ -117,11 +120,15 @@ Run before every commit:
 
 ```bash
 ruff check .          # lint
+ruff format --check .  # format validation in CI
 ruff format .         # format
 mypy app tests        # type check
+pytest -q --cov=app --cov-report=term
 ```
 
 Or use `make lint type-check format`.
+
+The CI pipeline mirrors these commands and also runs `ruff format --check .` explicitly before linting.
 
 ---
 

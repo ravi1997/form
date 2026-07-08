@@ -101,8 +101,10 @@ def log_audit(action: str, resource_type: str) -> Callable:
             try:
                 result = func(*args, **kwargs)
                 resource_id = None
-                if isinstance(result, dict) and "id" in result:
-                    resource_id = result["id"]
+                if isinstance(result, dict):
+                    resource_id = result.get("uuid") or result.get("id")
+                elif hasattr(result, "uuid"):
+                    resource_id = str(result.uuid)
                 elif hasattr(result, "id"):
                     resource_id = str(result.id)
 

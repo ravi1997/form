@@ -8,6 +8,7 @@ Environment selection is driven by the APP_ENV (or FLASK_ENV) variable.
 All supported keys are listed in KNOWN_ENV_KEYS; unknown JWT_*/AUTH_RATE_LIMIT_*
 variables produce a warning (or raise in production) to catch typos early.
 """
+
 from __future__ import annotations
 
 import logging
@@ -418,8 +419,12 @@ class BaseConfig:
             raise RuntimeError("JWT_SECRET_KEY is required in production")
         has_mongodb_uri = bool(app.config.get("MONGODB_URI"))
         has_mongodb_settings = isinstance(app.config.get("MONGODB_SETTINGS"), dict)
-        if cls.ENV_NAME == "production" and not (has_mongodb_uri or has_mongodb_settings):
-            raise RuntimeError("MONGODB_URI or MONGODB_SETTINGS is required in production")
+        if cls.ENV_NAME == "production" and not (
+            has_mongodb_uri or has_mongodb_settings
+        ):
+            raise RuntimeError(
+                "MONGODB_URI or MONGODB_SETTINGS is required in production"
+            )
 
         if cls.ENV_NAME != "production" and not app.config.get("JWT_SECRET_KEY"):
             app.config["JWT_SECRET_KEY"] = "dev-insecure-secret-change-me"
@@ -688,7 +693,9 @@ def build_runtime_settings(config: Mapping[str, Any]) -> RuntimeSettings:
     data = {
         "env_name": BaseConfig.get_str(config, "ENV_NAME", BaseConfig.ENV_NAME),
         "debug": BaseConfig.get_bool(config, "DEBUG", BaseConfig.DEBUG),
-        "api_version": BaseConfig.get_str(config, "API_VERSION", BaseConfig.API_VERSION),
+        "api_version": BaseConfig.get_str(
+            config, "API_VERSION", BaseConfig.API_VERSION
+        ),
         "log_level": BaseConfig.get_str(config, "LOG_LEVEL", BaseConfig.LOG_LEVEL),
         "log_dir": BaseConfig.get_str(config, "LOG_DIR", BaseConfig.LOG_DIR),
         "log_max_bytes": BaseConfig.get_int(
@@ -697,7 +704,9 @@ def build_runtime_settings(config: Mapping[str, Any]) -> RuntimeSettings:
         "log_backup_count": BaseConfig.get_int(
             config, "LOG_BACKUP_COUNT", BaseConfig.LOG_BACKUP_COUNT
         ),
-        "mongodb_uri": BaseConfig.get_str(config, "MONGODB_URI", BaseConfig.MONGODB_URI),
+        "mongodb_uri": BaseConfig.get_str(
+            config, "MONGODB_URI", BaseConfig.MONGODB_URI
+        ),
         "mongodb_db": BaseConfig.get_str(config, "MONGODB_DB", BaseConfig.MONGODB_DB),
         "mongodb_connect_timeout_ms": BaseConfig.get_int(
             config,

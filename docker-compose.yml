@@ -8,7 +8,7 @@ services:
     restart: unless-stopped
     environment:
       APP_ENV: production
-      MONGODB_URI: mongodb://mongo:27017/form_prod
+      MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-formadmin}:${MONGO_INITDB_ROOT_PASSWORD:?set MONGO_INITDB_ROOT_PASSWORD in your environment}@mongo:27017/form_prod?authSource=admin
       MONGODB_DB: form_prod
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in your environment}
       JWT_ACTIVE_KID: ${JWT_ACTIVE_KID:-v1}
@@ -37,6 +37,9 @@ services:
     container_name: form-mongo
     restart: unless-stopped
     command: ["--bind_ip_all"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-formadmin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?set MONGO_INITDB_ROOT_PASSWORD in your environment}
     volumes:
       - mongo_data:/data/db
     networks:

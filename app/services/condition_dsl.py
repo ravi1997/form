@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import ast
 from datetime import datetime, timezone
 from decimal import InvalidOperation
 from decimal import Decimal
@@ -262,8 +263,7 @@ class Parser:
 
     @staticmethod
     def _unquote(value: str) -> str:
-        body = value[1:-1]
-        return bytes(body, "utf-8").decode("unicode_escape")
+        return ast.literal_eval(value)
 
 
 def _resolve_identifier(context: Dict[str, Any], path: str) -> Any:

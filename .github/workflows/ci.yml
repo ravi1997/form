@@ -25,6 +25,9 @@ jobs:
           pip install ruff mypy pip-audit
 
       - name: Lint
+        run: ruff format --check .
+
+      - name: Lint
         run: ruff check .
 
       - name: Type check

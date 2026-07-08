@@ -64,8 +64,10 @@ def create_openapi_app(config: Optional[Dict[str, Any]] = None):
 
     # Initialize cache system
     from app.services.condition_cache import initialize_global_caches
+    from app.services.condition_management_async import recover_pending_async_jobs
 
     initialize_global_caches(ttl_seconds=300, ttl_max_size=1000)
+    recover_pending_async_jobs()
 
     register_api_routes(app)
 

@@ -36,6 +36,7 @@ Form Service is a production-ready REST API built with **Flask** and **flask-ope
 │  │  • RBAC (role-based access control)                   │   │
 │  │  • ConditionEvaluator (DSL + type system)             │   │
 │  │  • RateLimitService (Redis / in-memory fallback)      │   │
+│  │  • Async condition queue (MongoDB-backed recovery)    │   │
 │  │  • RotatingLoggerService (structured file logging)    │   │
 │  └─────────────────────────────────────────────────────┘   │
 │  ┌─────────────────────────────────────────────────────┐   │
@@ -135,6 +136,11 @@ app/
         ├── service.py
         ├── formatter.py
         └── decorators.py
+
+Operational notes:
+- Async condition jobs are persisted in MongoDB and are re-queued on app startup.
+- The queue implementation remains intentionally lightweight to avoid a full Celery/RQ dependency.
+- Queue status is observable via `GET /api/v1/metrics` and the async job status endpoint.
 ```
 
 ---
@@ -159,6 +165,22 @@ app/
                                            CORS headers
    c. inject_request_id_header — echo X-Request-Id in response
 6. Response sent to client
+
+Startup recovery:
+- `create_openapi_app()` invokes `recover_pending_async_jobs()` after the app and database are initialized.
+- Jobs that were queued or running when a worker exited are recovered from MongoDB state.
+- `GET /api/v1/metrics` includes a snapshot of queued, running, failed, and timeout async jobs.
+
+## Future Roadmap
+
+The detailed deferred roadmap lives in [FUTURE_IMPROVEMENTS.md](FUTURE_IMPROVEMENTS.md).
+It documents the next major design decisions for:
+
+- schema version migration
+- event-driven actions and webhooks
+- multi-tenant sharing
+- pessimistic form locks
+- proof-of-work protection for public submissions
 ```
 
 ---

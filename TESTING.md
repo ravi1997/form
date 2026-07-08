@@ -20,6 +20,8 @@ tests/
 ├── test_condition_advanced_evaluator.py # Temporal/arithmetic/set conditions
 ├── test_condition_cache.py              # TTL/historical/negative caches
 ├── test_condition_management.py         # Condition lifecycle management
+├── test_resources_api.py               # Resources CRUD smoke tests
+├── test_rate_limit_service.py          # Redis-backed rate limiting behavior
 ├── test_condition_performance.py        # Evaluation performance benchmark
 ├── test_conditions_api.py               # Condition API endpoints
 ├── test_question_actions.py             # Question action triggers

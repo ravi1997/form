@@ -6,7 +6,10 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.models.form import Condition, FormResponse, Question
-from app.services.condition_evaluator import ConditionEvaluationContext, ConditionEvaluator
+from app.services.condition_evaluator import (
+    ConditionEvaluationContext,
+    ConditionEvaluator,
+)
 from app.services.condition_management_core import ConditionManagementError
 
 

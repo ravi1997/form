@@ -1,4 +1,5 @@
 """Action trigger and execution list endpoints."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -15,9 +16,15 @@ from app.schemas.action import (
     ActionTriggerResponse,
 )
 from app.schemas.mappers import to_json_ready
-from app.services.condition_evaluator import ConditionEvaluationError, ConditionEvaluator
+from app.services.condition_evaluator import (
+    ConditionEvaluationError,
+    ConditionEvaluator,
+)
 from app.api.resources_schemas import (
-    ErrorResponse, ListQuery, QuestionActionPath, ResponseActionExecutionPath,
+    ErrorResponse,
+    ListQuery,
+    QuestionActionPath,
+    ResponseActionExecutionPath,
 )
 from app.api.resources_support import _error, resources_api, resources_tag
 from app.api.resources_context import (
@@ -63,7 +70,9 @@ def trigger_question_action(path: QuestionActionPath, body: ActionTriggerRequest
 
     response = None
     if body.response_uuid:
-        response = FormResponse.objects(uuid=body.response_uuid, form_uuid=form.uuid).first()
+        response = FormResponse.objects(
+            uuid=body.response_uuid, form_uuid=form.uuid
+        ).first()
         if not response:
             return _error("Form response not found", 404)
 
@@ -75,11 +84,13 @@ def trigger_question_action(path: QuestionActionPath, body: ActionTriggerRequest
             idempotency_key=body.idempotency_key,
         ).first()
         if existing:
-            return to_json_ready(ActionTriggerResponse(
-                execution=_to_action_execution_output(existing),
-                frontend_steps=existing.frontend_steps or [],
-                idempotent=True,
-            ))
+            return to_json_ready(
+                ActionTriggerResponse(
+                    execution=_to_action_execution_output(existing),
+                    frontend_steps=existing.frontend_steps or [],
+                    idempotent=True,
+                )
+            )
 
     if action.confirmation_message and not body.confirmed:
         return _error("Action confirmation required", 409)
@@ -90,7 +101,9 @@ def trigger_question_action(path: QuestionActionPath, body: ActionTriggerRequest
         eval_context.update(dict(response.metadata or {}))
 
     evaluator = ConditionEvaluator(context=eval_context)
-    if action.visibility_condition and not evaluator.evaluate(action.visibility_condition):
+    if action.visibility_condition and not evaluator.evaluate(
+        action.visibility_condition
+    ):
         return _error("Action is not visible in current context", 409)
     if action.enabled_condition and not evaluator.evaluate(action.enabled_condition):
         return _error("Action is disabled in current context", 409)
@@ -112,18 +125,26 @@ def trigger_question_action(path: QuestionActionPath, body: ActionTriggerRequest
 
         if step.target == "frontend":
             frontend_steps.append(step_payload)
-            step_results.append({
-                "step_id": step.id, "target": step.target, "type": step.type,
-                "status": "success", "output": {"deferred_to_frontend": True},
-                "error": None, "executed_at": now,
-            })
+            step_results.append(
+                {
+                    "step_id": step.id,
+                    "target": step.target,
+                    "type": step.type,
+                    "status": "success",
+                    "output": {"deferred_to_frontend": True},
+                    "error": None,
+                    "executed_at": now,
+                }
+            )
             continue
 
         try:
             output: Dict[str, Any] = {}
             if step.type == "response.status.set":
                 if not response:
-                    raise ValueError("response_uuid is required for response.status.set")
+                    raise ValueError(
+                        "response_uuid is required for response.status.set"
+                    )
                 status_value = step.config.get("status")
                 if not status_value:
                     raise ValueError("response.status.set requires config.status")
@@ -132,7 +153,9 @@ def trigger_question_action(path: QuestionActionPath, body: ActionTriggerRequest
                 output = {"status": response.status}
             elif step.type == "response.metadata.merge":
                 if not response:
-                    raise ValueError("response_uuid is required for response.metadata.merge")
+                    raise ValueError(
+                        "response_uuid is required for response.metadata.merge"
+                    )
                 patch = step.config.get("patch", {})
                 merged = dict(response.metadata or {})
                 merged.update(dict(patch))
@@ -141,17 +164,38 @@ def trigger_question_action(path: QuestionActionPath, body: ActionTriggerRequest
                 output = {"metadata": merged}
             else:
                 output = {"skipped": True}
-            step_results.append({
-                "step_id": step.id, "target": step.target, "type": step.type,
-                "status": "success", "output": output, "error": None, "executed_at": now,
-            })
-        except (ConditionEvaluationError, ValidationError, NotUniqueError, ValueError, KeyError, TypeError) as exc:
+            step_results.append(
+                {
+                    "step_id": step.id,
+                    "target": step.target,
+                    "type": step.type,
+                    "status": "success",
+                    "output": output,
+                    "error": None,
+                    "executed_at": now,
+                }
+            )
+        except (
+            ConditionEvaluationError,
+            ValidationError,
+            NotUniqueError,
+            ValueError,
+            KeyError,
+            TypeError,
+        ) as exc:
             execution_status = "failed"
             execution_error = str(exc)
-            step_results.append({
-                "step_id": step.id, "target": step.target, "type": step.type,
-                "status": "failed", "output": {}, "error": str(exc), "executed_at": now,
-            })
+            step_results.append(
+                {
+                    "step_id": step.id,
+                    "target": step.target,
+                    "type": step.type,
+                    "status": "failed",
+                    "output": {},
+                    "error": str(exc),
+                    "executed_at": now,
+                }
+            )
             if step.on_error != "continue":
                 break
             execution_status = "partial"
@@ -178,11 +222,13 @@ def trigger_question_action(path: QuestionActionPath, body: ActionTriggerRequest
     )
     execution.save()
 
-    return to_json_ready(ActionTriggerResponse(
-        execution=_to_action_execution_output(execution),
-        frontend_steps=frontend_steps,
-        idempotent=False,
-    ))
+    return to_json_ready(
+        ActionTriggerResponse(
+            execution=_to_action_execution_output(execution),
+            frontend_steps=frontend_steps,
+            idempotent=False,
+        )
+    )
 
 
 @resources_api.get(
@@ -197,15 +243,26 @@ def list_action_executions(path: ResponseActionExecutionPath, query: ListQuery):
     form, form_err = _get_form_for_project(project, path.form_uuid)
     if form_err:
         return form_err
-    response = FormResponse.objects(uuid=path.response_uuid, form_uuid=form.uuid).first()
+    response = FormResponse.objects(
+        uuid=path.response_uuid, form_uuid=form.uuid
+    ).first()
     if not response:
         return _error("Form response not found", 404)
     executions = ActionExecution.objects(
-        project_uuid=project.uuid, form_uuid=form.uuid, response_uuid=response.uuid,
+        project_uuid=project.uuid,
+        form_uuid=form.uuid,
+        response_uuid=response.uuid,
     )
-    items, page, page_size, total_items, total_pages, next_cursor = _paginate_queryset(executions, query)
-    return to_json_ready(ActionExecutionListResponse(
-        items=[_to_action_execution_output(item) for item in items],
-        page=page, page_size=page_size, total_items=total_items,
-        total_pages=total_pages, next_cursor=next_cursor,
-    ))
+    items, page, page_size, total_items, total_pages, next_cursor = _paginate_queryset(
+        executions, query
+    )
+    return to_json_ready(
+        ActionExecutionListResponse(
+            items=[_to_action_execution_output(item) for item in items],
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+            next_cursor=next_cursor,
+        )
+    )

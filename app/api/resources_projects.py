@@ -1,4 +1,5 @@
 """Project CRUD and version endpoints."""
+
 from __future__ import annotations
 
 from flask import g
@@ -11,7 +12,12 @@ from app.schemas.project import ProjectCreateInput, ProjectOutput, ProjectUpdate
 from app.schemas.version import VersionCreateInput, VersionOutput, VersionUpdateInput
 from app.services.rbac import has_global_admin_privileges
 from app.api.resources_schemas import (
-    ErrorResponse, ListQuery, MessageResponse, ProjectListResponse, UUIDPath, VersionPath,
+    ErrorResponse,
+    ListQuery,
+    MessageResponse,
+    ProjectListResponse,
+    UUIDPath,
+    VersionPath,
 )
 from app.api.resources_support import _error, resources_api, resources_tag, version_tag
 from app.api.resources_context import (
@@ -43,7 +49,9 @@ def create_project(body: ProjectCreateInput):
             members=_resolve_refs(User, body.members, "member"),
             viewers=_resolve_refs(User, body.viewers, "viewer"),
             forms=_resolve_refs(Form, body.forms, "form"),
-            organizations=_resolve_refs(Organization, body.organizations, "organization"),
+            organizations=_resolve_refs(
+                Organization, body.organizations, "organization"
+            ),
             tags=body.tags,
             status=body.status,
         )
@@ -65,7 +73,8 @@ def list_projects(query: ListQuery):
     if query.status:
         qs = qs(status=query.status)
     visible_items = [
-        project for project in list(qs)
+        project
+        for project in list(qs)
         if _can_read_project(user, project, has_global_admin_privileges)
     ]
     try:
@@ -74,14 +83,16 @@ def list_projects(query: ListQuery):
         )
     except ValueError as exc:
         return _error(str(exc), 400)
-    return to_json_ready(ProjectListResponse(
-        items=[to_project_output(item) for item in items],
-        page=page,
-        page_size=page_size,
-        total_items=total_items,
-        total_pages=total_pages,
-        next_cursor=next_cursor,
-    ))
+    return to_json_ready(
+        ProjectListResponse(
+            items=[to_project_output(item) for item in items],
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+            next_cursor=next_cursor,
+        )
+    )
 
 
 @resources_api.get(

@@ -13,6 +13,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **Deprecation fix**: replaced all `datetime.utcnow()` calls (deprecated since Python 3.12) with `datetime.now(timezone.utc)` across `app/` and `tests/`. The condition evaluator's internal naive-UTC path (`_coerce_datetime`) is preserved intentionally for datetime arithmetic consistency.
 - **Rate limiting**: `Retry-After` and corrected `X-RateLimit-Remaining` headers are now included in all 429 responses from the `rate_limit` and `rate_limit_by_endpoint` decorators in `app/middleware/rate_limit.py`.
+- **Rate limiting**: Redis-backed counters now reset the window timestamp correctly after expiry in `app/services/rate_limit.py`.
+- **Audit logging**: `log_audit` now prefers `uuid` over `id` when capturing resource identifiers from returned payloads and model instances.
+- **Condition evaluation**: numeric temporal inputs are treated as Unix timestamps, and DSL string literals now preserve Unicode characters.
+- **Async evaluation**: timeout retries are re-queued instead of recursively blocking the worker thread.
+- **Async recovery**: pending async condition jobs are re-queued from MongoDB state during app startup, and queue counts are exposed via `/api/v1/metrics`.
+- **Deployment**: Docker Compose now requires MongoDB authentication and connects the app with `authSource=admin`.
 
 ### Added
 
@@ -55,4 +61,4 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Docker Compose setup with MongoDB 8 and health checks.
 - GitHub Actions CI: lint, type check, tests, coverage, pip-audit, Docker build, smoke test.
 - `scripts/` directory: `benchmark_conditions.py`, `init_rate_limits.py`, `setup_condition_indexes.py`.
-- 324 automated tests with mongomock (no real MongoDB required).
+- 329 automated tests with mongomock (no real MongoDB required).

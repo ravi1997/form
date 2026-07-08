@@ -6,6 +6,7 @@ Collections:
 - session_audit_logs: TTL-backed audit trail of auth events
 - token_blocklist   : revoked refresh-token JTIs (TTL-backed)
 """
+
 from datetime import datetime, timezone
 
 from app.extensions import db

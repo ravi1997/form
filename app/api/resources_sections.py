@@ -1,4 +1,5 @@
 """Section CRUD and version endpoints."""
+
 from __future__ import annotations
 
 from mongoengine.errors import NotUniqueError, ValidationError
@@ -9,8 +10,14 @@ from app.schemas.mappers import to_json_ready, to_section_output, to_version_out
 from app.schemas.section import SectionCreateInput, SectionOutput, SectionUpdateInput
 from app.schemas.version import VersionCreateInput, VersionOutput, VersionUpdateInput
 from app.api.resources_schemas import (
-    ErrorResponse, FormPath, ListQuery, MessageResponse, SectionListResponse,
-    SectionPath, SectionVersionPath, VersionLinkQuery,
+    ErrorResponse,
+    FormPath,
+    ListQuery,
+    MessageResponse,
+    SectionListResponse,
+    SectionPath,
+    SectionVersionPath,
+    VersionLinkQuery,
 )
 from app.api.resources_support import _error, resources_api, resources_tag, version_tag
 from app.api.resources_context import (
@@ -41,7 +48,9 @@ def create_section(path: FormPath, query: VersionLinkQuery, body: SectionCreateI
     if form_err:
         return form_err
     try:
-        version_key = _resolve_version_key(form.versions or [], form.sections or {}, query.version_uuid)
+        version_key = _resolve_version_key(
+            form.versions or [], form.sections or {}, query.version_uuid
+        )
         section = Section(
             uuid=body.uuid,
             versions=[_version_from_create(v) for v in body.versions],
@@ -50,7 +59,8 @@ def create_section(path: FormPath, query: VersionLinkQuery, body: SectionCreateI
             is_repeatable=body.is_repeatable,
             repeatable_condition=(
                 Condition.objects(uuid=body.repeatable_condition).first()
-                if body.repeatable_condition else None
+                if body.repeatable_condition
+                else None
             ),
             check_repeat_on=body.check_repeat_on,
             min_repeatable_count=body.min_repeatable_count,
@@ -58,15 +68,22 @@ def create_section(path: FormPath, query: VersionLinkQuery, body: SectionCreateI
             title=body.title,
             description=body.description,
             isDeleted=body.isDeleted,
-            deletedBy=(User.objects(uuid=body.deletedBy).first() if body.deletedBy else None),
+            deletedBy=(
+                User.objects(uuid=body.deletedBy).first() if body.deletedBy else None
+            ),
             deletedAt=body.deletedAt,
             deleted_at=body.deleted_at,
-            deleted_by=(User.objects(uuid=body.deleted_by).first() if body.deleted_by else None),
+            deleted_by=(
+                User.objects(uuid=body.deleted_by).first() if body.deleted_by else None
+            ),
             visibility_condition=(
                 Condition.objects(uuid=body.visibility_condition).first()
-                if body.visibility_condition else None
+                if body.visibility_condition
+                else None
             ),
-            validation_conditions=_resolve_refs(Condition, body.validation_conditions, "validation_condition"),
+            validation_conditions=_resolve_refs(
+                Condition, body.validation_conditions, "validation_condition"
+            ),
             validation_condition_messages=body.validation_condition_messages,
             tags=body.tags,
             icon=body.icon,
@@ -99,14 +116,21 @@ def list_sections(path: FormPath, query: ListQuery):
     if query.status:
         qs = qs(status=query.status)
     try:
-        items, page, page_size, total_items, total_pages, next_cursor = _paginate_queryset(qs, query)
+        items, page, page_size, total_items, total_pages, next_cursor = (
+            _paginate_queryset(qs, query)
+        )
     except ValueError as exc:
         return _error(str(exc), 400)
-    return to_json_ready(SectionListResponse(
-        items=[to_section_output(item) for item in items],
-        page=page, page_size=page_size, total_items=total_items,
-        total_pages=total_pages, next_cursor=next_cursor,
-    ))
+    return to_json_ready(
+        SectionListResponse(
+            items=[to_section_output(item) for item in items],
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+            next_cursor=next_cursor,
+        )
+    )
 
 
 @resources_api.get(

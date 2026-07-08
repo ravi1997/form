@@ -1,4 +1,5 @@
 """Choice CRUD endpoints."""
+
 from __future__ import annotations
 
 from mongoengine.errors import NotUniqueError, ValidationError
@@ -7,7 +8,12 @@ from app.models.form import Choice, Condition
 from app.schemas.choice import ChoiceCreateInput, ChoiceOutput, ChoiceUpdateInput
 from app.schemas.mappers import to_json_ready, to_choice_output
 from app.api.resources_schemas import (
-    ChoiceListResponse, ChoicePath, ErrorResponse, ListQuery, MessageResponse, QuestionPath,
+    ChoiceListResponse,
+    ChoicePath,
+    ErrorResponse,
+    ListQuery,
+    MessageResponse,
+    QuestionPath,
 )
 from app.api.resources_support import _error, resources_api, resources_tag
 from app.api.resources_context import (
@@ -49,7 +55,8 @@ def create_choice(path: QuestionPath, body: ChoiceCreateInput):
         value=body.value,
         visibility_condition=(
             Condition.objects(uuid=body.visibility_condition).first()
-            if body.visibility_condition else None
+            if body.visibility_condition
+            else None
         ),
     )
     question.choices = list(question.choices or [])
@@ -89,27 +96,32 @@ def list_choices(path: QuestionPath, query: ListQuery):
             return _error(str(exc), 400)
         page = max(query.page, 1)
         page_size = max(query.page_size, 1)
-        items = all_items[start: start + page_size]
+        items = all_items[start : start + page_size]
         if start + page_size < total_items:
             next_cursor = _encode_index_cursor(start + page_size)
     elif query.offset is not None or query.limit is not None:
         page_size = query.limit or 50
         offset = query.offset or 0
         page = (offset // max(page_size, 1)) + 1
-        items = all_items[offset: offset + page_size]
+        items = all_items[offset : offset + page_size]
     else:
         page = max(query.page, 1)
         page_size = max(query.page_size, 1)
         start = (page - 1) * page_size
-        items = all_items[start: start + page_size]
+        items = all_items[start : start + page_size]
         if start + page_size < total_items:
             next_cursor = _encode_index_cursor(start + page_size)
     total_pages = (total_items + page_size - 1) // page_size if total_items else 0
-    return to_json_ready(ChoiceListResponse(
-        items=[to_choice_output(choice) for choice in items],
-        page=page, page_size=page_size, total_items=total_items,
-        total_pages=total_pages, next_cursor=next_cursor,
-    ))
+    return to_json_ready(
+        ChoiceListResponse(
+            items=[to_choice_output(choice) for choice in items],
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+            next_cursor=next_cursor,
+        )
+    )
 
 
 @resources_api.get(
@@ -162,7 +174,9 @@ def update_choice(path: ChoicePath, body: ChoiceUpdateInput):
     if body.value is not None:
         choice.value = body.value
     if body.visibility_condition is not None:
-        choice.visibility_condition = Condition.objects(uuid=body.visibility_condition).first()
+        choice.visibility_condition = Condition.objects(
+            uuid=body.visibility_condition
+        ).first()
     try:
         question.save()
     except (ValidationError, ValueError, NotUniqueError) as exc:

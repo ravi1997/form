@@ -12,6 +12,7 @@ All route handlers have been extracted into focused modules:
   - resources_choices.py   : choice CRUD
   - resources_actions.py   : action trigger + execution list
 """
+
 from __future__ import annotations
 
 # Import blueprint first so before/after_request hooks are registered.

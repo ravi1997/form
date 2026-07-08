@@ -18,11 +18,16 @@ The Dockerfile uses a **two-stage build**:
 # Required: set the JWT secret in your environment or a .env file
 export JWT_SECRET_KEY='your-strong-secret-here'
 export JWT_ACTIVE_KID='v1'
+export MONGO_INITDB_ROOT_PASSWORD='your-strong-mongo-root-password'
 
 docker compose up --build
 ```
 
 The service binds to `http://localhost:8000`. MongoDB data is persisted in the `mongo_data` volume and log files in the `app_logs` volume.
+
+On startup, the application recovers pending async condition jobs from MongoDB
+and re-queues them. This improves restart resilience without requiring a heavier
+queue framework.
 
 #### Development override
 
@@ -35,7 +40,8 @@ At minimum, provide at runtime:
 ```
 JWT_SECRET_KEY=<strong-random-secret>
 JWT_ACTIVE_KID=v1
-MONGODB_URI=mongodb://mongo:27017/form_prod
+MONGO_INITDB_ROOT_PASSWORD=<strong-random-mongo-root-password>
+MONGODB_URI=mongodb://formadmin:<password>@mongo:27017/form_prod?authSource=admin
 MONGODB_DB=form_prod
 ```
 
@@ -48,6 +54,7 @@ All other variables default to safe production values when `APP_ENV=production`.
 - [ ] `APP_ENV=production`
 - [ ] `JWT_SECRET_KEY` set to a cryptographically random value (≥32 bytes)
 - [ ] `MONGODB_URI` pointing to a secured MongoDB instance
+- [ ] `MONGO_INITDB_ROOT_PASSWORD` set for the MongoDB container
 - [ ] `CORS_ALLOW_ORIGINS` restricted to known frontend origins
 - [ ] TLS termination at the load balancer / reverse proxy
 - [ ] Log directory (`LOG_DIR`) mounted to persistent storage
@@ -86,6 +93,10 @@ Adjust `--workers` to `(2 × CPU cores) + 1` for CPU-bound workloads. Because Mo
 | `GET /api/v1/liveness`    | `{"status":"alive"}`               | Kubernetes liveness probe |
 | `GET /api/v1/readiness`   | `{"status":"ready","database":"ok"}` or 503 | Kubernetes readiness probe |
 | `GET /api/v1/metrics`     | Request/duration stats             | Monitoring       |
+
+The metrics endpoint also includes a snapshot of async job state: queued, running, failed, and timeout counts.
+
+On application startup, pending async condition jobs are recovered from MongoDB and re-queued.
 
 Kubernetes example:
 
@@ -159,10 +170,11 @@ To rotate the JWT secret without invalidating existing sessions:
 
 GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and pull request:
 
-1. **Lint** — `ruff check .`
-2. **Type check** — `mypy app tests`
-3. **Tests** — `pytest --cov=app --cov-report=xml`
-4. **Coverage upload** — artifact saved as `coverage-xml`
-5. **Vulnerability audit** — `pip-audit -r requirements.txt`
-6. **Docker build** — verifies image builds successfully
-7. **Smoke test** — `docker compose up`, hits `/health`, `/readiness`, `/metrics`
+1. **Format check** — `ruff format --check .`
+2. **Lint** — `ruff check .`
+3. **Type check** — `mypy app tests`
+4. **Tests** — `pytest --cov=app --cov-report=xml`
+5. **Coverage upload** — artifact saved as `coverage-xml`
+6. **Vulnerability audit** — `pip-audit -r requirements.txt`
+7. **Docker build** — verifies image builds successfully
+8. **Smoke test** — `docker compose up`, hits `/health`, `/readiness`, `/metrics`

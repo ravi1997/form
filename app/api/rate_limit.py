@@ -424,7 +424,12 @@ def create_rate_limit_api(app) -> APIBlueprint:
                     config.save()
                     updated_count += 1
 
-                except (ValidationError, NotUniqueError, OperationError, TypeError) as e:
+                except (
+                    ValidationError,
+                    NotUniqueError,
+                    OperationError,
+                    TypeError,
+                ) as e:
                     logger.log_error(
                         f"Error updating rule {rule_id}",
                         exception=e,

@@ -36,7 +36,19 @@ class TestAuthAPIHealthEndpoint:
     def test_health_check_endpoint_exists(self, client):
         """Test that health check endpoint responds."""
         response = client.get("/api/v1/health")
-        assert response.status_code in [200, 404]  # Depends on implementation
+        assert response.status_code == 200
+        payload = response.get_json()
+        assert payload["status"] == "ok"
+        assert payload["service"] == "form"
+
+    def test_metrics_endpoint_reports_async_queue(self, client):
+        response = client.get("/api/v1/metrics")
+        assert response.status_code == 200
+        payload = response.get_json()
+        assert "async_queue" in payload
+        assert {"queued", "running", "failed", "timeout"} <= set(
+            payload["async_queue"].keys()
+        )
 
 
 class TestAuthAPIRegister:

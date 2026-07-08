@@ -75,7 +75,9 @@ def _build_session_list_response(
             ip_address=session.ip_address,
             created_at=session.created_at,
             last_seen_at=session.last_seen_at,
-            is_current=bool(current_session_uuid and session.session_uuid == current_session_uuid),
+            is_current=bool(
+                current_session_uuid and session.session_uuid == current_session_uuid
+            ),
         )
         for session in selected
     ]
@@ -141,7 +143,9 @@ def admin_list_user_sessions(
     query: SessionListQuery,
 ):
     try:
-        payload, _admin_user, _target_user = _require_admin_for_user(header, path.user_uuid)
+        payload, _admin_user, _target_user = _require_admin_for_user(
+            header, path.user_uuid
+        )
     except AuthError as exc:
         return _unauthorized(str(exc))
 
@@ -168,7 +172,9 @@ def admin_revoke_user_session(
     body: AdminRevokeSessionRequest,
 ):
     try:
-        payload, _admin_user, _target_user = _require_admin_for_user(header, path.user_uuid)
+        payload, _admin_user, _target_user = _require_admin_for_user(
+            header, path.user_uuid
+        )
     except AuthError as exc:
         return _unauthorized(str(exc))
 
@@ -219,11 +225,15 @@ def admin_revoke_user_session(
 )
 def admin_revoke_all_user_sessions(header: AuthorizationHeader, path: AdminUserPath):
     try:
-        payload, _admin_user, _target_user = _require_admin_for_user(header, path.user_uuid)
+        payload, _admin_user, _target_user = _require_admin_for_user(
+            header, path.user_uuid
+        )
     except AuthError as exc:
         return _unauthorized(str(exc))
 
-    revoked_count = revoke_all_sessions(user_uuid=path.user_uuid, reason="admin_revoke_all")
+    revoked_count = revoke_all_sessions(
+        user_uuid=path.user_uuid, reason="admin_revoke_all"
+    )
     _audit_log(
         actor_user_uuid=payload["sub"],
         target_user_uuid=path.user_uuid,
@@ -264,7 +274,9 @@ def admin_config_health(header: AuthorizationHeader):
     touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
 
     response = AdminConfigHealthResponse(
-        api_version=BaseConfig.get_str(current_app.config, "API_VERSION", BaseConfig.API_VERSION),
+        api_version=BaseConfig.get_str(
+            current_app.config, "API_VERSION", BaseConfig.API_VERSION
+        ),
         env_name=BaseConfig.get_str(current_app.config, "ENV_NAME", "development"),
         debug=BaseConfig.get_bool(current_app.config, "DEBUG", False),
         jwt_algorithm=BaseConfig.get_str(
@@ -277,7 +289,9 @@ def admin_config_health(header: AuthorizationHeader):
             "JWT_ACTIVE_KID",
             BaseConfig.JWT_ACTIVE_KID,
         ),
-        jwt_additional_key_ids=sorted(list((current_app.config.get("JWT_ADDITIONAL_KEYS") or {}).keys())),
+        jwt_additional_key_ids=sorted(
+            list((current_app.config.get("JWT_ADDITIONAL_KEYS") or {}).keys())
+        ),
         jwt_access_token_expires_minutes=BaseConfig.get_int(
             current_app.config,
             "JWT_ACCESS_TOKEN_EXPIRES_MINUTES",
@@ -401,7 +415,9 @@ def admin_audit_logs(header: AuthorizationHeader, query: AdminAuditLogQuery):
     else:
         queryset = SessionAuditLog.objects(**filters).order_by("-created_at")
         total_items = queryset.count()
-        total_pages = (total_items + query.page_size - 1) // query.page_size if total_items else 0
+        total_pages = (
+            (total_items + query.page_size - 1) // query.page_size if total_items else 0
+        )
         skip = (query.page - 1) * query.page_size
         entries = list(queryset.skip(skip).limit(query.page_size + 1))
 
@@ -450,7 +466,9 @@ def admin_audit_logs_search(
     if query.end_at:
         base_filter &= Q(created_at__lte=query.end_at)
     if query.user_uuid:
-        base_filter &= Q(actor_user_uuid=query.user_uuid) | Q(target_user_uuid=query.user_uuid)
+        base_filter &= Q(actor_user_uuid=query.user_uuid) | Q(
+            target_user_uuid=query.user_uuid
+        )
 
     total_items: Optional[int] = None
     total_pages: Optional[int] = None
@@ -462,7 +480,9 @@ def admin_audit_logs_search(
     else:
         queryset = SessionAuditLog.objects(base_filter).order_by("-created_at")
         total_items = queryset.count()
-        total_pages = (total_items + query.page_size - 1) // query.page_size if total_items else 0
+        total_pages = (
+            (total_items + query.page_size - 1) // query.page_size if total_items else 0
+        )
         skip = (query.page - 1) * query.page_size
         entries = list(queryset.skip(skip).limit(query.page_size + 1))
 

@@ -5,6 +5,7 @@ import json
 import pytest
 from flask import Flask, g
 
+import app.services.logging.decorators as logging_decorators
 from app.services.logger import (
     LoggerService,
     StructuredFormatter,
@@ -306,20 +307,41 @@ class TestLogAuditDecorator:
     def test_log_audit_decorator_success(self):
         """Test log_audit decorator with successful operation."""
         app = Flask(__name__)
+        captured = {}
+
+        class DummyLogger:
+            def log_audit_event(self, **kwargs):
+                captured.update(kwargs)
 
         @log_audit("create", "user")
         def create_operation():
-            return {"id": "user_123", "name": "John"}
+            return {"uuid": "user_123", "name": "John"}
 
         with app.test_request_context():
             g.user_id = "admin_001"
-            result = create_operation()
+            original_get_logger = logging_decorators.get_logger
 
-        assert result["id"] == "user_123"
+            def fake_get_logger() -> DummyLogger:
+                return DummyLogger()
+
+            logging_decorators.get_logger = fake_get_logger
+            try:
+                result = create_operation()
+            finally:
+                logging_decorators.get_logger = original_get_logger
+
+        assert result["uuid"] == "user_123"
+        assert captured["resource_id"] == "user_123"
+        assert captured["status"] == "success"
 
     def test_log_audit_decorator_exception(self):
         """Test log_audit decorator with exception."""
         app = Flask(__name__)
+        captured = {}
+
+        class DummyLogger:
+            def log_audit_event(self, **kwargs):
+                captured.update(kwargs)
 
         @log_audit("delete", "form")
         def delete_operation():
@@ -327,9 +349,20 @@ class TestLogAuditDecorator:
 
         with app.test_request_context():
             g.user_id = "user_123"
+            original_get_logger = logging_decorators.get_logger
 
-            with pytest.raises(PermissionError):
-                delete_operation()
+            def fake_get_logger() -> DummyLogger:
+                return DummyLogger()
+
+            logging_decorators.get_logger = fake_get_logger
+
+            try:
+                with pytest.raises(PermissionError):
+                    delete_operation()
+            finally:
+                logging_decorators.get_logger = original_get_logger
+
+        assert captured["status"] == "failure"
 
 
 class TestIntegrationWithFlask:

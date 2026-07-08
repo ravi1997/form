@@ -1,4 +1,5 @@
 from app.models.form import Condition
+from app.models.condition_management import ConditionAsyncJob
 from app.services.condition_management import (
     build_dependency_graph,
     create_condition_version_snapshot,
@@ -15,6 +16,8 @@ from app.services.condition_management import (
     transition_approval_state,
     validate_safe_delete,
 )
+from app.services import condition_management_async as async_service
+from app.services.condition_evaluator import ConditionEvaluationError
 
 
 def test_versioning_record_and_restore(app_context):
@@ -149,3 +152,95 @@ def test_async_evaluation_and_safe_delete(app_context):
 
     safe = validate_safe_delete(condition.uuid)
     assert "safe_to_delete" in safe
+
+
+def test_async_timeout_retry_requeues_job(app_context, monkeypatch):
+    condition = Condition(
+        uuid="async-retry",
+        conditionType="comparison",
+        targetField="status",
+        operator="equals",
+        operands=["approved"],
+        isActive=True,
+    ).save()
+
+    job = ConditionAsyncJob(
+        job_id="job-retry",
+        condition_uuid=condition.uuid,
+        context={"status": "pending"},
+        timeout_ms=10,
+        retries=1,
+        fallback_result=False,
+        status="queued",
+    ).save()
+
+    class FakeQueue:
+        def __init__(self):
+            self.calls = []
+
+        def enqueue(self, func, *args, **kwargs):
+            self.calls.append((func, args, kwargs))
+
+    fake_queue = FakeQueue()
+
+    def raise_timeout(*args, **kwargs):
+        raise ConditionEvaluationError("timeout while evaluating")
+
+    monkeypatch.setattr(async_service.ConditionEvaluator, "evaluate", raise_timeout)
+
+    async_service._run_async_job(job.job_id, queue=fake_queue)
+
+    assert fake_queue.calls
+    assert fake_queue.calls[0][1][0] == job.job_id
+    assert fake_queue.calls[0][1][1] == 1
+    assert fake_queue.calls[0][1][2] is fake_queue
+
+
+def test_recover_pending_async_jobs_requeues_queued_and_running_jobs(app_context):
+    queued = ConditionAsyncJob(
+        job_id="job-queued",
+        condition_uuid="cond-q",
+        context={"status": "ok"},
+        status="queued",
+    ).save()
+    running = ConditionAsyncJob(
+        job_id="job-running",
+        condition_uuid="cond-r",
+        context={"status": "ok"},
+        status="running",
+    ).save()
+
+    class FakeQueue:
+        def __init__(self):
+            self.calls = []
+
+        def enqueue(self, func, *args, **kwargs):
+            self.calls.append((func, args, kwargs))
+
+    fake_queue = FakeQueue()
+    stats = async_service.recover_pending_async_jobs(queue=fake_queue)
+
+    assert stats["requeued"] == 2
+    assert stats["running_reset"] == 1
+    assert len(fake_queue.calls) == 2
+    assert ConditionAsyncJob.objects(job_id=queued.job_id).first().status == "queued"
+    assert ConditionAsyncJob.objects(job_id=running.job_id).first().status == "queued"
+
+
+def test_async_queue_status_reports_counts(app_context):
+    ConditionAsyncJob(
+        job_id="job-count-queued", condition_uuid="cond-a", status="queued"
+    ).save()
+    ConditionAsyncJob(
+        job_id="job-count-running", condition_uuid="cond-b", status="running"
+    ).save()
+    ConditionAsyncJob(
+        job_id="job-count-failed", condition_uuid="cond-c", status="failed"
+    ).save()
+    ConditionAsyncJob(
+        job_id="job-count-timeout", condition_uuid="cond-d", status="timeout"
+    ).save()
+
+    status = async_service.get_async_queue_status()
+
+    assert status == {"queued": 1, "running": 1, "failed": 1, "timeout": 1}

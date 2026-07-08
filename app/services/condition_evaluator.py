@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -489,6 +489,9 @@ class ConditionEvaluator:
             if sub_result:
                 if getattr(sub, "stopEvaluationIfTrue", False):
                     return True
+                # Preserve OR semantics: any truthy sub-condition satisfies the
+                # logical condition, but continue only when the current sub-condition
+                # does not explicitly request short-circuiting.
                 return True
         return False
 
@@ -621,7 +624,9 @@ class ConditionEvaluator:
         if isinstance(value, datetime):
             return value
         if isinstance(value, (int, float)):
-            return datetime.now(timezone.utc) - timedelta(seconds=float(value))
+            return datetime.fromtimestamp(float(value), tz=timezone.utc).replace(
+                tzinfo=None
+            )
         if isinstance(value, str):
             try:
                 return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(

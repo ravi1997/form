@@ -122,7 +122,8 @@ def resources_rate_limit() -> Optional[tuple]:
     retry_after = max(
         0,
         int(
-            (metadata.get("reset_time", 0) or 0) - datetime.now(timezone.utc).timestamp()
+            (metadata.get("reset_time", 0) or 0)
+            - datetime.now(timezone.utc).timestamp()
         ),
     )
     security_event(
@@ -206,7 +207,9 @@ def _can_read_project(user: User, project: Project, has_global_admin) -> bool:
     if user_uuid in _project_user_uuids(project, "viewers"):
         return True
     role_set = _project_role_set(user, project)
-    return bool({"admin", "editor", "viewer", "reviewer", "approver", "submitter"} & role_set)
+    return bool(
+        {"admin", "editor", "viewer", "reviewer", "approver", "submitter"} & role_set
+    )
 
 
 def _can_write_project(user: User, project: Project, has_global_admin) -> bool:
@@ -264,7 +267,9 @@ def validate_project_membership_role_alignment(project: Project) -> None:
     org_keys = _project_org_scope_keys(project)
     if not org_keys:
         if project.admins or project.members or project.viewers:
-            raise ValueError("Project organizations are required when membership lists are set")
+            raise ValueError(
+                "Project organizations are required when membership lists are set"
+            )
         return
 
     rules = {
@@ -277,7 +282,9 @@ def validate_project_membership_role_alignment(project: Project) -> None:
         for user in getattr(project, attr, None) or []:
             matched = False
             for org_key, roles in (user.roles or {}).items():
-                if str(org_key) in org_keys and required_roles.intersection(set(roles or [])):
+                if str(org_key) in org_keys and required_roles.intersection(
+                    set(roles or [])
+                ):
                     matched = True
                     break
             if not matched:
@@ -287,13 +294,23 @@ def validate_project_membership_role_alignment(project: Project) -> None:
 
 
 def paginate_items(items: list[Any], query: ListQuery, sort_field: str = "updated_at"):
-    ordered = sorted(items, key=lambda item: getattr(item, sort_field, datetime.min), reverse=True)
+    ordered = sorted(
+        items, key=lambda item: getattr(item, sort_field, datetime.min), reverse=True
+    )
 
     if query.cursor:
         cursor_dt = decode_cursor(query.cursor)
-        filtered = [item for item in ordered if getattr(item, sort_field, datetime.min) < cursor_dt]
+        filtered = [
+            item
+            for item in ordered
+            if getattr(item, sort_field, datetime.min) < cursor_dt
+        ]
         selected = filtered[: query.page_size]
-        next_cursor = encode_cursor(getattr(selected[-1], sort_field, datetime.min)) if len(selected) == query.page_size else None
+        next_cursor = (
+            encode_cursor(getattr(selected[-1], sort_field, datetime.min))
+            if len(selected) == query.page_size
+            else None
+        )
         return selected, query.page, query.page_size, None, None, next_cursor
 
     if query.offset is not None or query.limit is not None:
@@ -312,7 +329,11 @@ def paginate_items(items: list[Any], query: ListQuery, sort_field: str = "update
     selected = ordered[start : start + page_size]
     total_items = len(ordered)
     total_pages = (total_items + page_size - 1) // page_size if total_items else 0
-    next_cursor = encode_cursor(getattr(selected[-1], sort_field, datetime.min)) if len(selected) == page_size else None
+    next_cursor = (
+        encode_cursor(getattr(selected[-1], sort_field, datetime.min))
+        if len(selected) == page_size
+        else None
+    )
     return selected, page, page_size, total_items, total_pages, next_cursor
 
 
@@ -323,7 +344,11 @@ def paginate_queryset(qs: Any, query: ListQuery, sort_field: str = "updated_at")
         cursor_dt = decode_cursor(query.cursor)
         filtered = ordered.filter(**{f"{sort_field}__lt": cursor_dt})
         selected = list(filtered.limit(query.page_size))
-        next_cursor = encode_cursor(getattr(selected[-1], sort_field, datetime.min)) if len(selected) == query.page_size else None
+        next_cursor = (
+            encode_cursor(getattr(selected[-1], sort_field, datetime.min))
+            if len(selected) == query.page_size
+            else None
+        )
         return selected, query.page, query.page_size, None, None, next_cursor
 
     if query.offset is not None or query.limit is not None:
@@ -342,7 +367,11 @@ def paginate_queryset(qs: Any, query: ListQuery, sort_field: str = "updated_at")
     selected = list(ordered.skip(skip).limit(page_size))
     total_items = ordered.count()
     total_pages = (total_items + page_size - 1) // page_size if total_items else 0
-    next_cursor = encode_cursor(getattr(selected[-1], sort_field, datetime.min)) if len(selected) == page_size else None
+    next_cursor = (
+        encode_cursor(getattr(selected[-1], sort_field, datetime.min))
+        if len(selected) == page_size
+        else None
+    )
     return selected, page, page_size, total_items, total_pages, next_cursor
 
 
@@ -397,7 +426,9 @@ def build_action_definitions(action_inputs: list[Any]) -> list[ActionDefinition]
     return actions
 
 
-def resolve_action_definition(question: Question, action_id: str) -> Optional[ActionDefinition]:
+def resolve_action_definition(
+    question: Question, action_id: str
+) -> Optional[ActionDefinition]:
     for action in question.actions or []:
         if action.id == action_id:
             return action
@@ -429,8 +460,12 @@ def to_action_execution_output(execution: ActionExecution) -> ActionExecutionOut
     )
 
 
-def apply_form_workflow_action(form: Form, action: str, actor_user_uuid: str, note: Optional[str]) -> str:
-    strict_review = bool(current_app.config.get("WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE", True))
+def apply_form_workflow_action(
+    form: Form, action: str, actor_user_uuid: str, note: Optional[str]
+) -> str:
+    strict_review = bool(
+        current_app.config.get("WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE", True)
+    )
     current_state = (form.workflow_state or "draft").strip()
     target_state = current_state
     outcome = "success"
@@ -456,7 +491,9 @@ def apply_form_workflow_action(form: Form, action: str, actor_user_uuid: str, no
         elif current_state == "approved":
             outcome = "idempotent"
             message = "review_already_processed"
-        elif current_state == "submitted" or (not strict_review and current_state in {"draft", "rejected"}):
+        elif current_state == "submitted" or (
+            not strict_review and current_state in {"draft", "rejected"}
+        ):
             target_state = "in_review"
         else:
             outcome = "rejected"
@@ -472,7 +509,9 @@ def apply_form_workflow_action(form: Form, action: str, actor_user_uuid: str, no
         elif strict_review and form.requires_reviewer and current_state != "in_review":
             outcome = "rejected"
             message = "approve_requires_review"
-        elif current_state in {"submitted", "in_review"} or (not strict_review and current_state in {"draft", "rejected"}):
+        elif current_state in {"submitted", "in_review"} or (
+            not strict_review and current_state in {"draft", "rejected"}
+        ):
             target_state = "approved"
         else:
             outcome = "rejected"
@@ -536,17 +575,29 @@ def authorize_resources_route(has_global_admin_privileges) -> Optional[tuple]:
         return to_json_ready(ErrorResponse(message="Project not found")), 404
     g.resources_project = project
 
-    if required == "project_read" and _can_read_project(user, project, has_global_admin_privileges):
+    if required == "project_read" and _can_read_project(
+        user, project, has_global_admin_privileges
+    ):
         return None
-    if required == "project_write" and _can_write_project(user, project, has_global_admin_privileges):
+    if required == "project_write" and _can_write_project(
+        user, project, has_global_admin_privileges
+    ):
         return None
-    if required == "project_admin" and _can_admin_project(user, project, has_global_admin_privileges):
+    if required == "project_admin" and _can_admin_project(
+        user, project, has_global_admin_privileges
+    ):
         return None
-    if required == "project_submit" and _can_submit_project(user, project, has_global_admin_privileges):
+    if required == "project_submit" and _can_submit_project(
+        user, project, has_global_admin_privileges
+    ):
         return None
-    if required == "project_review" and _can_review_project(user, project, has_global_admin_privileges):
+    if required == "project_review" and _can_review_project(
+        user, project, has_global_admin_privileges
+    ):
         return None
-    if required == "project_approve" and _can_approve_project(user, project, has_global_admin_privileges):
+    if required == "project_approve" and _can_approve_project(
+        user, project, has_global_admin_privileges
+    ):
         return None
 
     security_event(

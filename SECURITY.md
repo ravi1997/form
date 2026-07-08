@@ -93,6 +93,11 @@ All 429 responses include:
 - `Retry-After` header (seconds until window resets)
 - `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` headers
 
+The auth endpoints use MongoDB-backed counters, while the general resource API
+uses Redis with an in-memory fallback. The fallback is intentionally not
+distributed and is only appropriate for local development or single-worker
+deployments.
+
 ---
 
 ## Input Validation
@@ -130,6 +135,10 @@ The `safe_dsl.py` arithmetic evaluator only allows a restricted set of operation
 3. **In-memory rate limit fallback**: If Redis is unavailable, the `RateLimitService` falls back to an in-process dictionary. This is not distributed — each worker process has its own counter. Use Redis in multi-worker production deployments.
 
 4. **Refresh token revocation delay**: When `revoke_all_sessions` is called (e.g., logout-all), existing access tokens for those sessions remain valid until they expire naturally.
+
+5. **Local Docker MongoDB authentication**: The compose stack now requires a MongoDB root password and connects with `authSource=admin`. This protects the container network from unauthenticated access, but operators still need strong secrets and restricted network exposure.
+
+6. **Async job recovery scope**: Async condition jobs are recovered from MongoDB on startup, but the execution model remains lightweight. For large multi-worker deployments, a durable external queue should replace the in-memory executor.
 
 ---
 

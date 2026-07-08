@@ -18,9 +18,15 @@ def ensure_publishable(condition: Condition) -> List[str]:
     errors: List[str] = []
     if not condition.isActive:
         errors.append("Condition must be active before publishing")
-    if condition.conditionType in {"comparison", "temporal", "set"} and not condition.operator:
+    if (
+        condition.conditionType in {"comparison", "temporal", "set"}
+        and not condition.operator
+    ):
         errors.append("Operator is required")
-    if condition.conditionType in {"comparison", "temporal", "set"} and not condition.targetField:
+    if (
+        condition.conditionType in {"comparison", "temporal", "set"}
+        and not condition.targetField
+    ):
         errors.append("targetField is required")
     if condition.conditionType == "custom" and not condition.expression:
         errors.append("Expression is required")

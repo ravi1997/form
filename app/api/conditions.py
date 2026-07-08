@@ -209,7 +209,8 @@ def test_conditions_batch(body: BatchConditionTestInput):
                 ConditionTestResult(
                     condition_uuid=condition.uuid,
                     matched=False,
-                    duration_ms=(datetime.now(timezone.utc) - run_start).total_seconds() * 1000,
+                    duration_ms=(datetime.now(timezone.utc) - run_start).total_seconds()
+                    * 1000,
                     trace=[{"error": str(exc)}],
                     execution_path=[],
                     operator=condition.operator,

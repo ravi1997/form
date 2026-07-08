@@ -7,6 +7,7 @@ Collections:
 Role choices per organisation: admin, editor, viewer, reviewer, approver, submitter.
 User statuses: active, inactive, deleted, suspended, locked.
 """
+
 from app.extensions import db
 from datetime import datetime, timezone
 from mongoengine.errors import ValidationError
