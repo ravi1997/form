@@ -4,7 +4,7 @@ This file tracks known deferred work that is not blocking the current remediatio
 
 ## Production blockers deferred
 
-- `ConditionEvaluationStat` growth and other analytics collections should be revisited for TTL or archival policy.
+- `ConditionEvaluationStat` now uses a 30-day MongoDB TTL index; broader archival policy for other analytics collections remains deferred.
 
 ## Engineering improvements
 
@@ -18,3 +18,4 @@ This file tracks known deferred work that is not blocking the current remediatio
 - More complete module and function docstrings.
 - More test coverage for rate limit API paths and resources CRUD endpoints.
 - Consolidating some legacy schema aliases and duplicated model fields.
+- Evaluate whether the condition evaluation stats TTL window should be configurable per deployment once operational usage is known.

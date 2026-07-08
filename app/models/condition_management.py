@@ -127,9 +127,9 @@ class ConditionEvaluationStat(db.Document):
         "collection": "condition_evaluation_stats",
         "indexes": [
             "condition_uuid",
-            "created_at",
             "matched",
             "operator",
             "condition_type",
+            {"fields": ["created_at"], "expireAfterSeconds": 60 * 60 * 24 * 30},
         ],
     }

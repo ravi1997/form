@@ -141,6 +141,7 @@ Operational notes:
 - Async condition jobs are persisted in MongoDB and are re-queued on app startup.
 - The queue implementation remains intentionally lightweight to avoid a full Celery/RQ dependency.
 - Queue status is observable via `GET /api/v1/metrics` and the async job status endpoint.
+- Condition evaluation statistics use a MongoDB TTL index on `created_at` with a 30-day retention window, preventing unbounded growth of the analytics collection.
 ```
 
 ---
@@ -170,6 +171,7 @@ Startup recovery:
 - `create_openapi_app()` invokes `recover_pending_async_jobs()` after the app and database are initialized.
 - Jobs that were queued or running when a worker exited are recovered from MongoDB state.
 - `GET /api/v1/metrics` includes a snapshot of queued, running, failed, and timeout async jobs.
+- `condition_evaluation_stats` is automatically aged out by MongoDB after 30 days via a TTL index on `created_at`.
 
 ## Future Roadmap
 

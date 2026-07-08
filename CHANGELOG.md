@@ -18,6 +18,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Condition evaluation**: numeric temporal inputs are treated as Unix timestamps, and DSL string literals now preserve Unicode characters.
 - **Async evaluation**: timeout retries are re-queued instead of recursively blocking the worker thread.
 - **Async recovery**: pending async condition jobs are re-queued from MongoDB state during app startup, and queue counts are exposed via `/api/v1/metrics`.
+- **Monitoring retention**: condition evaluation statistics now use a 30-day MongoDB TTL index so the analytics collection stays bounded.
 - **Deployment**: Docker Compose now requires MongoDB authentication and connects the app with `authSource=admin`.
 
 ### Added

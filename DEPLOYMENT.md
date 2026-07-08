@@ -29,6 +29,10 @@ On startup, the application recovers pending async condition jobs from MongoDB
 and re-queues them. This improves restart resilience without requiring a heavier
 queue framework.
 
+Condition evaluation statistics are retained for 30 days via a MongoDB TTL
+index on `created_at`. No separate archival job is required for the current
+operational footprint.
+
 #### Development override
 
 `docker-compose.override.yml` is automatically applied when running `docker compose` locally. It sets `APP_ENV=development`, mounts the source tree into the container, and points at a dev database.
