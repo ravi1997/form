@@ -12,6 +12,13 @@ from app.models.auth import (
     UserSession,
 )
 from app.models.form import Condition, Form, FormResponse, Project, Question, Section
+from app.models.condition_management import (
+    ConditionApprovalAudit,
+    ConditionAsyncJob,
+    ConditionEvaluationStat,
+    ConditionPreset,
+    ConditionVersion,
+)
 from app.models.user import Organization, User
 
 # Handle mongomock and MongoEngine setup
@@ -52,6 +59,11 @@ def _ensure_test_indexes() -> None:
         RateLimitCounter,
         SessionAuditLog,
         TokenBlocklist,
+        ConditionPreset,
+        ConditionVersion,
+        ConditionApprovalAudit,
+        ConditionAsyncJob,
+        ConditionEvaluationStat,
     ):
         document.ensure_indexes()
 
