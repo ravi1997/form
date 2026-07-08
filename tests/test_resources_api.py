@@ -223,6 +223,14 @@ def test_section_question_choice_lifecycle_and_anonymous_access(client, app_cont
     )
     assert create_section.status_code == 201
 
+    invalid_section = client.post(
+        "/api/v1/projects/project-nested-0001/forms/form-nested-0001/sections?version_uuid=missing-version",
+        data=json.dumps(section_payload),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert invalid_section.status_code == 400
+
     get_section = client.get(
         "/api/v1/projects/project-nested-0001/forms/form-nested-0001/sections/section-nested-0001",
         headers=headers,
@@ -297,6 +305,14 @@ def test_section_question_choice_lifecycle_and_anonymous_access(client, app_cont
     )
     assert update_choice.status_code == 200
 
+    missing_question_choice = client.post(
+        "/api/v1/projects/project-nested-0001/forms/form-nested-0001/sections/section-nested-0001/questions/question-missing/choices",
+        data=json.dumps(choice_payload),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert missing_question_choice.status_code == 404
+
     assert (
         client.delete(
             "/api/v1/projects/project-nested-0001/forms/form-nested-0001/sections/section-nested-0001/questions/question-nested-0001/choices/choice-nested-0001",
@@ -318,3 +334,15 @@ def test_section_question_choice_lifecycle_and_anonymous_access(client, app_cont
         ).status_code
         == 200
     )
+
+    deleted_question = client.get(
+        "/api/v1/projects/project-nested-0001/forms/form-nested-0001/sections/section-nested-0001/questions/question-nested-0001",
+        headers=headers,
+    )
+    assert deleted_question.status_code == 404
+
+    deleted_choice = client.get(
+        "/api/v1/projects/project-nested-0001/forms/form-nested-0001/sections/section-nested-0001/questions/question-nested-0001/choices/choice-nested-0001",
+        headers=headers,
+    )
+    assert deleted_choice.status_code == 404

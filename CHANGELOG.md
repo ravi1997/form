@@ -19,6 +19,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Async evaluation**: timeout retries are re-queued instead of recursively blocking the worker thread.
 - **Async recovery**: pending async condition jobs are re-queued from MongoDB state during app startup, and queue counts are exposed via `/api/v1/metrics`.
 - **Monitoring retention**: condition evaluation statistics now use a 30-day MongoDB TTL index so the analytics collection stays bounded.
+- **Resource coverage**: nested section, question, and choice lifecycle tests now verify invalid version links, missing parent resources, and delete cascades at the API layer.
 - **Deployment**: Docker Compose now requires MongoDB authentication and connects the app with `authSource=admin`.
 
 ### Added

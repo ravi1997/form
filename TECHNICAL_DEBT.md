@@ -8,7 +8,7 @@ This file tracks known deferred work that is not blocking the current remediatio
 
 ## Engineering improvements
 
-- Resources API now has an authenticated project/form CRUD smoke test, but sections/questions/choices still deserve deeper lifecycle coverage.
+- Resources API now has authenticated CRUD and nested lifecycle coverage, but more edge-case validation around relationship errors and deletion cascades would still be useful.
 - Async condition jobs are now recovered from MongoDB on startup, but a fully durable external queue is still preferable for higher throughput or multi-worker scale-out.
 - `app/middleware/rate_limit.py` remains a compatibility layer with known decorator limitations on `flask-openapi3` routes.
 - The repository still has duplicated UTC helper patterns across modules.
