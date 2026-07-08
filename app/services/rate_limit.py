@@ -2,6 +2,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple, Dict, Any
 import redis
 from flask import current_app
+from mongoengine.errors import OperationError, ValidationError
+from pymongo.errors import PyMongoError
 
 from app.models.rate_limit import RateLimitConfig, RateLimitLog
 from app.services import get_rotating_logger
@@ -44,7 +46,7 @@ class RateLimitService:
                 )
                 self.redis_client.ping()
                 logger.log_app_event("Redis connection established for rate limiting")
-        except Exception as e:
+        except (redis.RedisError, ValueError, TypeError) as e:
             logger.log_app_event(
                 "Redis not available for rate limiting; using in-memory fallback",
                 level="WARNING",
@@ -197,7 +199,7 @@ class RateLimitService:
             is_exceeded = count > max_requests
             return count, is_exceeded
 
-        except Exception as e:
+        except (redis.RedisError, ValueError, TypeError) as e:
             logger.log_error(
                 "Redis error in rate limiting; falling back to memory",
                 exception=e,
@@ -350,7 +352,14 @@ class RateLimitService:
 
             return not is_exceeded, metadata
 
-        except Exception as e:
+        except (
+            ValidationError,
+            OperationError,
+            PyMongoError,
+            ValueError,
+            TypeError,
+            redis.RedisError,
+        ) as e:
             logger.log_error(
                 "Error checking rate limit",
                 exception=e,
@@ -361,8 +370,7 @@ class RateLimitService:
                     "organization_uuid": organization_uuid,
                 },
             )
-            # In case of error, allow the request
-            return True, {"error": str(e), "message": "Rate limit check failed"}
+            return False, {"error": str(e), "message": "Rate limit check failed"}
 
     def _log_rate_limit(
         self,
@@ -404,7 +412,7 @@ class RateLimitService:
                     ),
                 },
             )
-        except Exception as e:
+        except (ValidationError, OperationError, PyMongoError, TypeError) as e:
             logger.log_error(
                 "Error logging rate limit",
                 exception=e,
@@ -444,7 +452,7 @@ class RateLimitService:
                 "limits": [limit.to_dict() for limit in limits],
                 "total": len(limits),
             }
-        except Exception as e:
+        except (ValidationError, OperationError, ValueError, TypeError) as e:
             logger.log_error(
                 "Error getting rate limit status",
                 exception=e,
@@ -478,7 +486,7 @@ class RateLimitService:
                     del self.cache[ts_key]
 
             return True
-        except Exception as e:
+        except (redis.RedisError, ValueError, TypeError) as e:
             logger.log_error(
                 "Error resetting counter",
                 exception=e,

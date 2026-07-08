@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List
 
+from mongoengine.errors import NotUniqueError, ValidationError
+
 
 from app.models.form import Condition
 from app.schemas.common import SchemaModel
@@ -518,7 +520,7 @@ def bulk_create_conditions(body: BulkCreateConditionInput):
             condition.save()
             record_condition_version(condition, action="create")
             created.append(condition.uuid)
-        except Exception as exc:
+        except (ValidationError, NotUniqueError, ValueError, TypeError) as exc:
             errors.append(str(exc))
     return to_json_ready({"created": created, "errors": errors})
 
@@ -545,7 +547,7 @@ def bulk_update_conditions(body: BulkUpdateConditionInput):
             record_condition_version(condition, action="update")
             sync_auto_update_presets(condition)
             updated.append(condition.uuid)
-        except Exception as exc:
+        except (ValidationError, NotUniqueError, ValueError, TypeError) as exc:
             errors.append(str(exc))
     return to_json_ready({"updated": updated, "errors": errors})
 
@@ -583,7 +585,7 @@ def bulk_validate_conditions(body: BulkValidateConditionInput):
             condition = Condition(**item)
             condition.validate()
             valid.append(item.get("uuid"))
-        except Exception as exc:
+        except (ValidationError, ValueError, TypeError) as exc:
             invalid.append({"uuid": item.get("uuid"), "error": str(exc)})
     return to_json_ready({"valid": valid, "invalid": invalid})
 

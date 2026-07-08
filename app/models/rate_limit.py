@@ -155,7 +155,11 @@ class RateLimitLog(db.Document):
             "organization_id",
             "route_pattern",
             "blocked",
+            "timestamp",
             ("user_id", "timestamp"),
+            ("organization_id", "timestamp"),
             ("route_pattern", "timestamp"),
+            ("blocked", "timestamp"),
+            ("rule_id", "timestamp"),
         ],
     }

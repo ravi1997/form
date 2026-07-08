@@ -25,7 +25,7 @@ def _extract_error_code(response: Response) -> str | None:
         payload = response.get_json(silent=True)
         if isinstance(payload, dict):
             return payload.get("error_code") or payload.get("error")
-    except Exception:
+    except TypeError:
         return None
     return None
 
@@ -159,7 +159,7 @@ def setup_rotating_logger_middleware(
         if response.is_json and response.data:
             try:
                 response_body = response.get_data(as_text=True)
-            except Exception:
+            except UnicodeDecodeError:
                 response_body = "[Unable to extract response body]"
 
         # Log response details

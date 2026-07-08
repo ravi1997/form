@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import InvalidOperation
 from decimal import Decimal
 import re
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
@@ -287,7 +288,7 @@ def _coerce_number(value: Any) -> Decimal:
     if isinstance(value, str):
         try:
             return Decimal(value)
-        except Exception as exc:
+        except InvalidOperation as exc:
             raise DSLExpressionError(f"Invalid numeric literal {value!r}") from exc
     raise DSLExpressionError(f"Expected number, got {type(value).__name__}")
 
@@ -300,7 +301,7 @@ def _to_datetime(value: Any) -> datetime:
         try:
             parsed = datetime.fromisoformat(normalized)
             return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
-        except Exception as exc:
+        except ValueError as exc:
             raise DSLExpressionError(f"Invalid datetime {value!r}") from exc
     raise DSLExpressionError(
         f"Expected datetime-compatible value, got {type(value).__name__}"

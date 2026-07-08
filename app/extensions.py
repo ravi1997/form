@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, cast
 
 import mongoengine as me
 from flask import Flask
+from pymongo.errors import PyMongoError
+
+logger = logging.getLogger(__name__)
 
 
 class MongoEngineCompat:
@@ -24,8 +28,8 @@ class MongoEngineCompat:
         # Ensure a clean alias when app factories create multiple test apps.
         try:
             me.disconnect(alias=alias)
-        except Exception:
-            pass
+        except (me.connection.ConnectionFailure, PyMongoError):
+            logger.debug("Mongo alias disconnect skipped", extra={"alias": alias})
 
         me.connect(alias=alias, **config)
 

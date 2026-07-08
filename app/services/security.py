@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
 from flask import current_app
+from mongoengine.errors import NotUniqueError, OperationError, ValidationError
 
 from app.config import BaseConfig
 from app.models.auth import RateLimitCounter, SessionAuditLog
@@ -53,7 +54,7 @@ def check_and_increment_rate_limit(
             set_on_insert__window_seconds=window_seconds,
             set_on_insert__expires_at=expires_at,
         )
-    except Exception as exc:
+    except (ValidationError, NotUniqueError, OperationError) as exc:
         logger.log_error(
             "rate_limit_query_failed",
             exception=exc,
@@ -129,7 +130,7 @@ def log_session_audit_event(
             metadata=metadata or {},
             expires_at=expires_at,
         ).save()
-    except Exception as exc:
+    except (ValidationError, NotUniqueError, OperationError) as exc:
         logger.log_error(
             "audit_log_create_failed",
             exception=exc,

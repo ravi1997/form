@@ -5,6 +5,7 @@ from flask import request
 from app.models.ui_template import LayoutTemplate, TemplateRevision, ThemeTemplate
 from app.models.user import User
 from app.schemas.common import SchemaModel
+from app.services.auth import AuthError
 from app.services.rbac import resolve_access_identity_from_header
 
 try:
@@ -28,7 +29,7 @@ def _resolve_user_from_auth() -> User | None:
         return None
     try:
         payload = resolve_access_identity_from_header(auth_header)
-    except Exception:
+    except AuthError:
         return None
     user_uuid = (
         payload.get("user_id")

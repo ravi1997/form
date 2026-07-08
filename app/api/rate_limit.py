@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from flask import request, jsonify, g
 from flask_openapi3 import APIBlueprint
+from mongoengine.errors import NotUniqueError, OperationError, ValidationError
 
 from app.models.rate_limit import RateLimitConfig, RateLimitLog
+from app.services.auth import AuthError
 from app.services.rate_limit import get_rate_limit_service
 from app.schemas.auth import ErrorResponse
 from app.schemas.rate_limit import (
@@ -40,7 +42,7 @@ def _require_super_admin():
         g.user = user
         g.user_id = payload.get("user_id")
         return user, None, None
-    except Exception as e:
+    except AuthError as e:
         logger.log_error("Authentication error", exception=e, context={"error": str(e)})
         return None, jsonify({"error": "Unauthorized"}), 401
 
@@ -132,7 +134,7 @@ def create_rate_limit_api(app) -> APIBlueprint:
 
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
-        except Exception as e:
+        except (ValidationError, NotUniqueError, OperationError, TypeError) as e:
             logger.log_error(
                 "Error creating rate limit config",
                 exception=e,
@@ -196,7 +198,7 @@ def create_rate_limit_api(app) -> APIBlueprint:
                 }
             ), 200
 
-        except Exception as e:
+        except (ValidationError, OperationError, ValueError, TypeError) as e:
             logger.log_error(
                 "Error listing rate limit configs",
                 exception=e,
@@ -225,7 +227,7 @@ def create_rate_limit_api(app) -> APIBlueprint:
 
             return jsonify(config.to_dict()), 200
 
-        except Exception as e:
+        except (ValidationError, OperationError) as e:
             logger.log_error(
                 "Error getting rate limit config",
                 exception=e,
@@ -284,7 +286,7 @@ def create_rate_limit_api(app) -> APIBlueprint:
 
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
-        except Exception as e:
+        except (ValidationError, NotUniqueError, OperationError, TypeError) as e:
             logger.log_error(
                 "Error updating rate limit config",
                 exception=e,
@@ -327,7 +329,7 @@ def create_rate_limit_api(app) -> APIBlueprint:
 
             return jsonify(config.to_dict()), 200
 
-        except Exception as e:
+        except (ValidationError, OperationError) as e:
             logger.log_error(
                 "Error toggling rate limit config",
                 exception=e,
@@ -364,7 +366,7 @@ def create_rate_limit_api(app) -> APIBlueprint:
 
             return jsonify({"message": f"Rate limit config '{rule_id}' deleted"}), 200
 
-        except Exception as e:
+        except (ValidationError, OperationError) as e:
             logger.log_error(
                 "Error deleting rate limit config",
                 exception=e,
@@ -422,7 +424,7 @@ def create_rate_limit_api(app) -> APIBlueprint:
                     config.save()
                     updated_count += 1
 
-                except Exception as e:
+                except (ValidationError, NotUniqueError, OperationError, TypeError) as e:
                     logger.log_error(
                         f"Error updating rule {rule_id}",
                         exception=e,
@@ -443,7 +445,7 @@ def create_rate_limit_api(app) -> APIBlueprint:
                 }
             ), 200
 
-        except Exception as e:
+        except (ValidationError, NotUniqueError, OperationError, TypeError) as e:
             logger.log_error(
                 "Error in bulk update", exception=e, context={"error": str(e)}
             )
@@ -499,7 +501,7 @@ def create_rate_limit_api(app) -> APIBlueprint:
                     }
                 ), 500
 
-        except Exception as e:
+        except (OperationError, TypeError, ValueError) as e:
             logger.log_error(
                 "Error resetting rate limit counter",
                 exception=e,
@@ -583,7 +585,7 @@ def create_rate_limit_api(app) -> APIBlueprint:
                 }
             ), 200
 
-        except Exception as e:
+        except (OperationError, ValueError, TypeError) as e:
             logger.log_error(
                 "Error getting rate limit logs", exception=e, context={"error": str(e)}
             )
@@ -615,7 +617,7 @@ def create_rate_limit_api(app) -> APIBlueprint:
 
             return jsonify(status), 200
 
-        except Exception as e:
+        except (OperationError, ValueError, TypeError) as e:
             logger.log_error(
                 "Error getting rate limit status",
                 exception=e,

@@ -5,6 +5,8 @@ import os
 import warnings
 from typing import Any, Dict, Mapping, Optional, Type
 
+from pydantic import BaseModel, Field, ValidationError as PydanticValidationError
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,6 +36,15 @@ ENV_ENABLE_AUDIT_LOGS = "ENABLE_AUDIT_LOGS"
 ENV_REQUEST_ID_HEADER = "REQUEST_ID_HEADER"
 ENV_API_VERSION = "API_VERSION"
 ENV_AUDIT_LOG_RETENTION_DAYS = "AUDIT_LOG_RETENTION_DAYS"
+ENV_MONGODB_URI = "MONGODB_URI"
+ENV_MONGODB_DB = "MONGODB_DB"
+ENV_MONGODB_CONNECT_TIMEOUT_MS = "MONGODB_CONNECT_TIMEOUT_MS"
+ENV_LOG_LEVEL = "LOG_LEVEL"
+ENV_LOG_DIR = "LOG_DIR"
+ENV_LOG_MAX_BYTES = "LOG_MAX_BYTES"
+ENV_LOG_BACKUP_COUNT = "LOG_BACKUP_COUNT"
+ENV_CORS_ALLOW_ORIGINS = "CORS_ALLOW_ORIGINS"
+ENV_ENABLE_COMPRESSION = "ENABLE_COMPRESSION"
 
 
 KNOWN_ENV_KEYS = {
@@ -59,6 +70,15 @@ KNOWN_ENV_KEYS = {
     ENV_REQUEST_ID_HEADER,
     ENV_API_VERSION,
     ENV_AUDIT_LOG_RETENTION_DAYS,
+    ENV_MONGODB_URI,
+    ENV_MONGODB_DB,
+    ENV_MONGODB_CONNECT_TIMEOUT_MS,
+    ENV_LOG_LEVEL,
+    ENV_LOG_DIR,
+    ENV_LOG_MAX_BYTES,
+    ENV_LOG_BACKUP_COUNT,
+    ENV_CORS_ALLOW_ORIGINS,
+    ENV_ENABLE_COMPRESSION,
 }
 
 
@@ -89,8 +109,18 @@ class BaseConfig:
     REQUEST_ID_HEADER = "X-Request-Id"
     API_VERSION = "v1"
     AUDIT_LOG_RETENTION_DAYS = 180
+    MONGODB_URI = "mongodb://localhost:27017/form_dev"
+    MONGODB_DB = "form_dev"
+    MONGODB_CONNECT_TIMEOUT_MS = 2000
+    LOG_LEVEL = "INFO"
+    LOG_DIR = "logs"
+    LOG_MAX_BYTES = 10 * 1024 * 1024
+    LOG_BACKUP_COUNT = 10
+    CORS_ALLOW_ORIGINS: list[str] = []
+    ENABLE_COMPRESSION = True
 
     ALLOWED_JWT_ALGORITHMS = {"HS256"}
+    ALLOWED_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
     REQUIRED_POSITIVE_INT_KEYS = (
         "JWT_ACCESS_TOKEN_EXPIRES_MINUTES",
         "JWT_REFRESH_TOKEN_EXPIRES_DAYS",
@@ -103,6 +133,9 @@ class BaseConfig:
         "RESOURCE_RATE_LIMIT_MAX",
         "RESOURCE_RATE_LIMIT_WINDOW_SECONDS",
         "AUDIT_LOG_RETENTION_DAYS",
+        "MONGODB_CONNECT_TIMEOUT_MS",
+        "LOG_MAX_BYTES",
+        "LOG_BACKUP_COUNT",
     )
 
     INT_BOUNDS = {
@@ -117,6 +150,9 @@ class BaseConfig:
         "RESOURCE_RATE_LIMIT_MAX": (1, 10000),
         "RESOURCE_RATE_LIMIT_WINDOW_SECONDS": (1, 3600),
         "AUDIT_LOG_RETENTION_DAYS": (1, 3650),
+        "MONGODB_CONNECT_TIMEOUT_MS": (100, 120000),
+        "LOG_MAX_BYTES": (1024, 1024 * 1024 * 1024),
+        "LOG_BACKUP_COUNT": (1, 1000),
     }
 
     @staticmethod
@@ -157,6 +193,13 @@ class BaseConfig:
             parsed[kid] = secret
 
         return parsed
+
+    @staticmethod
+    def _env_csv(name: str, default: Optional[list[str]] = None) -> list[str]:
+        raw = os.getenv(name)
+        if raw is None or raw.strip() == "":
+            return list(default or [])
+        return [item.strip() for item in raw.split(",") if item.strip()]
 
     @staticmethod
     def _env_bool(name: str, default: bool) -> bool:
@@ -291,6 +334,27 @@ class BaseConfig:
                 ENV_AUDIT_LOG_RETENTION_DAYS,
                 cls.AUDIT_LOG_RETENTION_DAYS,
             ),
+            "MONGODB_URI": cls._env_str(ENV_MONGODB_URI, cls.MONGODB_URI),
+            "MONGODB_DB": cls._env_str(ENV_MONGODB_DB, cls.MONGODB_DB),
+            "MONGODB_CONNECT_TIMEOUT_MS": cls._env_int(
+                ENV_MONGODB_CONNECT_TIMEOUT_MS,
+                cls.MONGODB_CONNECT_TIMEOUT_MS,
+            ),
+            "LOG_LEVEL": cls._env_str(ENV_LOG_LEVEL, cls.LOG_LEVEL),
+            "LOG_DIR": cls._env_str(ENV_LOG_DIR, cls.LOG_DIR),
+            "LOG_MAX_BYTES": cls._env_int(ENV_LOG_MAX_BYTES, cls.LOG_MAX_BYTES),
+            "LOG_BACKUP_COUNT": cls._env_int(
+                ENV_LOG_BACKUP_COUNT,
+                cls.LOG_BACKUP_COUNT,
+            ),
+            "CORS_ALLOW_ORIGINS": cls._env_csv(
+                ENV_CORS_ALLOW_ORIGINS,
+                cls.CORS_ALLOW_ORIGINS,
+            ),
+            "ENABLE_COMPRESSION": cls._env_bool(
+                ENV_ENABLE_COMPRESSION,
+                cls.ENABLE_COMPRESSION,
+            ),
             "JWT_ADDITIONAL_KEYS": cls._env_key_map(
                 ENV_JWT_ADDITIONAL_KEYS,
                 cls.JWT_ADDITIONAL_KEYS,
@@ -309,6 +373,11 @@ class BaseConfig:
         if algorithm not in cls.ALLOWED_JWT_ALGORITHMS:
             raise RuntimeError(
                 f"JWT_ALGORITHM must be one of {sorted(cls.ALLOWED_JWT_ALGORITHMS)}"
+            )
+        log_level = cls.get_str(app.config, "LOG_LEVEL", cls.LOG_LEVEL).upper()
+        if log_level not in cls.ALLOWED_LOG_LEVELS:
+            raise RuntimeError(
+                f"LOG_LEVEL must be one of {sorted(cls.ALLOWED_LOG_LEVELS)}"
             )
 
         for key in cls.REQUIRED_POSITIVE_INT_KEYS:
@@ -337,6 +406,10 @@ class BaseConfig:
 
         if cls.ENV_NAME == "production" and not app.config.get("JWT_SECRET_KEY"):
             raise RuntimeError("JWT_SECRET_KEY is required in production")
+        has_mongodb_uri = bool(app.config.get("MONGODB_URI"))
+        has_mongodb_settings = isinstance(app.config.get("MONGODB_SETTINGS"), dict)
+        if cls.ENV_NAME == "production" and not (has_mongodb_uri or has_mongodb_settings):
+            raise RuntimeError("MONGODB_URI or MONGODB_SETTINGS is required in production")
 
         if cls.ENV_NAME != "production" and not app.config.get("JWT_SECRET_KEY"):
             app.config["JWT_SECRET_KEY"] = "dev-insecure-secret-change-me"
@@ -352,6 +425,50 @@ class BaseConfig:
                 "JWT_ACTIVE_KID should point to the primary JWT_SECRET_KEY, "
                 "not a duplicated key in JWT_ADDITIONAL_KEYS."
             )
+        app.config["LOG_LEVEL"] = log_level
+        existing_settings = app.config.get("MONGODB_SETTINGS")
+        if isinstance(existing_settings, dict):
+            merged_settings = dict(existing_settings)
+            merged_settings.setdefault(
+                "host", cls.get_str(app.config, "MONGODB_URI", cls.MONGODB_URI)
+            )
+            merged_settings.setdefault(
+                "db", cls.get_str(app.config, "MONGODB_DB", cls.MONGODB_DB)
+            )
+            merged_settings.setdefault(
+                "connectTimeoutMS",
+                cls.get_int(
+                    app.config,
+                    "MONGODB_CONNECT_TIMEOUT_MS",
+                    cls.MONGODB_CONNECT_TIMEOUT_MS,
+                ),
+            )
+            merged_settings.setdefault(
+                "serverSelectionTimeoutMS",
+                cls.get_int(
+                    app.config,
+                    "MONGODB_CONNECT_TIMEOUT_MS",
+                    cls.MONGODB_CONNECT_TIMEOUT_MS,
+                ),
+            )
+            merged_settings.setdefault("alias", "default")
+            app.config["MONGODB_SETTINGS"] = merged_settings
+        else:
+            app.config["MONGODB_SETTINGS"] = {
+                "host": cls.get_str(app.config, "MONGODB_URI", cls.MONGODB_URI),
+                "db": cls.get_str(app.config, "MONGODB_DB", cls.MONGODB_DB),
+                "connectTimeoutMS": cls.get_int(
+                    app.config,
+                    "MONGODB_CONNECT_TIMEOUT_MS",
+                    cls.MONGODB_CONNECT_TIMEOUT_MS,
+                ),
+                "serverSelectionTimeoutMS": cls.get_int(
+                    app.config,
+                    "MONGODB_CONNECT_TIMEOUT_MS",
+                    cls.MONGODB_CONNECT_TIMEOUT_MS,
+                ),
+                "alias": "default",
+            }
 
     @classmethod
     def load_app_config(
@@ -452,6 +569,26 @@ class BaseConfig:
                 "AUDIT_LOG_RETENTION_DAYS",
                 cls.AUDIT_LOG_RETENTION_DAYS,
             ),
+            "mongodb_db": cls.get_str(config, "MONGODB_DB", cls.MONGODB_DB),
+            "mongodb_uri_configured": bool(config.get("MONGODB_URI")),
+            "log_level": cls.get_str(config, "LOG_LEVEL", cls.LOG_LEVEL),
+            "log_dir": cls.get_str(config, "LOG_DIR", cls.LOG_DIR),
+            "log_max_bytes": cls.get_int(
+                config,
+                "LOG_MAX_BYTES",
+                cls.LOG_MAX_BYTES,
+            ),
+            "log_backup_count": cls.get_int(
+                config,
+                "LOG_BACKUP_COUNT",
+                cls.LOG_BACKUP_COUNT,
+            ),
+            "cors_allow_origins": list(config.get("CORS_ALLOW_ORIGINS") or []),
+            "enable_compression": cls.get_bool(
+                config,
+                "ENABLE_COMPRESSION",
+                cls.ENABLE_COMPRESSION,
+            ),
             "jwt_additional_key_ids": sorted(
                 list((config.get("JWT_ADDITIONAL_KEYS") or {}).keys())
             ),
@@ -468,6 +605,7 @@ class DevelopmentConfig(BaseConfig):
     AUTH_RATE_LIMIT_LOGIN_MAX = 20
     AUTH_RATE_LIMIT_REFRESH_MAX = 40
     AUTH_RATE_LIMIT_LOGOUT_MAX = 40
+    MONGODB_DB = "form_dev"
 
 
 class ProductionConfig(BaseConfig):
@@ -479,6 +617,8 @@ class ProductionConfig(BaseConfig):
     AUTH_RATE_LIMIT_LOGIN_MAX = 8
     AUTH_RATE_LIMIT_REFRESH_MAX = 15
     AUTH_RATE_LIMIT_LOGOUT_MAX = 15
+    MONGODB_DB = "form_prod"
+    LOG_LEVEL = "INFO"
     SESSION_COOKIE_SECURE = True
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
@@ -513,3 +653,56 @@ def apply_app_config(
     config_class.load_app_config(app, overrides=overrides)
     logger.info("Config loaded: %s", config_class.__name__)
     logger.info("Config snapshot: %s", config_class.public_config_snapshot(app.config))
+
+
+class RuntimeSettings(BaseModel):
+    env_name: str = Field(default=BaseConfig.ENV_NAME)
+    debug: bool = Field(default=BaseConfig.DEBUG)
+    api_version: str = Field(default=BaseConfig.API_VERSION)
+    log_level: str = Field(default=BaseConfig.LOG_LEVEL)
+    log_dir: str = Field(default=BaseConfig.LOG_DIR)
+    log_max_bytes: int = Field(default=BaseConfig.LOG_MAX_BYTES, ge=1024)
+    log_backup_count: int = Field(default=BaseConfig.LOG_BACKUP_COUNT, ge=1)
+    mongodb_uri: str = Field(default=BaseConfig.MONGODB_URI)
+    mongodb_db: str = Field(default=BaseConfig.MONGODB_DB)
+    mongodb_connect_timeout_ms: int = Field(
+        default=BaseConfig.MONGODB_CONNECT_TIMEOUT_MS,
+        ge=100,
+    )
+    request_id_header: str = Field(default=BaseConfig.REQUEST_ID_HEADER)
+    cors_allow_origins: list[str] = Field(default_factory=list)
+    enable_compression: bool = Field(default=BaseConfig.ENABLE_COMPRESSION)
+
+
+def build_runtime_settings(config: Mapping[str, Any]) -> RuntimeSettings:
+    data = {
+        "env_name": BaseConfig.get_str(config, "ENV_NAME", BaseConfig.ENV_NAME),
+        "debug": BaseConfig.get_bool(config, "DEBUG", BaseConfig.DEBUG),
+        "api_version": BaseConfig.get_str(config, "API_VERSION", BaseConfig.API_VERSION),
+        "log_level": BaseConfig.get_str(config, "LOG_LEVEL", BaseConfig.LOG_LEVEL),
+        "log_dir": BaseConfig.get_str(config, "LOG_DIR", BaseConfig.LOG_DIR),
+        "log_max_bytes": BaseConfig.get_int(
+            config, "LOG_MAX_BYTES", BaseConfig.LOG_MAX_BYTES
+        ),
+        "log_backup_count": BaseConfig.get_int(
+            config, "LOG_BACKUP_COUNT", BaseConfig.LOG_BACKUP_COUNT
+        ),
+        "mongodb_uri": BaseConfig.get_str(config, "MONGODB_URI", BaseConfig.MONGODB_URI),
+        "mongodb_db": BaseConfig.get_str(config, "MONGODB_DB", BaseConfig.MONGODB_DB),
+        "mongodb_connect_timeout_ms": BaseConfig.get_int(
+            config,
+            "MONGODB_CONNECT_TIMEOUT_MS",
+            BaseConfig.MONGODB_CONNECT_TIMEOUT_MS,
+        ),
+        "request_id_header": BaseConfig.get_str(
+            config, "REQUEST_ID_HEADER", BaseConfig.REQUEST_ID_HEADER
+        ),
+        "cors_allow_origins": list(config.get("CORS_ALLOW_ORIGINS") or []),
+        "enable_compression": BaseConfig.get_bool(
+            config, "ENABLE_COMPRESSION", BaseConfig.ENABLE_COMPRESSION
+        ),
+    }
+    try:
+        return RuntimeSettings.model_validate(data)
+    except PydanticValidationError as exc:
+        raise RuntimeError(f"Invalid runtime settings: {exc}") from exc

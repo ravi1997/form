@@ -1,5 +1,8 @@
 from functools import wraps
 from flask import request, g, jsonify
+from mongoengine.errors import OperationError, ValidationError
+from pymongo.errors import PyMongoError
+import redis
 from app.services.rate_limit import get_rate_limit_service
 from app.services import get_rotating_logger
 
@@ -127,14 +130,27 @@ def rate_limit(
 
                 return response
 
-            except Exception as e:
+            except (
+                ValidationError,
+                OperationError,
+                PyMongoError,
+                ValueError,
+                TypeError,
+                redis.RedisError,
+            ) as e:
                 logger.log_error(
                     "Error in rate_limit decorator",
                     exception=e,
                     context={"endpoint": request.endpoint, "path": request.path},
                 )
-                # On error, allow the request to proceed
-                return func(*args, **kwargs)
+                response = jsonify(
+                    {
+                        "error": "Rate limiting unavailable",
+                        "message": "The request cannot be processed right now.",
+                    }
+                )
+                response.status_code = 503
+                return response
 
         return wrapper
 
@@ -217,13 +233,27 @@ def rate_limit_by_endpoint(
 
                 return func(*args, **kwargs)
 
-            except Exception as e:
+            except (
+                ValidationError,
+                OperationError,
+                PyMongoError,
+                ValueError,
+                TypeError,
+                redis.RedisError,
+            ) as e:
                 logger.log_error(
                     "Error in rate_limit_by_endpoint decorator",
                     exception=e,
                     context={"endpoint": request.endpoint, "path": request.path},
                 )
-                return func(*args, **kwargs)
+                response = jsonify(
+                    {
+                        "error": "Rate limiting unavailable",
+                        "message": "The request cannot be processed right now.",
+                    }
+                )
+                response.status_code = 503
+                return response
 
         return wrapper
 

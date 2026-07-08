@@ -290,7 +290,13 @@ class ConditionEvaluator:
             return result
         except DSLValidationError as exc:
             raise ConditionEvaluationError(str(exc)) from exc
-        except Exception as exc:
+        except (
+            TypeError,
+            ValueError,
+            KeyError,
+            ZeroDivisionError,
+            ConditionEvaluationError,
+        ) as exc:
             if isinstance(exc, ConditionEvaluationError):
                 raise
             raise ConditionEvaluationError(

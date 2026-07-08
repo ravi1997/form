@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from typing import Literal
 
+from mongoengine.connection import get_connection
+from pymongo.errors import PyMongoError
+
+from app.middleware.observability import get_metrics_snapshot
 from app.schemas.form import FormCreateInput
 from app.schemas.mappers import to_json_ready
 
@@ -25,10 +29,47 @@ class HealthResponse(SchemaModel):
     service: str
 
 
+class LivenessResponse(SchemaModel):
+    status: Literal["alive"]
+    service: str
+
+
+class ReadinessResponse(SchemaModel):
+    status: Literal["ready", "degraded"]
+    service: str
+    database: Literal["ok", "error"]
+
+
 @health_api.get("/health", tags=[system_tag], responses={200: HealthResponse})
 def health():
     response = HealthResponse(status="ok", service="form")
     return to_json_ready(response)
+
+
+@health_api.get("/liveness", tags=[system_tag], responses={200: LivenessResponse})
+def liveness():
+    return to_json_ready(LivenessResponse(status="alive", service="form"))
+
+
+@health_api.get("/readiness", tags=[system_tag], responses={200: ReadinessResponse})
+def readiness():
+    try:
+        get_connection().admin.command("ping")
+    except PyMongoError:
+        return (
+            to_json_ready(
+                ReadinessResponse(status="degraded", service="form", database="error")
+            ),
+            503,
+        )
+    return to_json_ready(
+        ReadinessResponse(status="ready", service="form", database="ok")
+    )
+
+
+@health_api.get("/metrics", tags=[system_tag])
+def metrics():
+    return to_json_ready(get_metrics_snapshot())
 
 
 @health_api.post(
