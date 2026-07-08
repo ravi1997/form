@@ -249,3 +249,19 @@ def test_async_queue_status_reports_counts(app_context):
     assert status["timeout"] == 1
     assert status["oldest_queued_at"] is not None
     assert status["oldest_running_at"] is not None
+
+
+def test_in_memory_condition_queue_close_shuts_down_executor(monkeypatch):
+    calls = {}
+
+    class FakeExecutor:
+        def shutdown(self, wait, cancel_futures):
+            calls["wait"] = wait
+            calls["cancel_futures"] = cancel_futures
+
+    queue = async_service.InMemoryConditionQueue(max_workers=1)
+    monkeypatch.setattr(queue, "_executor", FakeExecutor())
+
+    queue.close(wait=True)
+
+    assert calls == {"wait": True, "cancel_futures": False}

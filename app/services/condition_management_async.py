@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
+import atexit
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from threading import Lock
@@ -32,8 +33,12 @@ class InMemoryConditionQueue:
     def enqueue(self, func, *args, **kwargs) -> None:
         self._executor.submit(func, *args, **kwargs)
 
+    def close(self, wait: bool = True) -> None:
+        self._executor.shutdown(wait=wait, cancel_futures=not wait)
+
 
 _default_queue = InMemoryConditionQueue()
+atexit.register(_default_queue.close)
 
 
 def recover_pending_async_jobs(

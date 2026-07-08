@@ -140,6 +140,7 @@ app/
 Operational notes:
 - Async condition jobs are persisted in MongoDB and are re-queued on app startup.
 - The queue implementation remains intentionally lightweight to avoid a full Celery/RQ dependency.
+- The default in-memory executor is closed on process exit so in-flight work has a controlled shutdown path.
 - Queue status is observable via `GET /api/v1/metrics` and the async job status endpoint.
 - Condition evaluation statistics use a MongoDB TTL index on `created_at` with a 30-day retention window, preventing unbounded growth of the analytics collection.
 ```
