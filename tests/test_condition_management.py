@@ -243,4 +243,9 @@ def test_async_queue_status_reports_counts(app_context):
 
     status = async_service.get_async_queue_status()
 
-    assert status == {"queued": 1, "running": 1, "failed": 1, "timeout": 1}
+    assert status["queued"] == 1
+    assert status["running"] == 1
+    assert status["failed"] == 1
+    assert status["timeout"] == 1
+    assert status["oldest_queued_at"] is not None
+    assert status["oldest_running_at"] is not None

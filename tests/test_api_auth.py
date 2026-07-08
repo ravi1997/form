@@ -49,6 +49,9 @@ class TestAuthAPIHealthEndpoint:
         assert {"queued", "running", "failed", "timeout"} <= set(
             payload["async_queue"].keys()
         )
+        assert {"oldest_queued_at", "oldest_running_at"} <= set(
+            payload["async_queue"].keys()
+        )
 
 
 class TestAuthAPIRegister:

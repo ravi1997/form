@@ -133,13 +133,27 @@ def enqueue_async_evaluation(
     return job
 
 
-def get_async_queue_status() -> Dict[str, int]:
+def get_async_queue_status() -> Dict[str, Any]:
     """Return a coarse queue snapshot for observability and health endpoints."""
+    queued_jobs = ConditionAsyncJob.objects(status="queued").order_by("created_at")
+    running_jobs = ConditionAsyncJob.objects(status="running").order_by("created_at")
+    oldest_queued = queued_jobs.first()
+    oldest_running = running_jobs.first()
     return {
-        "queued": ConditionAsyncJob.objects(status="queued").count(),
-        "running": ConditionAsyncJob.objects(status="running").count(),
+        "queued": queued_jobs.count(),
+        "running": running_jobs.count(),
         "failed": ConditionAsyncJob.objects(status="failed").count(),
         "timeout": ConditionAsyncJob.objects(status="timeout").count(),
+        "oldest_queued_at": (
+            oldest_queued.created_at.isoformat()
+            if oldest_queued and oldest_queued.created_at
+            else None
+        ),
+        "oldest_running_at": (
+            oldest_running.created_at.isoformat()
+            if oldest_running and oldest_running.created_at
+            else None
+        ),
     }
 
 
