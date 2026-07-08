@@ -170,8 +170,8 @@ if __name__ == "__main__":
     try:
         created, skipped = init_default_rate_limits()
         sys.exit(0 if created > 0 or skipped > 0 else 1)
-    except Exception as e:
-        print(f"✗ Error: {e}", file=sys.stderr)
+    except (ValueError, RuntimeError, OSError) as exc:
+        print(f"✗ Error: {exc}", file=sys.stderr)
         import traceback
 
         traceback.print_exc()
