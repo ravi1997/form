@@ -3,7 +3,7 @@ Comprehensive tests for User model including edge cases and validation.
 """
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from mongoengine.errors import ValidationError, NotUniqueError
 from app.models.user import User, Organization, ROLE_CHOICES, USER_STATUS_CHOICES
 
@@ -348,7 +348,7 @@ class TestUserMFA:
 
     def test_otp_secret_creation(self, app_context):
         """Test setting OTP secret for MFA."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         user = User(
             uuid="01-01-24-0001-01-01-24-0020",
             name="Test User",
@@ -371,7 +371,7 @@ class TestUserLoginTracking:
 
     def test_last_login_at_tracking(self, app_context):
         """Test tracking last login time."""
-        login_time = datetime.utcnow()
+        login_time = datetime.now(timezone.utc).replace(tzinfo=None)
         user = User(
             uuid="01-01-24-0001-01-01-24-0021",
             name="Test User",
@@ -387,7 +387,7 @@ class TestUserLoginTracking:
 
     def test_last_logout_at_tracking(self, app_context):
         """Test tracking last logout time."""
-        logout_time = datetime.utcnow()
+        logout_time = datetime.now(timezone.utc).replace(tzinfo=None)
         user = User(
             uuid="01-01-24-0001-01-01-24-0022",
             name="Test User",
@@ -403,7 +403,7 @@ class TestUserLoginTracking:
 
     def test_password_change_tracking(self, app_context):
         """Test tracking password change time."""
-        password_change_time = datetime.utcnow()
+        password_change_time = datetime.now(timezone.utc).replace(tzinfo=None)
         user = User(
             uuid="01-01-24-0001-01-01-24-0023",
             name="Test User",
@@ -431,7 +431,7 @@ class TestUserPasswordReset:
     def test_password_reset_token_storage(self, app_context):
         """Test storing password reset token."""
         reset_token = "reset_token_xyz"
-        expiry = datetime.utcnow() + timedelta(hours=1)
+        expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1)
 
         user = User(
             uuid="01-01-24-0001-01-01-24-0024",
@@ -453,7 +453,7 @@ class TestUserPasswordReset:
 
     def test_password_reset_token_expiry_tracking(self, app_context):
         """Test that password reset token creation time is tracked."""
-        creation_time = datetime.utcnow()
+        creation_time = datetime.now(timezone.utc).replace(tzinfo=None)
         user = User(
             uuid="01-01-24-0001-01-01-24-0025",
             name="Test User",
@@ -480,7 +480,7 @@ class TestUserEmailVerification:
 
     def test_email_verification_tracking(self, app_context):
         """Test email verification timestamp and verifier."""
-        verified_at = datetime.utcnow()
+        verified_at = datetime.now(timezone.utc).replace(tzinfo=None)
         verified_by = "admin@example.com"
 
         user = User(

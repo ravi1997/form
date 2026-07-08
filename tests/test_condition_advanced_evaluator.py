@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 import pytest
 
@@ -18,7 +18,7 @@ def test_temporal_created_within_days():
         operands=["2"],
         isActive=True,
     )
-    ctx = {"created_at": (datetime.utcnow() - timedelta(days=1)).isoformat()}
+    ctx = {"created_at": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()}
     assert ConditionEvaluator(ctx).evaluate(c) is True
 
 

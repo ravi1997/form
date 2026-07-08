@@ -400,7 +400,7 @@ class TestAuditFields:
 
     def test_last_login_tracking(self, app_context):
         """Test tracking last login timestamp."""
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         user = User(
             uuid="01-01-24-0001-01-01-24-login",
@@ -413,7 +413,7 @@ class TestAuditFields:
 
         assert user.last_login_at is None
 
-        user.last_login_at = datetime.utcnow()
+        user.last_login_at = datetime.now(timezone.utc)
         user.save()
 
         retrieved = User.objects.get(uuid=user.uuid)
