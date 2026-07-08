@@ -71,6 +71,14 @@ def test_project_and_form_crud_lifecycle(client, app_context):
     )
     assert create_project.status_code == 201
 
+    duplicate_project = client.post(
+        "/api/v1/projects",
+        data=json.dumps(project_payload),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert duplicate_project.status_code >= 400
+
     get_project = client.get("/api/v1/projects/project-crud-0001", headers=headers)
     assert get_project.status_code == 200
     assert get_project.get_json()["uuid"] == "project-crud-0001"
@@ -192,6 +200,14 @@ def test_section_question_choice_lifecycle_and_anonymous_access(client, app_cont
         == 201
     )
 
+    duplicate_form = client.post(
+        "/api/v1/projects/project-nested-0001/forms",
+        data=json.dumps(form_payload),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert duplicate_form.status_code >= 400
+
     _create_regular_user()
     unauthorized_headers = _auth_header(
         client, "resources-user@example.com", "StrongPass123!"
@@ -268,6 +284,22 @@ def test_section_question_choice_lifecycle_and_anonymous_access(client, app_cont
     )
     assert create_question.status_code == 201
 
+    duplicate_section = client.post(
+        "/api/v1/projects/project-nested-0001/forms/form-nested-0001/sections?version_uuid=form-v1-nested",
+        data=json.dumps(section_payload),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert duplicate_section.status_code >= 400
+
+    duplicate_question = client.post(
+        "/api/v1/projects/project-nested-0001/forms/form-nested-0001/sections/section-nested-0001/questions?version_uuid=section-v1-nested",
+        data=json.dumps(question_payload),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert duplicate_question.status_code >= 400
+
     get_question = client.get(
         "/api/v1/projects/project-nested-0001/forms/form-nested-0001/sections/section-nested-0001/questions/question-nested-0001",
         headers=headers,
@@ -290,6 +322,14 @@ def test_section_question_choice_lifecycle_and_anonymous_access(client, app_cont
         headers=headers,
     )
     assert create_choice.status_code == 201
+
+    duplicate_choice = client.post(
+        "/api/v1/projects/project-nested-0001/forms/form-nested-0001/sections/section-nested-0001/questions/question-nested-0001/choices",
+        data=json.dumps(choice_payload),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert duplicate_choice.status_code >= 400
 
     get_choice = client.get(
         "/api/v1/projects/project-nested-0001/forms/form-nested-0001/sections/section-nested-0001/questions/question-nested-0001/choices/choice-nested-0001",
@@ -334,6 +374,12 @@ def test_section_question_choice_lifecycle_and_anonymous_access(client, app_cont
         ).status_code
         == 200
     )
+
+    repeat_delete_section = client.delete(
+        "/api/v1/projects/project-nested-0001/forms/form-nested-0001/sections/section-nested-0001",
+        headers=headers,
+    )
+    assert repeat_delete_section.status_code == 404
 
     deleted_question = client.get(
         "/api/v1/projects/project-nested-0001/forms/form-nested-0001/sections/section-nested-0001/questions/question-nested-0001",
