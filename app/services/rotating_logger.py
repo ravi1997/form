@@ -172,7 +172,8 @@ class RotatingLoggerService:
             parsed = json.loads(body)
             if isinstance(parsed, dict):
                 return json.dumps(self._mask_mapping(parsed), ensure_ascii=True)
-        except Exception:
+        except json.JSONDecodeError:
+            # Keep raw body when it's not JSON.
             pass
         if len(body) > 5000:
             return f"{body[:5000]}... [Truncated, total size: {len(body)} bytes]"
