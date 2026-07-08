@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import logging
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
@@ -57,7 +56,6 @@ from app.services.auth import (
     touch_session,
 )
 from app.services.security import (
-    check_and_increment_rate_limit,
     log_session_audit_event,
 )
 from app.services.rbac import (
@@ -66,6 +64,8 @@ from app.services.rbac import (
     require_admin_for_user_payload,
     resolve_access_identity_from_header,
 )
+from app.services import get_rotating_logger
+from app.middleware.rate_limit import rate_limit
 
 try:
     from flask_openapi3 import APIBlueprint, Tag
@@ -77,11 +77,39 @@ except ImportError as exc:  # pragma: no cover - evaluated only when package is 
 
 auth_tag = Tag(name="Auth", description="JWT authentication")
 auth_api = APIBlueprint("auth", __name__, url_prefix="/api/v1/auth")
-logger = logging.getLogger(__name__)
+logger = get_rotating_logger()
 
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+@auth_api.before_request
+def _auth_before_request_logging():
+    logger.log_app_event(
+        "API Started",
+        context={
+            "route": f"{request.method} {request.path}",
+            "endpoint": request.endpoint,
+            "request_id": getattr(g, "request_id", None),
+            "user_id": getattr(g, "user_id", None),
+        },
+    )
+
+
+@auth_api.after_request
+def _auth_after_request_logging(response):
+    logger.log_app_event(
+        "API Completed",
+        context={
+            "route": f"{request.method} {request.path}",
+            "endpoint": request.endpoint,
+            "status_code": response.status_code,
+            "request_id": getattr(g, "request_id", None),
+            "user_id": getattr(g, "user_id", None),
+        },
+    )
+    return response
 
 
 def _unauthorized(message: str):
@@ -90,14 +118,6 @@ def _unauthorized(message: str):
 
 def _bad_request(message: str):
     return to_json_ready(ErrorResponse(message=message)), 400
-
-
-def _too_many_requests(message: str, retry_after: int, limit_scope: str):
-    response, status = (
-        to_json_ready(ErrorResponse(message=message, limit_scope=limit_scope)),
-        429,
-    )
-    return response, status, {"Retry-After": str(retry_after)}
 
 
 def _client_ip() -> str:
@@ -147,7 +167,10 @@ def _security_event(
         "request_id": getattr(g, "request_id", None),
         "timestamp": _utcnow().isoformat().replace("+00:00", "Z"),
     }
-    logger.info("security_event=%s", payload)
+    logger.log_app_event(
+        "security_event",
+        context=payload,
+    )
 
 
 def _encode_audit_cursor(created_at: datetime) -> str:
@@ -162,75 +185,6 @@ def _decode_audit_cursor(cursor: str) -> datetime:
         return datetime.fromisoformat(raw)
     except Exception as exc:
         raise AuthError("Invalid cursor") from exc
-
-
-def _enforce_rate_limit(scope: str, key: str):
-    max_key = f"AUTH_RATE_LIMIT_{scope.upper()}_MAX"
-    window_key = f"AUTH_RATE_LIMIT_{scope.upper()}_WINDOW_SECONDS"
-    defaults = {
-        "login": (
-            BaseConfig.AUTH_RATE_LIMIT_LOGIN_MAX,
-            BaseConfig.AUTH_RATE_LIMIT_LOGIN_WINDOW_SECONDS,
-        ),
-        "refresh": (
-            BaseConfig.AUTH_RATE_LIMIT_REFRESH_MAX,
-            BaseConfig.AUTH_RATE_LIMIT_REFRESH_WINDOW_SECONDS,
-        ),
-        "logout": (
-            BaseConfig.AUTH_RATE_LIMIT_LOGOUT_MAX,
-            BaseConfig.AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS,
-        ),
-    }
-    default_max, default_window = defaults.get(scope, (10, 60))
-
-    max_requests = int(current_app.config.get(max_key, default_max))
-    window_seconds = int(current_app.config.get(window_key, default_window))
-
-    result = check_and_increment_rate_limit(
-        scope=scope,
-        key=key,
-        max_requests=max_requests,
-        window_seconds=window_seconds,
-    )
-    if bool(result["limited"]):
-        limit_scope = "user" if key.startswith("user:") else "ip"
-        _security_event(
-            event="rate_limit",
-            outcome="throttled",
-            endpoint=f"/api/v1/auth/{scope}",
-            limit_scope=limit_scope,
-            reason="rate_limit_exceeded",
-            details={
-                "scope": scope,
-                "key": key,
-                "retry_after": int(result["retry_after"]),
-            },
-        )
-        return _too_many_requests(
-            message="Too many requests for this endpoint. Please try again later.",
-            retry_after=int(result["retry_after"]),
-            limit_scope=limit_scope,
-        )
-    return None
-
-
-def _enforce_dual_rate_limit(scope: str, user_key: Optional[str]):
-    ip_limit = _enforce_rate_limit(scope=scope, key=f"ip:{_client_ip()}")
-    if ip_limit:
-        return ip_limit
-
-    if user_key:
-        user_limit = _enforce_rate_limit(scope=scope, key=f"user:{user_key}")
-        if user_limit:
-            return user_limit
-
-    return None
-
-
-def _enforce_user_rate_limit(scope: str, user_key: Optional[str]):
-    if not user_key:
-        return None
-    return _enforce_rate_limit(scope=scope, key=f"user:{user_key}")
 
 
 def _extract_bearer(header: AuthorizationHeader):
@@ -309,19 +263,13 @@ def register(body: RegisterRequest):
     return to_json_ready(payload), 201
 
 
+@rate_limit
 @auth_api.post(
     "/login",
     tags=[auth_tag],
     responses={200: TokenPairResponse, 401: ErrorResponse, 429: ErrorResponse},
 )
 def login(body: LoginRequest):
-    rate_limit = _enforce_dual_rate_limit(
-        scope="login",
-        user_key=str(body.email).strip().lower(),
-    )
-    if rate_limit:
-        return rate_limit
-
     email = str(body.email).strip().lower()
     user = User.objects(email=email).first()
     if not user or not user.password_hash:
@@ -372,16 +320,13 @@ def login(body: LoginRequest):
     return to_json_ready(payload)
 
 
+@rate_limit
 @auth_api.post(
     "/refresh",
     tags=[auth_tag],
     responses={200: AccessTokenResponse, 401: ErrorResponse, 429: ErrorResponse},
 )
 def refresh_token(body: RefreshTokenRequest):
-    rate_limit = _enforce_dual_rate_limit(scope="refresh", user_key=None)
-    if rate_limit:
-        return rate_limit
-
     try:
         payload = decode_token(body.refresh_token, expected_type="refresh")
     except AuthError as exc:
@@ -392,10 +337,6 @@ def refresh_token(body: RefreshTokenRequest):
             reason=str(exc),
         )
         return _unauthorized(str(exc))
-
-    user_limit = _enforce_user_rate_limit(scope="refresh", user_key=payload.get("sub"))
-    if user_limit:
-        return user_limit
 
     if is_refresh_token_revoked(body.refresh_token, payload=payload):
         _security_event(
@@ -447,23 +388,15 @@ def refresh_token(body: RefreshTokenRequest):
     return to_json_ready(response)
 
 
+@rate_limit
 @auth_api.post(
     "/logout",
     tags=[auth_tag],
     responses={200: LogoutResponse, 401: ErrorResponse, 429: ErrorResponse},
 )
 def logout(body: LogoutRequest):
-    rate_limit = _enforce_dual_rate_limit(scope="logout", user_key=None)
-    if rate_limit:
-        return rate_limit
-
     try:
         payload = decode_token(body.refresh_token, expected_type="refresh")
-        user_limit = _enforce_user_rate_limit(
-            scope="logout", user_key=payload.get("sub")
-        )
-        if user_limit:
-            return user_limit
         revoke_refresh_token(body.refresh_token, reason="logout")
     except AuthError as exc:
         _security_event(

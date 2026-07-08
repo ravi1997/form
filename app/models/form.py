@@ -14,6 +14,10 @@ CONDITION_TYPE_CHOICES = (
     "regex",
     "comparison",
     "logical",
+    "temporal",
+    "arithmetic",
+    "set",
+    "dsl",
     "custom",
 )
 
@@ -150,12 +154,12 @@ class Condition(db.Document):
     sourceSectionUuid = db.StringField()
 
     operator = db.StringField()
-    operands = db.ListField(db.StringField())
+    operands = db.ListField(db.DynamicField())
 
     isNegated = db.BooleanField(default=False)
 
     # recursive tree support
-    subConditions = db.ListField(db.LazyReferenceField("self"))
+    subConditions = db.ListField(db.ReferenceField("self"))
     logicalJoinType = db.StringField(choices=["AND", "OR"])
 
     isActive = db.BooleanField(default=True)
@@ -168,13 +172,28 @@ class Condition(db.Document):
 
     metadata = db.DictField()
 
+    approval_state = db.StringField(
+        choices=("draft", "review", "published", "deprecated", "archived"),
+        default="draft",
+    )
+    published_at = db.DateTimeField()
+    deprecated_at = db.DateTimeField()
+
     created_at = db.DateTimeField(default=datetime.utcnow)
     updated_at = db.DateTimeField(default=datetime.utcnow)
     status = db.StringField(choices=DOCUMENT_STATUS_CHOICES, default="active")
 
     meta = {
         "collection": "conditions",
-        "indexes": ["uuid", "conditionType", "status", "priority"],
+        "indexes": [
+            "uuid",
+            "conditionType",
+            "status",
+            "priority",
+            "updated_at",
+            "approval_state",
+            ("conditionType", "operator", "targetField"),
+        ],
     }
 
     def clean(self):
@@ -219,20 +238,55 @@ class Condition(db.Document):
                         "Regex conditions require expression and targetField"
                     )
 
-            if self.conditionType == "comparison":
+            if self.conditionType in ("comparison", "temporal", "set"):
                 if not self.targetField or not self.operator:
                     raise ValidationError(
                         "Comparison conditions require targetField and operator"
                     )
-                if not self.operands:
+                if (
+                    self.operator not in ("is_empty", "is_not_empty")
+                    and not self.operands
+                ):
                     raise ValidationError(
                         "Comparison conditions require at least one operand"
                     )
 
-            if self.conditionType == "custom" and not self.expression:
+            if (
+                self.conditionType in ("custom", "dsl", "arithmetic")
+                and not self.expression
+            ):
                 raise ValidationError("Custom conditions require expression")
 
     def save(self, *args, **kwargs):
+        saving_ids = kwargs.pop("_saving_ids", None)
+        if saving_ids is None:
+            saving_ids = set()
+        current_id = id(self)
+        if current_id in saving_ids:
+            self.updated_at = datetime.utcnow()
+            return super().save(*args, **kwargs)
+
+        saving_ids.add(current_id)
+
+        unsaved_sub_conditions = [
+            sub_condition
+            for sub_condition in (self.subConditions or [])
+            if getattr(sub_condition, "pk", None) is None
+        ]
+        if unsaved_sub_conditions:
+            original_sub_conditions = list(self.subConditions or [])
+            self.subConditions = []
+            self.updated_at = datetime.utcnow()
+            super().save(*args, validate=False, **kwargs)
+
+            for sub_condition in unsaved_sub_conditions:
+                if id(sub_condition) in saving_ids:
+                    continue
+                if getattr(sub_condition, "pk", None) is None:
+                    sub_condition.save(_saving_ids=saving_ids)
+
+            self.subConditions = original_sub_conditions
+
         self.updated_at = datetime.utcnow()
         return super().save(*args, **kwargs)
 
@@ -263,6 +317,38 @@ class FormResponseStatusEvent(db.EmbeddedDocument):
     transition_to = db.StringField(required=True, choices=FORM_RESPONSE_STATUS_CHOICES)
     changed_at = db.DateTimeField(default=datetime.utcnow)
     reason = db.StringField()
+
+
+class ActionStep(db.EmbeddedDocument):
+    id = db.StringField(required=True)
+    target = db.StringField(required=True, choices=("frontend", "backend"))
+    type = db.StringField(required=True)
+    config = db.DictField(default=dict)
+    on_error = db.StringField(default="stop", choices=("stop", "continue"))
+
+
+class ActionDefinition(db.EmbeddedDocument):
+    id = db.StringField(required=True)
+    label = db.StringField(required=True)
+    icon = db.StringField()
+    button_variant = db.StringField()
+    trigger = db.StringField(default="click")
+    confirmation_message = db.StringField()
+    schema_version = db.IntField(default=1, min_value=1)
+    audit_policy = db.StringField(
+        default="always", choices=("always", "backend_only", "never")
+    )
+    allowed_roles = db.ListField(db.StringField(), default=list)
+    visibility_condition = db.ReferenceField("Condition")
+    enabled_condition = db.ReferenceField("Condition")
+    metadata = db.DictField(default=dict)
+    steps = db.ListField(db.EmbeddedDocumentField(ActionStep), default=list)
+
+    def clean(self):
+        if not self.steps:
+            raise ValidationError("Action definitions require at least one step")
+        step_ids = [step.id for step in self.steps if step.id]
+        _ensure_unique_values(step_ids, "ActionDefinition.steps.id")
 
 
 class Question(db.Document):
@@ -298,6 +384,7 @@ class Question(db.Document):
     actionButtonType = db.StringField()
     actionType = db.StringField()
     actionLabel = db.StringField()
+    actions = db.ListField(db.EmbeddedDocumentField(ActionDefinition), default=list)
 
     tags = db.ListField(db.StringField())
 
@@ -338,6 +425,16 @@ class Question(db.Document):
 
         if self.isAction and (not self.actionType or not self.actionLabel):
             raise ValidationError("Action questions require actionType and actionLabel")
+
+        if self.actions:
+            action_ids = [action.id for action in self.actions if action.id]
+            _ensure_unique_values(action_ids, "Question.actions.id")
+            self.isAction = True
+            first_action = self.actions[0]
+            if not self.actionLabel:
+                self.actionLabel = first_action.label
+            if not self.actionType and first_action.steps:
+                self.actionType = first_action.steps[0].type
 
         if self.choices:
             choice_uuids = [choice.uuid for choice in self.choices]
@@ -457,6 +554,11 @@ class Form(db.Document):
 
     tags = db.ListField(db.StringField())
     icon = db.StringField()
+    theme_template_uuid = db.StringField()
+    theme_revision_uuid = db.StringField()
+    layout_template_uuid = db.StringField()
+    layout_revision_uuid = db.StringField()
+    ui_overrides = db.DictField(default=dict)
 
     workflow_state = db.StringField(
         choices=FORM_WORKFLOW_STATE_CHOICES, default="draft"
@@ -472,7 +574,13 @@ class Form(db.Document):
 
     meta = {
         "collection": "forms",
-        "indexes": ["uuid", "status", "tags"],
+        "indexes": [
+            "uuid",
+            "status",
+            "tags",
+            "theme_template_uuid",
+            "layout_template_uuid",
+        ],
     }
 
     def clean(self):
@@ -572,6 +680,13 @@ class ResponseItem(db.EmbeddedDocument):
     value_type = db.StringField()
     metadata = db.DictField()
 
+    approval_state = db.StringField(
+        choices=("draft", "review", "published", "deprecated", "archived"),
+        default="draft",
+    )
+    published_at = db.DateTimeField()
+    deprecated_at = db.DateTimeField()
+
 
 class FormResponse(db.Document):
     uuid = db.StringField(required=True, unique=True)
@@ -612,6 +727,13 @@ class FormResponse(db.Document):
     deleted_by = db.ReferenceField("User")
 
     metadata = db.DictField()
+
+    approval_state = db.StringField(
+        choices=("draft", "review", "published", "deprecated", "archived"),
+        default="draft",
+    )
+    published_at = db.DateTimeField()
+    deprecated_at = db.DateTimeField()
 
     meta = {
         "collection": "form_responses",
@@ -730,6 +852,51 @@ class FormResponse(db.Document):
                     transition_to=self.status,
                 )
             ]
+
+    def save(self, *args, **kwargs):
+        self.updated_at = datetime.utcnow()
+        return super().save(*args, **kwargs)
+
+
+class ActionExecution(db.Document):
+    uuid = db.StringField(required=True, unique=True)
+    project_uuid = db.StringField(required=True)
+    form_uuid = db.StringField(required=True)
+    section_uuid = db.StringField(required=True)
+    question_uuid = db.StringField(required=True)
+    action_id = db.StringField(required=True)
+    response_uuid = db.StringField()
+    actor_user_uuid = db.StringField(required=True)
+    idempotency_key = db.StringField()
+    status = db.StringField(
+        required=True,
+        choices=("pending", "success", "partial", "failed", "rejected", "idempotent"),
+        default="pending",
+    )
+    frontend_steps = db.ListField(db.DictField(), default=list)
+    step_results = db.ListField(db.DictField(), default=list)
+    request_context = db.DictField(default=dict)
+    client_state = db.DictField(default=dict)
+    output = db.DictField(default=dict)
+    error = db.StringField()
+    created_at = db.DateTimeField(default=datetime.utcnow)
+    updated_at = db.DateTimeField(default=datetime.utcnow)
+    completed_at = db.DateTimeField()
+    request_id = db.StringField()
+
+    meta = {
+        "collection": "action_executions",
+        "indexes": [
+            "uuid",
+            "project_uuid",
+            "form_uuid",
+            "response_uuid",
+            "question_uuid",
+            "action_id",
+            "idempotency_key",
+            "updated_at",
+        ],
+    }
 
     def save(self, *args, **kwargs):
         self.updated_at = datetime.utcnow()

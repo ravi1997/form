@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import base64
-from datetime import datetime
-import logging
+from datetime import datetime, timezone
 import time
+from uuid import uuid4
 from typing import Any, Dict, List, Literal, Optional, Type
 
 from flask import current_app, g, request
 from mongoengine.errors import NotUniqueError, ValidationError
 
 from app.models.form import (
+    ActionDefinition,
+    ActionExecution,
+    ActionStep,
     Choice,
     Form,
+    FormResponse,
     FormWorkflowEvent,
     Project,
     Question,
@@ -19,9 +23,16 @@ from app.models.form import (
     Version,
 )
 from app.models.form import Condition
+from app.models.ui_template import LayoutTemplate, ThemeTemplate
 from app.models.user import Organization, User
 from app.schemas.common import SchemaModel
 from app.schemas.choice import ChoiceCreateInput, ChoiceOutput, ChoiceUpdateInput
+from app.schemas.action import (
+    ActionExecutionListResponse,
+    ActionExecutionOutput,
+    ActionTriggerRequest,
+    ActionTriggerResponse,
+)
 from app.schemas.form import FormCreateInput, FormOutput, FormUpdateInput
 from app.schemas.mappers import (
     to_choice_output,
@@ -39,14 +50,17 @@ from app.schemas.question import (
     QuestionUpdateInput,
 )
 from app.schemas.section import SectionCreateInput, SectionOutput, SectionUpdateInput
+from app.schemas.ui_template import EffectiveUiConfigOutput
 from app.schemas.version import VersionCreateInput, VersionOutput, VersionUpdateInput
 from app.services.auth import AuthError
+from app.services.condition_evaluator import ConditionEvaluator
 from app.services.rbac import (
     get_user_by_uuid,
     has_global_admin_privileges,
     resolve_access_identity_from_header,
 )
-from app.services.security import check_and_increment_rate_limit
+from app.services.rate_limit import get_rate_limit_service
+from app.services import get_rotating_logger
 
 try:
     from flask_openapi3 import APIBlueprint, Tag
@@ -61,7 +75,7 @@ resources_tag = Tag(
 )
 version_tag = Tag(name="Versions", description="Version append/update APIs")
 resources_api = APIBlueprint("resources", __name__, url_prefix="/api/v1")
-logger = logging.getLogger(__name__)
+logger = get_rotating_logger()
 
 
 class MessageResponse(SchemaModel):
@@ -103,6 +117,20 @@ class QuestionPath(SchemaModel):
     question_uuid: str
 
 
+class QuestionActionPath(SchemaModel):
+    project_uuid: str
+    form_uuid: str
+    section_uuid: str
+    question_uuid: str
+    action_id: str
+
+
+class ResponseActionExecutionPath(SchemaModel):
+    project_uuid: str
+    form_uuid: str
+    response_uuid: str
+
+
 class FormVersionPath(SchemaModel):
     project_uuid: str
     form_uuid: str
@@ -130,6 +158,40 @@ class ChoicePath(SchemaModel):
     section_uuid: str
     question_uuid: str
     choice_uuid: str
+
+
+class ConditionPath(SchemaModel):
+    condition_uuid: str
+
+
+class ConditionVersionDiffQuery(SchemaModel):
+    from_version: str
+    to_version: str
+
+
+class ConditionRollbackRequest(SchemaModel):
+    version_id: str
+
+
+class ConditionBatchTestItem(SchemaModel):
+    condition_uuid: str
+    test_context: Dict[str, Any]
+    enable_tracing: bool = False
+
+
+class ConditionBatchTestRequest(SchemaModel):
+    items: List[ConditionBatchTestItem]
+
+
+class ConditionImportRequest(SchemaModel):
+    conditions: List[Dict[str, Any]]
+    overwrite: bool = False
+
+
+class AsyncEvaluationRequest(SchemaModel):
+    condition_uuid: str
+    context: Dict[str, Any]
+    timeout_seconds: float = 2.0
 
 
 class VersionLinkQuery(SchemaModel):
@@ -280,34 +342,38 @@ def _security_event(
         "request_id": getattr(g, "request_id", None),
         "timestamp": datetime.utcnow().isoformat() + "Z",
     }
-    logger.info("resources_security_event=%s", payload)
+    logger.log_app_event("resources_security_event", context=payload)
 
 
 def _resources_rate_limit() -> Optional[tuple]:
-    max_requests = int(current_app.config.get("RESOURCE_RATE_LIMIT_MAX", 300))
-    window_seconds = int(
-        current_app.config.get("RESOURCE_RATE_LIMIT_WINDOW_SECONDS", 60)
+    service = get_rate_limit_service()
+    allowed, metadata = service.check_rate_limit(
+        route_pattern="/api/v1/resources",
+        http_method=request.method,
+        user_uuid=getattr(g, "user_id", None),
+        organization_uuid=getattr(g, "organization_id", None),
+        identifier=_client_ip(),
     )
-    result = check_and_increment_rate_limit(
-        scope="resources_api",
-        key=f"ip:{_client_ip()}",
-        max_requests=max_requests,
-        window_seconds=window_seconds,
+    if allowed:
+        return None
+
+    retry_after = max(
+        0,
+        int(
+            (metadata.get("reset_time", 0) or 0)
+            - datetime.now(timezone.utc).timestamp()
+        ),
     )
-    if bool(result.get("limited")):
-        _security_event(
-            event="resources_rate_limit",
-            outcome="throttled",
-            reason="rate_limit_exceeded",
-            details={"retry_after": int(result["retry_after"])},
-        )
-        payload = to_json_ready(
-            ErrorResponse(
-                message="Too many resource API requests. Please try again later."
-            )
-        )
-        return payload, 429, {"Retry-After": str(int(result["retry_after"]))}
-    return None
+    _security_event(
+        event="resources_rate_limit",
+        outcome="throttled",
+        reason="rate_limit_exceeded",
+        details={"rule_id": metadata.get("rule_id"), "retry_after": retry_after},
+    )
+    payload = to_json_ready(
+        ErrorResponse(message="Too many resource API requests. Please try again later.")
+    )
+    return payload, 429, {"Retry-After": str(retry_after)}
 
 
 def _encode_cursor(dt: datetime) -> str:
@@ -557,6 +623,16 @@ def _paginate_queryset(qs: Any, query: ListQuery, sort_field: str = "updated_at"
     return selected, page, page_size, total_items, total_pages, next_cursor
 
 
+def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(base)
+    for key, value in (override or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def _apply_form_workflow_action(
     form: Form, action: str, actor_user_uuid: str, note: Optional[str]
 ) -> str:
@@ -711,15 +787,26 @@ def _authorize_resources_route() -> Optional[tuple]:
 def _before_resources_request():
     g.resources_request_started_at = time.perf_counter()
     g.resources_request_id = getattr(g, "request_id", None)
+    logger.log_app_event(
+        "API Started",
+        context={
+            "route": f"{request.method} {request.path}",
+            "endpoint": request.endpoint,
+            "request_id": g.resources_request_id,
+            "user_id": getattr(g, "user_id", None),
+        },
+    )
 
     throttle = _resources_rate_limit()
     if throttle:
-        logger.warning(
-            "resources_api_throttled method=%s path=%s ip=%s request_id=%s",
-            request.method,
-            request.path,
-            _client_ip(),
-            g.resources_request_id,
+        logger.log_debug(
+            "resources_api_throttled",
+            context={
+                "method": request.method,
+                "path": request.path,
+                "ip": _client_ip(),
+                "request_id": g.resources_request_id,
+            },
         )
         return throttle
 
@@ -749,14 +836,16 @@ def _after_resources_request(response):
     if started_at is not None:
         duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
 
-    logger.info(
-        "resources_api_request method=%s path=%s status=%s ip=%s duration_ms=%s request_id=%s",
-        request.method,
-        request.path,
-        response.status_code,
-        _client_ip(),
-        duration_ms,
-        getattr(g, "resources_request_id", None),
+    logger.log_app_event(
+        "resources_api_request",
+        context={
+            "method": request.method,
+            "path": request.path,
+            "status": response.status_code,
+            "ip": _client_ip(),
+            "duration_ms": duration_ms,
+            "request_id": getattr(g, "resources_request_id", None),
+        },
     )
     return response
 
@@ -865,6 +954,16 @@ def _apply_form_update(form: Form, body: FormUpdateInput) -> None:
         form.tags = data["tags"]
     if "icon" in data:
         form.icon = data["icon"]
+    if "theme_template_uuid" in data:
+        form.theme_template_uuid = data["theme_template_uuid"]
+    if "theme_revision_uuid" in data:
+        form.theme_revision_uuid = data["theme_revision_uuid"]
+    if "layout_template_uuid" in data:
+        form.layout_template_uuid = data["layout_template_uuid"]
+    if "layout_revision_uuid" in data:
+        form.layout_revision_uuid = data["layout_revision_uuid"]
+    if "ui_overrides" in data:
+        form.ui_overrides = data["ui_overrides"]
     if "status" in data:
         form.status = data["status"]
 
@@ -967,6 +1066,83 @@ def _apply_question_update(question: Question, body: QuestionUpdateInput) -> Non
                 }
             )
         question.choices = choices
+    if "actions" in data:
+        question.actions = _build_action_definitions(body.actions or [])
+
+
+def _build_action_definitions(action_inputs: List[Any]) -> List[ActionDefinition]:
+    actions: List[ActionDefinition] = []
+    for action in action_inputs:
+        steps = [
+            ActionStep(
+                id=step.id,
+                target=step.target,
+                type=step.type,
+                config=step.config or {},
+                on_error=step.on_error,
+            )
+            for step in (action.steps or [])
+        ]
+        actions.append(
+            ActionDefinition(
+                id=action.id,
+                label=action.label,
+                icon=action.icon,
+                button_variant=action.button_variant,
+                trigger=action.trigger,
+                confirmation_message=action.confirmation_message,
+                schema_version=action.schema_version,
+                audit_policy=action.audit_policy,
+                allowed_roles=action.allowed_roles or [],
+                visibility_condition=(
+                    Condition.objects(uuid=action.visibility_condition).first()
+                    if action.visibility_condition
+                    else None
+                ),
+                enabled_condition=(
+                    Condition.objects(uuid=action.enabled_condition).first()
+                    if action.enabled_condition
+                    else None
+                ),
+                metadata=action.metadata or {},
+                steps=steps,
+            )
+        )
+    return actions
+
+
+def _resolve_action_definition(
+    question: Question, action_id: str
+) -> Optional[ActionDefinition]:
+    for action in question.actions or []:
+        if action.id == action_id:
+            return action
+    return None
+
+
+def _to_action_execution_output(execution: ActionExecution) -> ActionExecutionOutput:
+    return ActionExecutionOutput(
+        uuid=execution.uuid,
+        project_uuid=execution.project_uuid,
+        form_uuid=execution.form_uuid,
+        section_uuid=execution.section_uuid,
+        question_uuid=execution.question_uuid,
+        action_id=execution.action_id,
+        response_uuid=execution.response_uuid,
+        actor_user_uuid=execution.actor_user_uuid,
+        idempotency_key=execution.idempotency_key,
+        status=execution.status,
+        frontend_steps=execution.frontend_steps or [],
+        step_results=execution.step_results or [],
+        request_context=execution.request_context or {},
+        client_state=execution.client_state or {},
+        output=execution.output or {},
+        error=execution.error,
+        created_at=execution.created_at,
+        updated_at=execution.updated_at,
+        completed_at=execution.completed_at,
+        request_id=execution.request_id,
+    )
 
 
 def _list_docs(model: Type[Any], query: ListQuery):
@@ -1059,6 +1235,13 @@ def _get_choice_for_question(question: Question, choice_uuid: str):
         if str(choice.uuid) == choice_uuid:
             return choice, index, None
     return None, None, _error("Choice not found", 404)
+
+
+def _get_condition_or_error(condition_uuid: str):
+    condition = Condition.objects(uuid=condition_uuid).first()
+    if not condition:
+        return None, _error("Condition not found", 404)
+    return condition, None
 
 
 def _append_version(doc: Any, body: VersionCreateInput):
@@ -1245,6 +1428,11 @@ def create_form(path: ProjectPath, body: FormCreateInput):
             child_sections=_resolve_refs(Section, body.child_sections, "section"),
             tags=body.tags,
             icon=body.icon,
+            theme_template_uuid=body.theme_template_uuid,
+            theme_revision_uuid=body.theme_revision_uuid,
+            layout_template_uuid=body.layout_template_uuid,
+            layout_revision_uuid=body.layout_revision_uuid,
+            ui_overrides=body.ui_overrides,
             status=body.status,
         ).save()
 
@@ -1302,6 +1490,56 @@ def get_form(path: FormPath):
     if form_err:
         return form_err
     return to_json_ready(to_form_output(form))
+
+
+@resources_api.get(
+    "/projects/<project_uuid>/forms/<form_uuid>/ui/effective",
+    tags=[resources_tag],
+    responses={200: EffectiveUiConfigOutput, 404: ErrorResponse},
+)
+def get_effective_ui_config(path: FormPath):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+
+    theme_config: Dict[str, Any] = {}
+    if form.theme_template_uuid and form.theme_revision_uuid:
+        theme_template = ThemeTemplate.objects(uuid=form.theme_template_uuid).first()
+        if theme_template:
+            for revision in theme_template.revisions or []:
+                if revision.uuid == form.theme_revision_uuid:
+                    theme_config = dict(revision.config or {})
+                    break
+
+    layout_config: Dict[str, Any] = {}
+    if form.layout_template_uuid and form.layout_revision_uuid:
+        layout_template = LayoutTemplate.objects(uuid=form.layout_template_uuid).first()
+        if layout_template:
+            for revision in layout_template.revisions or []:
+                if revision.uuid == form.layout_revision_uuid:
+                    layout_config = dict(revision.config or {})
+                    break
+
+    ui_overrides = dict(form.ui_overrides or {})
+    effective = _deep_merge(
+        {"theme": theme_config, "layout": layout_config},
+        ui_overrides,
+    )
+    return to_json_ready(
+        EffectiveUiConfigOutput(
+            theme_template_uuid=form.theme_template_uuid,
+            theme_revision_uuid=form.theme_revision_uuid,
+            layout_template_uuid=form.layout_template_uuid,
+            layout_revision_uuid=form.layout_revision_uuid,
+            theme_config=theme_config,
+            layout_config=layout_config,
+            ui_overrides=ui_overrides,
+            effective_ui_config=effective,
+        )
+    )
 
 
 @resources_api.patch(
@@ -1843,6 +2081,7 @@ def create_question(
             actionButtonType=body.actionButtonType,
             actionType=body.actionType,
             actionLabel=body.actionLabel,
+            actions=_build_action_definitions(body.actions or []),
             tags=body.tags,
             choices=choices,
             hideButton=body.hideButton,
@@ -1976,6 +2215,231 @@ def delete_question(path: QuestionPath):
     section.save()
 
     return to_json_ready(MessageResponse(message="question_deleted"))
+
+
+@resources_api.post(
+    "/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>/questions/<question_uuid>/actions/<action_id>/trigger",
+    tags=[resources_tag],
+    responses={
+        200: ActionTriggerResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        409: ErrorResponse,
+    },
+)
+def trigger_question_action(path: QuestionActionPath, body: ActionTriggerRequest):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+    section, section_err = _get_section_for_form(form, path.section_uuid)
+    if section_err:
+        return section_err
+    question, question_err = _get_question_for_section(section, path.question_uuid)
+    if question_err:
+        return question_err
+
+    action = _resolve_action_definition(question, path.action_id)
+    if not action:
+        return _error("Action not found", 404)
+
+    response = None
+    if body.response_uuid:
+        response = FormResponse.objects(
+            uuid=body.response_uuid,
+            form_uuid=form.uuid,
+        ).first()
+        if not response:
+            return _error("Form response not found", 404)
+
+    if body.idempotency_key:
+        existing = ActionExecution.objects(
+            question_uuid=question.uuid,
+            action_id=path.action_id,
+            response_uuid=body.response_uuid,
+            idempotency_key=body.idempotency_key,
+        ).first()
+        if existing:
+            return to_json_ready(
+                ActionTriggerResponse(
+                    execution=_to_action_execution_output(existing),
+                    frontend_steps=existing.frontend_steps or [],
+                    idempotent=True,
+                )
+            )
+
+    if action.confirmation_message and not body.confirmed:
+        return _error("Action confirmation required", 409)
+
+    eval_context: Dict[str, Any] = dict(body.response_snapshot or {})
+    if response:
+        eval_context.setdefault("status", response.status)
+        eval_context.update(dict(response.metadata or {}))
+
+    evaluator = ConditionEvaluator(context=eval_context)
+    if action.visibility_condition and not evaluator.evaluate(
+        action.visibility_condition
+    ):
+        return _error("Action is not visible in current context", 409)
+    if action.enabled_condition and not evaluator.evaluate(action.enabled_condition):
+        return _error("Action is disabled in current context", 409)
+
+    step_results: List[Dict[str, Any]] = []
+    frontend_steps: List[Dict[str, Any]] = []
+    execution_status = "success"
+    execution_error = None
+
+    for step in action.steps or []:
+        step_payload = {
+            "id": step.id,
+            "target": step.target,
+            "type": step.type,
+            "config": dict(step.config or {}),
+            "on_error": step.on_error,
+        }
+        now = datetime.utcnow()
+
+        if step.target == "frontend":
+            frontend_steps.append(step_payload)
+            step_results.append(
+                {
+                    "step_id": step.id,
+                    "target": step.target,
+                    "type": step.type,
+                    "status": "success",
+                    "output": {"deferred_to_frontend": True},
+                    "error": None,
+                    "executed_at": now,
+                }
+            )
+            continue
+
+        try:
+            output: Dict[str, Any] = {}
+            if step.type == "response.status.set":
+                if not response:
+                    raise ValueError(
+                        "response_uuid is required for response.status.set"
+                    )
+                status_value = step.config.get("status")
+                if not status_value:
+                    raise ValueError("response.status.set requires config.status")
+                response.status = status_value
+                response.save()
+                output = {"status": response.status}
+            elif step.type == "response.metadata.merge":
+                if not response:
+                    raise ValueError(
+                        "response_uuid is required for response.metadata.merge"
+                    )
+                patch = step.config.get("patch", {})
+                merged = dict(response.metadata or {})
+                merged.update(dict(patch))
+                response.metadata = merged
+                response.save()
+                output = {"metadata": merged}
+            else:
+                output = {"skipped": True}
+
+            step_results.append(
+                {
+                    "step_id": step.id,
+                    "target": step.target,
+                    "type": step.type,
+                    "status": "success",
+                    "output": output,
+                    "error": None,
+                    "executed_at": now,
+                }
+            )
+        except Exception as exc:
+            execution_status = "failed"
+            execution_error = str(exc)
+            step_results.append(
+                {
+                    "step_id": step.id,
+                    "target": step.target,
+                    "type": step.type,
+                    "status": "failed",
+                    "output": {},
+                    "error": str(exc),
+                    "executed_at": now,
+                }
+            )
+            if step.on_error != "continue":
+                break
+            execution_status = "partial"
+
+    execution = ActionExecution(
+        uuid=str(uuid4()),
+        project_uuid=project.uuid,
+        form_uuid=form.uuid,
+        section_uuid=section.uuid,
+        question_uuid=question.uuid,
+        action_id=path.action_id,
+        response_uuid=body.response_uuid,
+        actor_user_uuid=getattr(g, "user_id", None) or "anonymous",
+        idempotency_key=body.idempotency_key,
+        status=execution_status,
+        frontend_steps=frontend_steps,
+        step_results=step_results,
+        request_context=body.context or {},
+        client_state=body.client_state or {},
+        output={},
+        error=execution_error,
+        completed_at=datetime.utcnow(),
+        request_id=getattr(g, "request_id", None),
+    )
+    execution.save()
+
+    return to_json_ready(
+        ActionTriggerResponse(
+            execution=_to_action_execution_output(execution),
+            frontend_steps=frontend_steps,
+            idempotent=False,
+        )
+    )
+
+
+@resources_api.get(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses/<response_uuid>/action-executions",
+    tags=[resources_tag],
+    responses={200: ActionExecutionListResponse, 404: ErrorResponse},
+)
+def list_action_executions(path: ResponseActionExecutionPath, query: ListQuery):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+    response = FormResponse.objects(
+        uuid=path.response_uuid,
+        form_uuid=form.uuid,
+    ).first()
+    if not response:
+        return _error("Form response not found", 404)
+
+    executions = ActionExecution.objects(
+        project_uuid=project.uuid,
+        form_uuid=form.uuid,
+        response_uuid=response.uuid,
+    )
+    items, page, page_size, total_items, total_pages, next_cursor = _paginate_queryset(
+        executions, query
+    )
+    return to_json_ready(
+        ActionExecutionListResponse(
+            items=[_to_action_execution_output(item) for item in items],
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+            next_cursor=next_cursor,
+        )
+    )
 
 
 @resources_api.post(

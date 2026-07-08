@@ -4,20 +4,54 @@ from typing import Set, Tuple
 
 from app.models.user import User
 from app.services.auth import AuthError, decode_token
+from app.services import get_rotating_logger
+
+logger = get_rotating_logger()
 
 
 def resolve_access_identity_from_header(raw_authorization: str) -> dict:
+    logger.log_debug(
+        "authentication_started",
+        context={"has_authorization_header": bool(raw_authorization)},
+    )
     raw = raw_authorization.strip()
     if not raw.startswith("Bearer "):
+        logger.log_app_event(
+            "authentication_failed",
+            level="WARNING",
+            context={"reason": "invalid_authorization_scheme"},
+        )
         raise AuthError("Authorization header must use Bearer token")
     token = raw.replace("Bearer ", "", 1).strip()
-    return decode_token(token, expected_type="access")
+    payload = decode_token(token, expected_type="access")
+    logger.log_debug(
+        "authentication_successful",
+        context={"user_uuid": payload.get("sub"), "session_uuid": payload.get("sid")},
+    )
+    return payload
 
 
 def get_user_by_uuid(user_uuid: str) -> User:
+    logger.log_debug(
+        "db_query_started",
+        context={"model": "User", "operation": "get_by_uuid", "user_uuid": user_uuid},
+    )
     user = User.objects(uuid=user_uuid).first()
     if not user:
+        logger.log_app_event(
+            "db_query_result_not_found",
+            level="WARNING",
+            context={
+                "model": "User",
+                "operation": "get_by_uuid",
+                "user_uuid": user_uuid,
+            },
+        )
         raise AuthError("User not found")
+    logger.log_debug(
+        "db_query_succeeded",
+        context={"model": "User", "operation": "get_by_uuid", "user_uuid": user_uuid},
+    )
     return user
 
 
@@ -56,16 +90,42 @@ def admin_org_scope_keys(user: User) -> Set[str]:
 
 
 def require_admin_by_payload(payload: dict) -> Tuple[dict, User]:
+    logger.log_debug(
+        "authorization_check_started",
+        context={"required_role": "admin", "user_uuid": payload.get("sub")},
+    )
     user = get_user_by_uuid(payload["sub"])
     if not has_elevated_admin_privileges(user):
+        logger.log_app_event(
+            "authorization_denied",
+            level="WARNING",
+            context={"required_role": "admin", "user_uuid": payload.get("sub")},
+        )
         raise AuthError("Admin privileges required")
+    logger.log_debug(
+        "authorization_passed",
+        context={"required_role": "admin", "user_uuid": payload.get("sub")},
+    )
     return payload, user
 
 
 def require_global_admin_by_payload(payload: dict) -> Tuple[dict, User]:
+    logger.log_debug(
+        "authorization_check_started",
+        context={"required_role": "global_admin", "user_uuid": payload.get("sub")},
+    )
     user = get_user_by_uuid(payload["sub"])
     if not has_global_admin_privileges(user):
+        logger.log_app_event(
+            "authorization_denied",
+            level="WARNING",
+            context={"required_role": "global_admin", "user_uuid": payload.get("sub")},
+        )
         raise AuthError("Global admin privileges required")
+    logger.log_debug(
+        "authorization_passed",
+        context={"required_role": "global_admin", "user_uuid": payload.get("sub")},
+    )
     return payload, user
 
 

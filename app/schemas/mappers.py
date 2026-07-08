@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
+from app.schemas.action import ActionDefinitionOutput, ActionStepOutput
 from app.schemas.choice import ChoiceOutput, ChoiceRef
 from app.schemas.condition import ConditionOutput, ConditionRef
 from app.schemas.form import FormOutput, FormRef
@@ -78,6 +79,7 @@ def to_condition_output(condition: Any) -> ConditionOutput:
         priority=int(condition.priority or 0),
         stopEvaluationIfTrue=bool(condition.stopEvaluationIfTrue),
         metadata=dict(condition.metadata or {}),
+        approval_state=getattr(condition, "approval_state", "draft") or "draft",
         created_at=condition.created_at,
         updated_at=condition.updated_at,
         status=condition.status,
@@ -102,6 +104,62 @@ def to_choice_ref(choice: Any) -> ChoiceRef:
 
 
 def to_question_output(question: Any) -> QuestionOutput:
+    actions: List[ActionDefinitionOutput] = []
+    if getattr(question, "actions", None):
+        actions = [
+            ActionDefinitionOutput(
+                id=action.id,
+                label=action.label,
+                icon=action.icon,
+                button_variant=action.button_variant,
+                trigger=action.trigger or "click",
+                confirmation_message=action.confirmation_message,
+                schema_version=action.schema_version or 1,
+                audit_policy=action.audit_policy or "always",
+                allowed_roles=list(action.allowed_roles or []),
+                visibility_condition=_get_uuid(action.visibility_condition),
+                enabled_condition=_get_uuid(action.enabled_condition),
+                metadata=dict(action.metadata or {}),
+                steps=[
+                    ActionStepOutput(
+                        id=step.id,
+                        target=step.target,
+                        type=step.type,
+                        config=dict(step.config or {}),
+                        on_error=step.on_error or "stop",
+                    )
+                    for step in (action.steps or [])
+                ],
+            )
+            for action in question.actions
+        ]
+    elif getattr(question, "isAction", False) and getattr(question, "actionType", None):
+        actions = [
+            ActionDefinitionOutput(
+                id=question.actionType,
+                label=question.actionLabel or question.label,
+                icon=question.actionIcon,
+                button_variant=question.actionButtonType,
+                trigger="click",
+                confirmation_message=None,
+                schema_version=1,
+                audit_policy="always",
+                allowed_roles=[],
+                visibility_condition=None,
+                enabled_condition=None,
+                metadata={},
+                steps=[
+                    ActionStepOutput(
+                        id=f"{question.actionType}-step",
+                        target="frontend",
+                        type=question.actionType,
+                        config={},
+                        on_error="stop",
+                    )
+                ],
+            )
+        ]
+
     return QuestionOutput(
         uuid=str(question.uuid),
         versions=[to_version_output(v) for v in (question.versions or [])],
@@ -127,6 +185,7 @@ def to_question_output(question: Any) -> QuestionOutput:
         actionButtonType=question.actionButtonType,
         actionType=question.actionType,
         actionLabel=question.actionLabel,
+        actions=actions,
         tags=list(question.tags or []),
         choices=[to_choice_output(c) for c in (question.choices or [])],
         hideButton=bool(question.hideButton),
@@ -210,6 +269,11 @@ def to_form_output(form: Any) -> FormOutput:
         child_sections=_uuid_list(form.child_sections),
         tags=list(form.tags or []),
         icon=form.icon,
+        theme_template_uuid=getattr(form, "theme_template_uuid", None),
+        theme_revision_uuid=getattr(form, "theme_revision_uuid", None),
+        layout_template_uuid=getattr(form, "layout_template_uuid", None),
+        layout_revision_uuid=getattr(form, "layout_revision_uuid", None),
+        ui_overrides=dict(getattr(form, "ui_overrides", {}) or {}),
         workflow_state=getattr(form, "workflow_state", "draft") or "draft",
         workflow_updated_at=getattr(form, "workflow_updated_at", None),
         workflow_history=workflow_history,
@@ -350,6 +414,16 @@ def to_user_ref(user: Any) -> UserRef:
     return UserRef(uuid=str(user.uuid), name=user.name, email=user.email)
 
 
-def to_json_ready(schema_obj: Any) -> Dict[str, Any]:
-    """Convert any schema model to a JSON-serializable dict for responses."""
-    return schema_obj.model_dump(mode="json")
+def to_json_ready(schema_obj: Any) -> Any:
+    """Convert schema objects and nested payloads into JSON-serializable values."""
+
+    def _normalize(value: Any) -> Any:
+        if hasattr(value, "model_dump"):
+            return value.model_dump(mode="json")
+        if isinstance(value, dict):
+            return {key: _normalize(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [_normalize(item) for item in value]
+        return value
+
+    return _normalize(schema_obj)

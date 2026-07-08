@@ -10,6 +10,9 @@ from flask import current_app
 
 from app.config import BaseConfig
 from app.models.auth import TokenBlocklist, UserSession
+from app.services import get_rotating_logger
+
+logger = get_rotating_logger()
 
 
 class AuthError(Exception):
@@ -119,6 +122,7 @@ def _token_hash(token: str) -> str:
 
 
 def decode_token(token: str, expected_type: str) -> Dict[str, Any]:
+    logger.log_debug("jwt_decode_started", context={"expected_type": expected_type})
     token_kid = None
     keyring = _jwt_keyring()
 
@@ -152,13 +156,28 @@ def decode_token(token: str, expected_type: str) -> Dict[str, Any]:
 
         if payload is None:
             if isinstance(last_error, jwt.ExpiredSignatureError):
+                logger.log_app_event(
+                    "jwt_token_expired",
+                    level="WARNING",
+                    context={"expected_type": expected_type},
+                )
                 raise AuthError("Token has expired") from last_error
+            logger.log_app_event(
+                "jwt_decode_failed",
+                level="WARNING",
+                context={"expected_type": expected_type},
+            )
             raise AuthError("Invalid token") from last_error
     except AuthError:
         raise
 
     token_type = payload.get("type")
     if token_type != expected_type:
+        logger.log_app_event(
+            "jwt_type_mismatch",
+            level="WARNING",
+            context={"expected_type": expected_type, "actual_type": token_type},
+        )
         raise AuthError(f"Expected {expected_type} token")
 
     subject = payload.get("sub")
@@ -168,8 +187,17 @@ def decode_token(token: str, expected_type: str) -> Dict[str, Any]:
     kid = payload.get("kid")
     exp = payload.get("exp")
     if not subject or not email or not session_uuid or not jti or not exp:
+        logger.log_app_event(
+            "jwt_payload_invalid",
+            level="WARNING",
+            context={"expected_type": expected_type},
+        )
         raise AuthError("Token payload is invalid")
 
+    logger.log_debug(
+        "jwt_decode_successful",
+        context={"expected_type": expected_type, "user_uuid": str(subject)},
+    )
     return {
         "sub": str(subject),
         "email": str(email),
@@ -189,6 +217,9 @@ def create_user_session(
     ip_address: Optional[str] = None,
     device_name: Optional[str] = None,
 ) -> Dict[str, str | int]:
+    logger.log_debug(
+        "create_user_session_started", context={"user_uuid": user_uuid, "email": email}
+    )
     session_uuid = str(uuid4())
     refresh_token = create_refresh_token(
         user_uuid=user_uuid, email=email, session_uuid=session_uuid
@@ -210,6 +241,10 @@ def create_user_session(
         user_agent=user_agent,
         ip_address=ip_address,
     ).save()
+    logger.log_app_event(
+        "user_session_created",
+        context={"user_uuid": user_uuid, "session_uuid": session_uuid},
+    )
 
     return {
         "session_uuid": session_uuid,
@@ -266,6 +301,7 @@ def is_refresh_token_revoked(token: str, payload: Dict[str, Any] | None = None) 
 
 
 def revoke_refresh_token(token: str, reason: str = "logout") -> None:
+    logger.log_debug("revoke_refresh_token_started", context={"reason": reason})
     payload = decode_token(token, expected_type="refresh")
 
     if is_refresh_token_revoked(token, payload=payload):
@@ -285,19 +321,46 @@ def revoke_refresh_token(token: str, reason: str = "logout") -> None:
     ).save()
 
     revoke_session(session_uuid=payload["sid"], user_uuid=payload["sub"], reason=reason)
+    logger.log_app_event(
+        "refresh_token_revoked",
+        context={
+            "reason": reason,
+            "user_uuid": payload["sub"],
+            "session_uuid": payload["sid"],
+        },
+    )
 
 
 def rotate_refresh_token(token: str) -> Dict[str, Any]:
+    logger.log_debug("refresh_token_rotation_started")
     payload = decode_token(token, expected_type="refresh")
     if is_refresh_token_revoked(token, payload=payload):
+        logger.log_app_event(
+            "refresh_token_rotation_failed",
+            level="WARNING",
+            context={"reason": "token_revoked", "user_uuid": payload.get("sub")},
+        )
         raise AuthError("Refresh token has been revoked")
 
     session = get_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
     if not session:
+        logger.log_app_event(
+            "refresh_token_rotation_failed",
+            level="WARNING",
+            context={"reason": "session_not_found", "user_uuid": payload.get("sub")},
+        )
         raise AuthError("Session not found")
 
     old_hash = _token_hash(token)
     if session.refresh_token_hash != old_hash or session.refresh_jti != payload["jti"]:
+        logger.log_app_event(
+            "refresh_token_rotation_failed",
+            level="WARNING",
+            context={
+                "reason": "token_session_mismatch",
+                "user_uuid": payload.get("sub"),
+            },
+        )
         raise AuthError("Refresh token does not match active session")
 
     if not TokenBlocklist.objects(jti=payload["jti"]).first():
@@ -332,17 +395,39 @@ def rotate_refresh_token(token: str) -> Dict[str, Any]:
         session_uuid=payload["sid"],
     )
 
-    return {
+    rotated = {
         "access_token": new_access_token,
         "refresh_token": new_refresh_token,
         "session_uuid": payload["sid"],
         "sub": payload["sub"],
     }
+    logger.log_app_event(
+        "refresh_token_rotated",
+        context={"user_uuid": payload["sub"], "session_uuid": payload["sid"]},
+    )
+    return rotated
 
 
 def revoke_session(session_uuid: str, user_uuid: str, reason: str = "logout") -> bool:
+    logger.log_debug(
+        "revoke_session_started",
+        context={
+            "session_uuid": session_uuid,
+            "user_uuid": user_uuid,
+            "reason": reason,
+        },
+    )
     session = get_session(session_uuid=session_uuid, user_uuid=user_uuid)
     if not session:
+        logger.log_app_event(
+            "revoke_session_noop",
+            level="WARNING",
+            context={
+                "session_uuid": session_uuid,
+                "user_uuid": user_uuid,
+                "reason": reason,
+            },
+        )
         return False
 
     if not TokenBlocklist.objects(jti=session.refresh_jti).first():
@@ -360,6 +445,14 @@ def revoke_session(session_uuid: str, user_uuid: str, reason: str = "logout") ->
     session.revoked_reason = reason
     session.last_seen_at = _utcnow()
     session.save()
+    logger.log_app_event(
+        "session_revoked",
+        context={
+            "session_uuid": session_uuid,
+            "user_uuid": user_uuid,
+            "reason": reason,
+        },
+    )
     return True
 
 

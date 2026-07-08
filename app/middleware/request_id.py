@@ -20,6 +20,7 @@ def register_request_id_middleware(app) -> None:
         incoming = request.headers.get(header_name)
         request_id = incoming.strip() if incoming and incoming.strip() else str(uuid4())
         g.request_id = request_id
+        g.correlation_id = request_id
         g.request_id_header = header_name
 
     @app.after_request

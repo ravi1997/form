@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import Field, model_validator
 
@@ -39,6 +39,11 @@ class FormBase(SchemaModel):
     child_sections: List[str] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
     icon: Optional[str] = None
+    theme_template_uuid: Optional[str] = None
+    theme_revision_uuid: Optional[str] = None
+    layout_template_uuid: Optional[str] = None
+    layout_revision_uuid: Optional[str] = None
+    ui_overrides: Dict[str, Any] = Field(default_factory=dict)
     status: DocumentStatus = "active"
 
     @model_validator(mode="after")
@@ -87,6 +92,11 @@ class FormUpdateInput(SchemaModel):
     child_sections: Optional[List[str]] = None
     tags: Optional[List[str]] = None
     icon: Optional[str] = None
+    theme_template_uuid: Optional[str] = None
+    theme_revision_uuid: Optional[str] = None
+    layout_template_uuid: Optional[str] = None
+    layout_revision_uuid: Optional[str] = None
+    ui_overrides: Optional[Dict[str, Any]] = None
     status: Optional[DocumentStatus] = None
 
 

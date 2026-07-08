@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import Field, model_validator
 
+from app.schemas.action import ActionDefinitionInput, ActionDefinitionOutput
 from app.schemas.choice import ChoiceCreateInput, ChoiceOutput, ChoiceUpdateInput
 from app.schemas.common import SchemaModel
 from app.schemas.version import VersionCreateInput, VersionOutput, VersionUpdateInput
@@ -37,6 +38,7 @@ class QuestionBase(SchemaModel):
     actionButtonType: Optional[str] = None
     actionType: Optional[str] = None
     actionLabel: Optional[str] = None
+    actions: List[ActionDefinitionInput] = Field(default_factory=list)
 
     tags: List[str] = Field(default_factory=list)
     choices: List[ChoiceCreateInput] = Field(default_factory=list)
@@ -56,7 +58,11 @@ class QuestionBase(SchemaModel):
                 "min_repeatable_count cannot be greater than max_repeatable_count"
             )
 
-        if self.isAction and (not self.actionType or not self.actionLabel):
+        if (
+            self.isAction
+            and not self.actions
+            and (not self.actionType or not self.actionLabel)
+        ):
             raise ValueError("action questions require actionType and actionLabel")
 
         return self
@@ -89,6 +95,7 @@ class QuestionUpdateInput(SchemaModel):
     actionButtonType: Optional[str] = None
     actionType: Optional[str] = None
     actionLabel: Optional[str] = None
+    actions: Optional[List[ActionDefinitionInput]] = None
     tags: Optional[List[str]] = None
     choices: Optional[List[ChoiceUpdateInput]] = None
     hideButton: Optional[bool] = None
@@ -125,6 +132,7 @@ class QuestionOutput(SchemaModel):
     actionButtonType: Optional[str] = None
     actionType: Optional[str] = None
     actionLabel: Optional[str] = None
+    actions: List[ActionDefinitionOutput] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
     choices: List[ChoiceOutput] = Field(default_factory=list)
     hideButton: bool = False
