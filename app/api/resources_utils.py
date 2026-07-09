@@ -23,6 +23,7 @@ from app.models.user import User
 from app.schemas.mappers import to_json_ready
 from app.services import get_rotating_logger
 from app.services.rate_limit import get_rate_limit_service
+from app.utils import client_ip
 
 logger = get_rotating_logger()
 
@@ -73,14 +74,6 @@ ENDPOINT_PERMISSION = {
     "resources.approve_form_workflow": "project_approve",
 }
 
-
-def _client_ip() -> str:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.remote_addr or "unknown"
-
-
 def security_event(
     *,
     event: str,
@@ -97,7 +90,7 @@ def security_event(
         "endpoint": request.endpoint,
         "path": request.path,
         "method": request.method,
-        "ip": _client_ip(),
+        "ip": client_ip(),
         "actor_user_uuid": actor_user_uuid,
         "reason": reason,
         "details": details or {},
@@ -114,7 +107,7 @@ def resources_rate_limit() -> Optional[tuple]:
         http_method=request.method,
         user_uuid=getattr(g, "user_id", None),
         organization_uuid=getattr(g, "organization_id", None),
-        identifier=_client_ip(),
+        identifier=client_ip(),
     )
     if allowed:
         return None
@@ -366,6 +359,63 @@ def paginate_queryset(qs: Any, query: ListQuery, sort_field: str = "updated_at")
     skip = (page - 1) * page_size
     selected = list(ordered.skip(skip).limit(page_size))
     total_items = ordered.count()
+    total_pages = (total_items + page_size - 1) // page_size if total_items else 0
+    next_cursor = (
+        encode_cursor(getattr(selected[-1], sort_field, datetime.min))
+        if len(selected) == page_size
+        else None
+    )
+    return selected, page, page_size, total_items, total_pages, next_cursor
+
+
+def paginate_queryset_with_predicate(
+    qs: Any,
+    query: ListQuery,
+    predicate,
+    sort_field: str = "updated_at",
+):
+    """Paginate an ordered queryset while applying an in-Python filter lazily."""
+
+    ordered = qs.order_by(f"-{sort_field}")
+
+    def _visible_items():
+        for item in ordered:
+            if predicate(item):
+                yield item
+
+    if query.cursor:
+        cursor_dt = decode_cursor(query.cursor)
+        selected = []
+        for item in _visible_items():
+            if getattr(item, sort_field, datetime.min) >= cursor_dt:
+                continue
+            selected.append(item)
+            if len(selected) == query.page_size:
+                break
+        next_cursor = (
+            encode_cursor(getattr(selected[-1], sort_field, datetime.min))
+            if len(selected) == query.page_size
+            else None
+        )
+        return selected, query.page, query.page_size, None, None, next_cursor
+
+    if query.offset is not None or query.limit is not None:
+        limit = query.limit or 50
+        offset = query.offset or 0
+        visible = list(_visible_items())
+        selected = visible[offset : offset + limit]
+        page = (offset // max(limit, 1)) + 1
+        page_size = limit
+        total_items = len(visible)
+        total_pages = (total_items + page_size - 1) // page_size if total_items else 0
+        return selected, page, page_size, total_items, total_pages, None
+
+    page = max(query.page, 1)
+    page_size = max(query.page_size, 1)
+    start = (page - 1) * page_size
+    visible = list(_visible_items())
+    selected = visible[start : start + page_size]
+    total_items = len(visible)
     total_pages = (total_items + page_size - 1) // page_size if total_items else 0
     next_cursor = (
         encode_cursor(getattr(selected[-1], sort_field, datetime.min))
@@ -635,7 +685,7 @@ def after_resources_request_logging(response):
             "method": request.method,
             "path": request.path,
             "status": response.status_code,
-            "ip": _client_ip(),
+            "ip": client_ip(),
             "duration_ms": duration_ms,
             "request_id": getattr(g, "resources_request_id", None),
         },

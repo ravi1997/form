@@ -281,6 +281,11 @@ class DSLValidator:
 
     def _walk(self, node: Dict[str, Any]) -> None:
         node_type = node.get("type")
+        if node_type == "identifier":
+            name = str(node.get("name", ""))
+            if not self._is_safe_identifier_path(name):
+                raise DSLValidationError(f"Identifier path '{name}' is not allowed")
+            return
         if node_type == "call":
             name = str(node.get("name", "")).lower()
             if name not in self.ALLOWED_FUNCTIONS:
@@ -297,6 +302,13 @@ class DSLValidator:
         for item in node.get("items", []):
             if isinstance(item, dict):
                 self._walk(item)
+
+    @staticmethod
+    def _is_safe_identifier_path(name: str) -> bool:
+        if not name or "__" in name:
+            return False
+        parts = name.split(".")
+        return all(part and part.replace("_", "").isalnum() for part in parts)
 
 
 class DSLEvaluator:
@@ -356,6 +368,8 @@ class DSLEvaluator:
         raise DSLValidationError(f"Unsupported AST node: {t}")
 
     def _resolve_field(self, path: str) -> Any:
+        if not DSLValidator._is_safe_identifier_path(path):
+            raise DSLValidationError(f"Identifier path '{path}' is not allowed")
         value: Any = self.context
         for part in path.split("."):
             if isinstance(value, dict):

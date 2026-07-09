@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-import time
+import json
 from dataclasses import dataclass
 from threading import Lock
 from typing import Any, Dict, Optional, Tuple
@@ -42,7 +42,12 @@ class _BaseCache:
 
     @staticmethod
     def _hash_context(context: Dict[str, Any]) -> str:
-        context_str = str(sorted(context.items()))
+        context_str = json.dumps(
+            context,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=repr,
+        )
         return hashlib.md5(context_str.encode(), usedforsecurity=False).hexdigest()
 
 
@@ -51,7 +56,6 @@ class RequestLevelCache(_BaseCache):
         self._cache: Dict[str, Tuple[bool, float]] = {}
         self._stats = CacheStats()
         self._lock = Lock()
-        self._start_time = time.time()
 
     def get(
         self, condition_uuid: str, context: Dict[str, Any]
@@ -203,7 +207,7 @@ class NegativeCache(_BaseCache):
 
     def __init__(self, max_entries: int = 10000, bucket_count: int = 2048):
         self._cache: Dict[str, bool] = {}
-        self._buckets = [False] * max(bucket_count, 128)
+        self._buckets = [0] * max(bucket_count, 128)
         self._stats = CacheStats()
         self._lock = Lock()
         self._max_entries = max_entries
@@ -221,7 +225,7 @@ class NegativeCache(_BaseCache):
         key = self._generate_cache_key(condition_uuid, self._hash_context(context))
         with self._lock:
             buckets = self._bucket_indexes(key)
-            probable = all(self._buckets[idx] for idx in buckets)
+            probable = all(self._buckets[idx] > 0 for idx in buckets)
             if not probable:
                 self._stats.misses += 1
                 return False
@@ -236,10 +240,10 @@ class NegativeCache(_BaseCache):
         with self._lock:
             if len(self._cache) >= self._max_entries:
                 oldest = next(iter(self._cache))
-                self._cache.pop(oldest, None)
+                self._remove_key(oldest)
                 self._stats.evictions += 1
             for idx in self._bucket_indexes(key):
-                self._buckets[idx] = True
+                self._buckets[idx] += 1
             self._cache[key] = True
             self._stats.total_keys = len(self._cache)
 
@@ -247,7 +251,7 @@ class NegativeCache(_BaseCache):
         with self._lock:
             keys = [k for k in self._cache if k.startswith(f"{condition_uuid}:")]
             for k in keys:
-                self._cache.pop(k, None)
+                self._remove_key(k)
             self._stats.evictions += len(keys)
             self._stats.total_keys = len(self._cache)
             return len(keys)
@@ -256,9 +260,17 @@ class NegativeCache(_BaseCache):
         with self._lock:
             old_size = len(self._cache)
             self._cache.clear()
-            self._buckets = [False] * len(self._buckets)
+            self._buckets = [0] * len(self._buckets)
             self._stats.evictions += old_size
             self._stats.total_keys = 0
+
+    def _remove_key(self, key: str) -> None:
+        if key not in self._cache:
+            return
+        self._cache.pop(key, None)
+        for idx in self._bucket_indexes(key):
+            if self._buckets[idx] > 0:
+                self._buckets[idx] -= 1
 
     def get_stats(self) -> CacheStats:
         with self._lock:

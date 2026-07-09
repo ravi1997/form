@@ -144,32 +144,6 @@ def to_question_output(question: Any) -> QuestionOutput:
             )
             for action in question.actions
         ]
-    elif getattr(question, "isAction", False) and getattr(question, "actionType", None):
-        actions = [
-            ActionDefinitionOutput(
-                id=question.actionType,
-                label=question.actionLabel or question.label,
-                icon=question.actionIcon,
-                button_variant=question.actionButtonType,
-                trigger="click",
-                confirmation_message=None,
-                schema_version=1,
-                audit_policy="always",
-                allowed_roles=[],
-                visibility_condition=None,
-                enabled_condition=None,
-                metadata={},
-                steps=[
-                    ActionStepOutput(
-                        id=f"{question.actionType}-step",
-                        target="frontend",
-                        type=question.actionType,
-                        config={},
-                        on_error="stop",
-                    )
-                ],
-            )
-        ]
 
     return QuestionOutput(
         uuid=str(question.uuid),
@@ -193,14 +167,9 @@ def to_question_output(question: Any) -> QuestionOutput:
         min_repeatable_count=question.min_repeatable_count,
         max_repeatable_count=question.max_repeatable_count,
         isAction=bool(question.isAction),
-        actionButtonType=question.actionButtonType,
-        actionType=question.actionType,
-        actionLabel=question.actionLabel,
         actions=actions,
         tags=list(question.tags or []),
         choices=[to_choice_output(c) for c in (question.choices or [])],
-        hideButton=bool(question.hideButton),
-        actionIcon=question.actionIcon,
         created_at=question.created_at,
         updated_at=question.updated_at,
         status=question.status,

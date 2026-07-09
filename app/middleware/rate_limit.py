@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from functools import wraps
-from flask import request, g, jsonify
+from flask import request, g, jsonify, current_app
 from mongoengine.errors import OperationError, ValidationError
 from pymongo.errors import PyMongoError
 import redis
@@ -8,6 +8,17 @@ from app.services.rate_limit import get_rate_limit_service
 from app.services import get_rotating_logger
 
 logger = get_rotating_logger()
+
+
+def _rate_limit_failure_response():
+    response = jsonify(
+        {
+            "error": "Rate limiting unavailable",
+            "message": "The request cannot be processed right now.",
+        }
+    )
+    response.status_code = 503
+    return response
 
 
 def rate_limit(
@@ -143,14 +154,9 @@ def rate_limit(
                     exception=e,
                     context={"endpoint": request.endpoint, "path": request.path},
                 )
-                response = jsonify(
-                    {
-                        "error": "Rate limiting unavailable",
-                        "message": "The request cannot be processed right now.",
-                    }
-                )
-                response.status_code = 503
-                return response
+                if not bool(current_app.config.get("RATE_LIMIT_FAIL_OPEN", True)):
+                    raise
+                return _rate_limit_failure_response()
 
         return wrapper
 
@@ -249,14 +255,9 @@ def rate_limit_by_endpoint(
                     exception=e,
                     context={"endpoint": request.endpoint, "path": request.path},
                 )
-                response = jsonify(
-                    {
-                        "error": "Rate limiting unavailable",
-                        "message": "The request cannot be processed right now.",
-                    }
-                )
-                response.status_code = 503
-                return response
+                if not bool(current_app.config.get("RATE_LIMIT_FAIL_OPEN", True)):
+                    raise
+                return _rate_limit_failure_response()
 
         return wrapper
 

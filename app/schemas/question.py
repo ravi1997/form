@@ -129,14 +129,9 @@ class QuestionOutput(SchemaModel):
     min_repeatable_count: Optional[int] = None
     max_repeatable_count: Optional[int] = None
     isAction: bool = False
-    actionButtonType: Optional[str] = None
-    actionType: Optional[str] = None
-    actionLabel: Optional[str] = None
     actions: List[ActionDefinitionOutput] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
     choices: List[ChoiceOutput] = Field(default_factory=list)
-    hideButton: bool = False
-    actionIcon: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     status: DocumentStatus = "active"

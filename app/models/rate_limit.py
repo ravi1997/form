@@ -1,6 +1,8 @@
-from app.extensions import db
 from datetime import datetime, timezone
 from mongoengine.errors import ValidationError
+
+from app.extensions import db
+from app.utils import utcnow
 
 RATE_LIMIT_SCOPES = (
     "global",  # Apply to all users
@@ -15,11 +17,6 @@ RATE_LIMIT_UNITS = (
     "hour",
     "day",
 )
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
 
 class RateLimitConfig(db.Document):
     """

@@ -16,8 +16,7 @@ class ResponseItemBase(SchemaModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
-class ResponseItemCreateInput(ResponseItemBase):
-    pass
+ResponseItemCreateInput = ResponseItemBase
 
 
 class ResponseItemUpdateInput(SchemaModel):
@@ -28,5 +27,4 @@ class ResponseItemUpdateInput(SchemaModel):
     metadata: Optional[Dict[str, Any]] = None
 
 
-class ResponseItemOutput(ResponseItemBase):
-    pass
+ResponseItemOutput = ResponseItemBase

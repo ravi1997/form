@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from threading import Lock
 from typing import Any, Dict, Optional
 
 from app.services.logging.formatter import StructuredFormatter
@@ -146,10 +147,13 @@ class LoggerService:
 
 
 _logger_instance: Optional[LoggerService] = None
+_logger_instance_lock = Lock()
 
 
 def get_logger(name: str = __name__) -> LoggerService:
     global _logger_instance
     if _logger_instance is None:
-        _logger_instance = LoggerService(name)
+        with _logger_instance_lock:
+            if _logger_instance is None:
+                _logger_instance = LoggerService(name)
     return _logger_instance

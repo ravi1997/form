@@ -19,14 +19,9 @@ from mongoengine.errors import NotUniqueError, OperationError, ValidationError
 from app.config import BaseConfig
 from app.models.auth import RateLimitCounter, SessionAuditLog
 from app.services import get_rotating_logger
+from app.utils import utcnow
 
 logger = get_rotating_logger()
-
-
-def utcnow() -> datetime:
-    # Keep naive UTC to match mongoengine DateTimeField values in rate-limit math.
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
 
 def check_and_increment_rate_limit(
     *,

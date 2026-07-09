@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import Field
 
+from app.schemas.auth import ErrorResponse as AuthErrorResponse
 from app.schemas.common import SchemaModel
 
 
@@ -76,12 +77,10 @@ class ConditionImpactInput(SchemaModel):
     sample_contexts: List[Dict[str, Any]] = Field(default_factory=list)
 
 
-class BulkTestInput(SchemaModel):
-    tests: List[ConditionTestInput] = Field(default_factory=list)
+BulkTestInput = BatchConditionTestInput
 
 
-class BulkImportConditionsInput(SchemaModel):
-    items: List[Dict[str, Any]] = Field(default_factory=list)
+class BulkImportConditionsInput(BulkCreateConditionInput):
     overwrite: bool = False
 
 
@@ -124,5 +123,4 @@ class MessageResponse(SchemaModel):
     message: str
 
 
-class ErrorResponse(SchemaModel):
-    message: str
+ErrorResponse = AuthErrorResponse

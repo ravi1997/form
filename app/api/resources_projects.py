@@ -29,7 +29,7 @@ from app.api.resources_context import (
 )
 from app.api.resources_utils import (
     _can_read_project,
-    paginate_items as _paginate_items,
+    paginate_queryset_with_predicate as _paginate_queryset_with_predicate,
     validate_project_membership_role_alignment as _validate_project_membership_role_alignment,
 )
 
@@ -72,14 +72,15 @@ def list_projects(query: ListQuery):
     qs = Project.objects
     if query.status:
         qs = qs(status=query.status)
-    visible_items = [
-        project
-        for project in list(qs)
-        if _can_read_project(user, project, has_global_admin_privileges)
-    ]
     try:
-        items, page, page_size, total_items, total_pages, next_cursor = _paginate_items(
-            visible_items, query
+        items, page, page_size, total_items, total_pages, next_cursor = (
+            _paginate_queryset_with_predicate(
+                qs,
+                query,
+                lambda project: _can_read_project(
+                    user, project, has_global_admin_privileges
+                ),
+            )
         )
     except ValueError as exc:
         return _error(str(exc), 400)

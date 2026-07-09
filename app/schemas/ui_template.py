@@ -75,28 +75,12 @@ class UiTemplateOutput(UiTemplateBase):
     deleted_by: Optional[str] = None
 
 
-class ThemeTemplateCreateInput(UiTemplateCreateInput):
-    pass
-
-
-class ThemeTemplateUpdateInput(UiTemplateUpdateInput):
-    pass
-
-
-class ThemeTemplateOutput(UiTemplateOutput):
-    pass
-
-
-class LayoutTemplateCreateInput(UiTemplateCreateInput):
-    pass
-
-
-class LayoutTemplateUpdateInput(UiTemplateUpdateInput):
-    pass
-
-
-class LayoutTemplateOutput(UiTemplateOutput):
-    pass
+ThemeTemplateCreateInput = UiTemplateCreateInput
+ThemeTemplateUpdateInput = UiTemplateUpdateInput
+ThemeTemplateOutput = UiTemplateOutput
+LayoutTemplateCreateInput = UiTemplateCreateInput
+LayoutTemplateUpdateInput = UiTemplateUpdateInput
+LayoutTemplateOutput = UiTemplateOutput
 
 
 class TemplateBindInput(SchemaModel):

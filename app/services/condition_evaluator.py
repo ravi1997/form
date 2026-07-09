@@ -159,7 +159,6 @@ class ConditionEvaluator:
         max_operands: int = 50,
         timeout_ms: int = 1000,
         metrics_hook: Optional[Callable[[str, Dict[str, Any]], None]] = None,
-        external_provider: Optional[Callable[[str, Dict[str, Any]], Any]] = None,
     ):
         self.context = context or {}
         self.enable_tracing = enable_tracing
@@ -169,7 +168,6 @@ class ConditionEvaluator:
         self.max_operands = max_operands
         self.timeout_ms = timeout_ms
         self.metrics_hook = metrics_hook
-        self.external_provider = external_provider
 
         self.trace: List[Dict[str, Any]] = []
         self._request_cache = RequestLevelCache() if enable_request_cache else None
@@ -508,11 +506,6 @@ class ConditionEvaluator:
             )
             sub_result = self.evaluate(sub, _depth=_depth + 1, _visited=_visited)
             if sub_result:
-                if getattr(sub, "stopEvaluationIfTrue", False):
-                    return True
-                # Preserve OR semantics: any truthy sub-condition satisfies the
-                # logical condition, but continue only when the current sub-condition
-                # does not explicitly request short-circuiting.
                 return True
         return False
 

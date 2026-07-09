@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-from datetime import datetime, timezone
 from typing import Optional
 
 from flask import current_app, g, request
@@ -18,6 +17,7 @@ from app.services.rbac import (
     resolve_access_identity_from_header,
 )
 from app.services.security import log_session_audit_event
+from app.utils import client_ip, utcnow
 
 try:
     from flask_openapi3 import APIBlueprint, Tag
@@ -30,11 +30,6 @@ except ImportError as exc:  # pragma: no cover - evaluated only when package is 
 auth_tag = Tag(name="Auth", description="JWT authentication")
 auth_api = APIBlueprint("auth", __name__, url_prefix="/api/v1/auth")
 logger = get_rotating_logger()
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
 
 @auth_api.before_request
 def _auth_before_request_logging():
@@ -71,14 +66,6 @@ def _unauthorized(message: str):
 def _bad_request(message: str):
     return to_json_ready(ErrorResponse(message=message)), 400
 
-
-def _client_ip() -> str:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.remote_addr or "unknown"
-
-
 def _is_audit_enabled() -> bool:
     return BaseConfig.get_bool(
         current_app.config,
@@ -110,14 +97,14 @@ def _security_event(
         "event": event,
         "outcome": outcome,
         "endpoint": endpoint,
-        "ip": _client_ip(),
+        "ip": client_ip(),
         "actor_user_uuid": actor_user_uuid,
         "target_user_uuid": target_user_uuid,
         "limit_scope": limit_scope,
         "reason": reason,
         "details": details or {},
         "request_id": getattr(g, "request_id", None),
-        "timestamp": _utcnow().isoformat().replace("+00:00", "Z"),
+        "timestamp": utcnow().isoformat().replace("+00:00", "Z"),
     }
     logger.log_app_event("security_event", context=payload)
 

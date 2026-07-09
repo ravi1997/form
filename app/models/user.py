@@ -8,9 +8,11 @@ Role choices per organisation: admin, editor, viewer, reviewer, approver, submit
 User statuses: active, inactive, deleted, suspended, locked.
 """
 
-from app.extensions import db
 from datetime import datetime, timezone
 from mongoengine.errors import ValidationError
+
+from app.extensions import db
+from app.utils import utcnow
 
 ROLE_CHOICES = (
     "admin",
@@ -34,11 +36,6 @@ ORGANIZATION_STATUS_CHOICES = (
     "inactive",
     "deleted",
 )
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
 
 class Organization(db.Document):
     uuid = db.StringField(required=True, unique=True)  # DD-MM-YY-XXXX

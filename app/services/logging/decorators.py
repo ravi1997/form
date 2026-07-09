@@ -103,6 +103,8 @@ def log_audit(action: str, resource_type: str) -> Callable:
                 resource_id = None
                 if isinstance(result, dict):
                     resource_id = result.get("uuid") or result.get("id")
+                    if resource_id is not None:
+                        resource_id = str(resource_id)
                 elif hasattr(result, "uuid"):
                     resource_id = str(result.uuid)
                 elif hasattr(result, "id"):

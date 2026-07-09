@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone, timedelta
+from threading import Event
 from typing import Any, Dict, Optional, Tuple
 
 from celery import current_app as celery_current_app
@@ -383,6 +384,7 @@ def evaluate_condition_async(
         fallback_result=False,
     )
     deadline = _utcnow() + timedelta(milliseconds=timeout_ms)
+    wait_event = Event()
     while _utcnow() < deadline:
         payload = get_async_job_status(job.job_id)
         if payload["status"] in {"success", "failed", "timeout", "cancelled"}:
@@ -394,9 +396,8 @@ def evaluate_condition_async(
                 "timed_out": payload["status"] == "timeout",
                 "error": payload["error"],
             }
-        import time
-
-        time.sleep(0.02)
+        remaining = max(0.0, (deadline - _utcnow()).total_seconds())
+        wait_event.wait(min(0.05, remaining))
     return {
         "job_id": job.job_id,
         "status": "timeout",

@@ -98,53 +98,27 @@ def setup_rotating_logger_middleware(
                 "user_id": g.user_id,
             },
         )
-        logger_service.log_app_event(
+        stage_names = [
             "Service entry",
+            "Authentication started",
+            "Authentication header parsed",
+            "Authorization check started",
+            "Validation stage started",
+            "Database stage started",
+            "External API stage started",
+            "Business decision stage started",
+        ]
+        if is_mutation:
+            stage_names.append("Audit stage started")
+        logger_service.log_app_event(
+            "Request stage summary: Service entry | Authentication started | Authentication header parsed | Authorization check started | Validation stage started | Database stage started | External API stage started | Business decision stage started",
             context={
                 "route": f"{request.method} {request.path}",
                 "endpoint": request.endpoint,
-            },
-        )
-        logger_service.log_app_event(
-            "Authentication started",
-            context={
                 "has_authorization_header": has_auth_header,
-                "route": request.path,
+                "stages": stage_names,
             },
         )
-        logger_service.log_app_event(
-            "Authentication header parsed",
-            level="INFO" if has_auth_header else "WARNING",
-            context={
-                "result": "present" if has_auth_header else "missing",
-                "route": request.path,
-            },
-        )
-        logger_service.log_app_event(
-            "Authorization check started",
-            context={"route": request.path, "endpoint": request.endpoint},
-        )
-        logger_service.log_app_event(
-            "Validation stage started",
-            context={"route": request.path, "method": request.method},
-        )
-        logger_service.log_app_event(
-            "Database stage started",
-            context={"route": request.path, "method": request.method},
-        )
-        logger_service.log_app_event(
-            "External API stage started",
-            context={"route": request.path, "method": request.method},
-        )
-        logger_service.log_app_event(
-            "Business decision stage started",
-            context={"route": request.path, "method": request.method},
-        )
-        if is_mutation:
-            logger_service.log_app_event(
-                "Audit stage started",
-                context={"route": request.path, "method": request.method},
-            )
 
     @app.after_request
     def after_request_logging(response: Response) -> Response:
@@ -191,67 +165,20 @@ def setup_rotating_logger_middleware(
             },
         )
         logger_service.log_app_event(
-            "Service exit",
+            "Request stage summary: Service exit | Authentication stage completed | Authorization stage completed | Validation stage completed | Database stage completed | External API stage completed | Business decision recorded",
             context={
                 "route": f"{request.method} {request.path}",
                 "endpoint": request.endpoint,
                 "status_code": response.status_code,
-            },
-        )
-        logger_service.log_app_event(
-            "Authentication stage completed",
-            level="INFO" if response.status_code not in (401, 403) else "WARNING",
-            context={
-                "status_code": response.status_code,
-                "result": "passed_or_not_required"
-                if response.status_code not in (401, 403)
-                else "failed",
-                "route": request.path,
-            },
-        )
-        logger_service.log_app_event(
-            "Authorization stage completed",
-            level="INFO" if response.status_code not in (401, 403) else "WARNING",
-            context={
-                "status_code": response.status_code,
-                "result": "passed_or_not_required"
-                if response.status_code not in (401, 403)
-                else "failed",
-                "route": request.path,
-            },
-        )
-        logger_service.log_app_event(
-            "Validation stage completed",
-            level="INFO" if response.status_code != 422 else "WARNING",
-            context={
-                "status_code": response.status_code,
-                "result": "failed"
-                if response.status_code == 422
-                else "passed_or_not_required",
-                "route": request.path,
-            },
-        )
-        logger_service.log_app_event(
-            "Database stage completed",
-            context={
-                "status_code": response.status_code,
-                "result": "completed_or_deferred",
-                "route": request.path,
-            },
-        )
-        logger_service.log_app_event(
-            "External API stage completed",
-            context={
-                "status_code": response.status_code,
-                "result": "completed_or_not_invoked",
-                "route": request.path,
-            },
-        )
-        logger_service.log_app_event(
-            "Business decision recorded",
-            context={
-                "route": request.path,
-                "status_code": response.status_code,
+                "stages": [
+                    "Service exit",
+                    "Authentication stage completed",
+                    "Authorization stage completed",
+                    "Validation stage completed",
+                    "Database stage completed",
+                    "External API stage completed",
+                    "Business decision recorded",
+                ],
                 "decision": "error" if response.status_code >= 400 else "success",
             },
         )
@@ -316,7 +243,7 @@ def setup_rotating_logger_middleware(
         return {"error": "Internal server error"}, 500
 
 
-def get_logger_stats(app: Flask = None) -> dict:
+def get_logger_stats() -> dict:
     """
     Get logging statistics (can be used as an API endpoint).
 

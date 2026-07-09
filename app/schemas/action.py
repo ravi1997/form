@@ -29,12 +29,8 @@ class ActionStepBase(SchemaModel):
     on_error: ActionStepErrorPolicy = "stop"
 
 
-class ActionStepInput(ActionStepBase):
-    pass
-
-
-class ActionStepOutput(ActionStepBase):
-    pass
+ActionStepInput = ActionStepBase
+ActionStepOutput = ActionStepBase
 
 
 class ActionDefinitionBase(SchemaModel):
@@ -66,19 +62,7 @@ class ActionDefinitionInput(ActionDefinitionBase):
     pass
 
 
-class ActionDefinitionOutput(SchemaModel):
-    id: str
-    label: str
-    icon: Optional[str] = None
-    button_variant: Optional[str] = None
-    trigger: ActionTrigger = "click"
-    confirmation_message: Optional[str] = None
-    schema_version: int = Field(default=1, ge=1)
-    audit_policy: ActionAuditPolicy = "always"
-    allowed_roles: List[str] = Field(default_factory=list)
-    visibility_condition: Optional[str] = None
-    enabled_condition: Optional[str] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+class ActionDefinitionOutput(ActionDefinitionBase):
     steps: List[ActionStepOutput] = Field(default_factory=list)
 
 

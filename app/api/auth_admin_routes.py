@@ -10,7 +10,6 @@ from app.config import BaseConfig
 from app.api.auth_support import (
     _audit_log,
     _bad_request,
-    _client_ip,
     _decode_audit_cursor,
     _encode_audit_cursor,
     _require_admin,
@@ -20,6 +19,7 @@ from app.api.auth_support import (
     auth_api,
     auth_tag,
 )
+from app.utils import client_ip
 from app.schemas.auth import (
     AdminAuditLogEntry,
     AdminAuditLogListResponse,
@@ -201,7 +201,7 @@ def admin_revoke_user_session(
         session_uuid=body.session_uuid,
         action="admin_session_revoke",
         reason="admin_revoke",
-        ip_address=_client_ip(),
+        ip_address=client_ip(),
         user_agent=request.headers.get("User-Agent"),
         metadata={"endpoint": "/api/v1/auth/admin/users/<user_uuid>/sessions/revoke"},
     )
@@ -240,7 +240,7 @@ def admin_revoke_all_user_sessions(header: AuthorizationHeader, path: AdminUserP
         session_uuid=None,
         action="admin_sessions_revoke_all",
         reason="admin_revoke_all",
-        ip_address=_client_ip(),
+        ip_address=client_ip(),
         user_agent=request.headers.get("User-Agent"),
         metadata={
             "endpoint": "/api/v1/auth/admin/users/<user_uuid>/sessions/revoke-all",

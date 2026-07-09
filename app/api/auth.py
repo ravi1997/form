@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from uuid import uuid4
 
 from flask import request
@@ -10,7 +9,6 @@ from app.models.user import User
 from app.api.auth_support import (
     _audit_log,
     _bad_request,
-    _client_ip,
     _decode_audit_cursor,
     _encode_audit_cursor,
     _extract_bearer,
@@ -58,10 +56,7 @@ from app.services.rbac import (
 )
 from app.middleware.rate_limit import rate_limit
 from app.api import auth_admin_routes as _auth_admin_routes  # noqa: F401
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+from app.utils import client_ip, utcnow
 
 
 @auth_api.post(
@@ -81,7 +76,7 @@ def register(body: RegisterRequest):
         )
         return _bad_request("Email already registered")
 
-    now = _utcnow()
+    now = utcnow()
     user = User(
         uuid=str(uuid4()),
         name=body.name,
@@ -149,7 +144,7 @@ def login(body: LoginRequest):
         )
         return _unauthorized("Invalid email or password")
 
-    user.last_login_at = _utcnow()
+    user.last_login_at = utcnow()
     user.save()
 
     session = create_user_session(
@@ -269,7 +264,7 @@ def logout(body: LogoutRequest):
         session_uuid=payload["sid"],
         action="logout",
         reason="logout",
-        ip_address=_client_ip(),
+        ip_address=client_ip(),
         user_agent=request.headers.get("User-Agent"),
         metadata={"endpoint": "/api/v1/auth/logout"},
     )
@@ -414,7 +409,7 @@ def revoke_session_endpoint(header: AuthorizationHeader, body: RevokeSessionRequ
         session_uuid=body.session_uuid,
         action="session_revoke",
         reason="session_revoke",
-        ip_address=_client_ip(),
+        ip_address=client_ip(),
         user_agent=request.headers.get("User-Agent"),
         metadata={"endpoint": "/api/v1/auth/sessions/revoke"},
     )
@@ -455,7 +450,7 @@ def logout_all(header: AuthorizationHeader, body: LogoutAllSessionsRequest):
         session_uuid=None,
         action="logout_all",
         reason="logout_all",
-        ip_address=_client_ip(),
+        ip_address=client_ip(),
         user_agent=request.headers.get("User-Agent"),
         metadata={
             "endpoint": "/api/v1/auth/logout-all",

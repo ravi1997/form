@@ -62,7 +62,8 @@ def _get_monitoring_snapshot_cached(window_days: int = 30) -> Dict[str, Any]:
         day_key = row.created_at.strftime("%Y-%m-%d")
         heatmap[day_key][row.condition_uuid] += 1
 
-    all_condition_uuids = [c.uuid for c in Condition.objects]
+    conditions = list(Condition.objects.only("uuid", "subConditions"))
+    all_condition_uuids = [c.uuid for c in conditions]
     unused = [cid for cid in all_condition_uuids if usage[cid] == 0]
     most_used = usage.most_common(10)
 
@@ -80,7 +81,7 @@ def _get_monitoring_snapshot_cached(window_days: int = 30) -> Dict[str, Any]:
         )
 
     graph = []
-    for condition in Condition.objects:
+    for condition in conditions:
         for sub in condition.subConditions or []:
             ref = sub.fetch() if hasattr(sub, "fetch") else sub
             if ref and ref.uuid:
@@ -114,10 +115,11 @@ def operator_metadata() -> Dict[str, Dict[str, Any]]:
 def monitoring_dashboard_snapshot() -> Dict[str, Any]:
     snapshot = get_monitoring_snapshot()
     graph = build_dependency_graph()
+    conditions = list(Condition.objects.only("isActive"))
     return {
         "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
-        "total_conditions": Condition.objects.count(),
-        "active_conditions": Condition.objects(isActive=True).count(),
+        "total_conditions": len(conditions),
+        "active_conditions": sum(1 for condition in conditions if condition.isActive),
         "circular_references": detect_circular_references(graph),
         "dependency_graph": graph,
         "monitoring": snapshot,

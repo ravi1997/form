@@ -11,17 +11,12 @@ Usage:
 
 import os
 import sys
-from datetime import datetime, timezone
 
 # Add parent directory to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app import create_openapi_app
 from app.models.rate_limit import RateLimitConfig
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def init_default_rate_limits():
