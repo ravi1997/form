@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from datetime import timedelta
 
 from app.celery.tasks import process_condition_async_job
 from app.models.condition_management import ConditionAsyncJob
@@ -137,3 +138,39 @@ def test_duplicate_execution_protection_skips_second_run(app_context, monkeypatc
     assert first["status"] == "success"
     assert second["status"] == "success"
     assert calls["count"] == 1
+
+
+def test_worker_restart_recovery_reclaims_stale_running_job(app_context, monkeypatch):
+    condition = Condition(
+        uuid="celery-recover",
+        conditionType="comparison",
+        targetField="status",
+        operator="equals",
+        operands=["approved"],
+        isActive=True,
+    ).save()
+
+    monkeypatch.setattr(
+        async_service.ConditionEvaluator,
+        "evaluate",
+        lambda self, condition, *_args, **_kwargs: True,
+    )
+
+    job = ConditionAsyncJob(
+        job_id="celery-recover-job",
+        condition_uuid=condition.uuid,
+        context={"status": "approved"},
+        status="running",
+        retries=1,
+        timeout_ms=1000,
+        started_at=async_service._utcnow(),
+        lock_token="stale-lock",
+        lock_expires_at=async_service._utcnow() - timedelta(seconds=1),
+    ).save()
+
+    result = async_service.process_async_job(job.job_id)
+
+    assert result["status"] == "success"
+    updated = ConditionAsyncJob.objects(job_id=job.job_id).first()
+    assert updated.status == "success"
+    assert updated.execution_time is not None

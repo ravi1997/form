@@ -146,6 +146,30 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 ProductionConfig.load_app_config(app)
 
+    def test_production_mongodb_uri_exposes_explicit_auth_settings(self):
+        app = DummyApp()
+        with mock.patch.dict(
+            os.environ,
+            {
+                "APP_ENV": "production",
+                "JWT_SECRET_KEY": "prod-secret",
+                "MONGODB_URI": (
+                    "mongodb://formadmin:ci-mongo-secret@mongo:27017/form_prod"
+                    "?authSource=admin"
+                ),
+            },
+            clear=True,
+        ):
+            ProductionConfig.load_app_config(app)
+
+        settings = app.config["MONGODB_SETTINGS"]
+        self.assertEqual(settings["username"], "formadmin")
+        self.assertEqual(settings["password"], "ci-mongo-secret")
+        self.assertEqual(settings["authentication_source"], "admin")
+        self.assertEqual(
+            settings["host"], "mongodb://mongo:27017/form_prod?authSource=admin"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

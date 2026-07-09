@@ -85,6 +85,7 @@ def app():
                 "host": f"mongodb://localhost/{db_name}",
                 "mongo_client_class": MongoClient,
                 "connect": False,
+                "uuidRepresentation": "standard",
             },
             "JWT_SECRET_KEY": "test-secret-key-do-not-use-in-production",
             "JWT_ALGORITHM": "HS256",
