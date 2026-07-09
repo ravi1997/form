@@ -31,10 +31,11 @@ class RateLimitService:
     # Redis key patterns
     RATE_LIMIT_KEY = "rate_limit:{scope}:{target}:{route}:{method}"
     RATE_LIMIT_TIMESTAMP_KEY = "rate_limit_ts:{scope}:{target}:{route}:{method}"
+    # Shared in-memory fallback so counters survive repeated service construction.
+    cache: Dict[str, Any] = {}
 
     def __init__(self):
         self.redis_client = None
-        self.cache = {}
         self._initialize_redis()
 
     def _initialize_redis(self):

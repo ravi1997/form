@@ -34,7 +34,7 @@ class LogoutRequest(SchemaModel):
 
 class AuthorizationHeader(SchemaModel):
     model_config = ConfigDict(extra="allow")
-    Authorization: str = Field(min_length=10)
+    Authorization: str = Field(min_length=20)
 
 
 class TokenPairResponse(SchemaModel):

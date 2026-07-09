@@ -97,6 +97,10 @@ def app():
             "AUTH_RATE_LIMIT_LOGOUT_MAX": 20,
             "AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS": 60,
             "ENABLE_AUDIT_LOGS": False,
+            "CELERY_TASK_ALWAYS_EAGER": True,
+            "CELERY_TASK_EAGER_PROPAGATES": True,
+            "CELERY_BROKER_URL": "memory://",
+            "CELERY_RESULT_BACKEND": "cache+memory://",
         }
     )
 

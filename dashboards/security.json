@@ -1,0 +1,25 @@
+{
+  "title": "Form Service Security",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Authentication failures",
+      "targets": [
+        {
+          "expr": "rate(form_auth_failures_total[5m])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Rate limit blocks",
+      "targets": [
+        {
+          "expr": "rate(form_rate_limit_blocks_total[5m])"
+        }
+      ]
+    }
+  ]
+}

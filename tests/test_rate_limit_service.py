@@ -2,6 +2,10 @@
 
 from datetime import datetime, timedelta, timezone
 
+import redis
+from flask import Flask
+
+from app.middleware.rate_limit import rate_limit
 from app.services.rate_limit import RateLimitService
 
 
@@ -40,3 +44,27 @@ def test_increment_redis_resets_expired_window(app_context):
     assert exceeded is False
     assert ts_key in service.redis_client.store
     assert service.redis_client.store[key] == 1
+
+
+def test_rate_limit_decorator_returns_503_when_redis_down(app_context, monkeypatch):
+    app = Flask(__name__)
+
+    class FailingService:
+        def check_rate_limit(self, **_kwargs):
+            raise redis.RedisError("redis down")
+
+    monkeypatch.setattr(
+        "app.middleware.rate_limit.get_rate_limit_service",
+        lambda: FailingService(),
+    )
+
+    @app.route("/limited")
+    @rate_limit("limited.route")
+    def limited_route():
+        return {"ok": True}
+
+    with app.test_client() as client:
+        response = client.get("/limited")
+
+    assert response.status_code == 503
+    assert response.get_json()["error"] == "Rate limiting unavailable"

@@ -138,6 +138,13 @@ def test_project_and_form_crud_lifecycle(client, app_context):
     assert delete_form.status_code == 200
     assert delete_form.get_json()["message"] == "form_deleted"
 
+    deleted_form = client.get(
+        "/api/v1/projects/project-crud-0001/forms/form-crud-0001",
+        headers=headers,
+    )
+    assert deleted_form.status_code == 200
+    assert deleted_form.get_json()["status"] == "deleted"
+
     delete_project = client.delete(
         "/api/v1/projects/project-crud-0001",
         headers=headers,

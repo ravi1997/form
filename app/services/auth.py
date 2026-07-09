@@ -11,6 +11,7 @@ a TTL index aligned to the refresh token expiry.
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
@@ -23,6 +24,8 @@ from app.models.auth import TokenBlocklist, UserSession
 from app.services import get_rotating_logger
 
 logger = get_rotating_logger()
+
+_JWT_KID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 class AuthError(Exception):
@@ -54,10 +57,41 @@ def _jwt_keyring() -> Dict[str, str]:
         "JWT_ADDITIONAL_KEYS", BaseConfig.JWT_ADDITIONAL_KEYS
     )
     if additional and isinstance(additional, dict):
-        for kid, secret in additional.items():
-            if not kid or not secret:
+        now = _utcnow()
+        for kid, raw_value in additional.items():
+            if not kid or not raw_value:
                 continue
-            keyring[str(kid)] = str(secret)
+            key_id = str(kid)
+            if not _JWT_KID_PATTERN.fullmatch(key_id):
+                logger.log_app_event(
+                    "jwt_additional_key_rejected",
+                    level="WARNING",
+                    context={"kid": key_id, "reason": "invalid_kid_format"},
+                )
+                continue
+            if isinstance(raw_value, dict):
+                secret = raw_value.get("secret")
+                expires_at = raw_value.get("expires_at")
+                if not secret:
+                    continue
+                if expires_at:
+                    expires_value = (
+                        expires_at
+                        if isinstance(expires_at, datetime)
+                        else datetime.fromisoformat(str(expires_at))
+                    )
+                    if expires_value.tzinfo is None:
+                        expires_value = expires_value.replace(tzinfo=timezone.utc)
+                    if expires_value <= now:
+                        logger.log_app_event(
+                            "jwt_additional_key_expired",
+                            level="WARNING",
+                            context={"kid": key_id},
+                        )
+                        continue
+                keyring[key_id] = str(secret)
+            else:
+                keyring[key_id] = str(raw_value)
 
     return keyring
 
@@ -141,21 +175,31 @@ def decode_token(token: str, expected_type: str) -> Dict[str, Any]:
     except jwt.InvalidTokenError:
         token_kid = None
 
-    keys_to_try: List[str] = []
+    if token_kid and not _JWT_KID_PATTERN.fullmatch(str(token_kid)):
+        logger.log_app_event(
+            "jwt_kid_rejected",
+            level="WARNING",
+            context={"expected_type": expected_type, "kid": str(token_kid)},
+        )
+        raise AuthError("Invalid token")
+
+    keys_to_try: List[tuple[str, str]] = []
     if token_kid and token_kid in keyring:
-        keys_to_try.append(keyring[token_kid])
+        keys_to_try.append((token_kid, keyring[token_kid]))
 
     for kid, key in keyring.items():
         if token_kid and kid == token_kid:
             continue
-        keys_to_try.append(key)
+        keys_to_try.append((kid, key))
 
     last_error: Exception | None = None
     payload = None
     try:
-        for key in keys_to_try:
+        decoded_kid = None
+        for kid, key in keys_to_try:
             try:
                 payload = jwt.decode(token, key, algorithms=[_jwt_algorithm()])
+                decoded_kid = kid
                 break
             except jwt.ExpiredSignatureError as exc:
                 last_error = exc
@@ -208,6 +252,17 @@ def decode_token(token: str, expected_type: str) -> Dict[str, Any]:
         "jwt_decode_successful",
         context={"expected_type": expected_type, "user_uuid": str(subject)},
     )
+    active_kid = _jwt_active_kid()
+    if decoded_kid and decoded_kid != active_kid:
+        logger.log_app_event(
+            "jwt_validated_with_non_active_key",
+            level="WARNING",
+            context={
+                "expected_type": expected_type,
+                "kid": decoded_kid,
+                "active_kid": active_kid,
+            },
+        )
     return {
         "sub": str(subject),
         "email": str(email),

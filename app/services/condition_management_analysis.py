@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 from collections import defaultdict
+from functools import lru_cache
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -11,9 +12,11 @@ from app.services.condition_evaluator import (
     ConditionEvaluator,
 )
 from app.services.condition_management_core import ConditionManagementError
+from app.services.condition_management_graph import invalidate_dependency_graph_cache
 
 
-def discover_usage(condition_uuid: str) -> Dict[str, Any]:
+@lru_cache(maxsize=256)
+def _discover_usage_cached(condition_uuid: str) -> Dict[str, Any]:
     used_by_questions = Question.objects(
         validation_conditions=Condition.objects(uuid=condition_uuid).first()
     )
@@ -40,6 +43,15 @@ def discover_usage(condition_uuid: str) -> Dict[str, Any]:
         "is_orphan": used_by_questions.count() == 0
         and len(explicit_graph.get(condition_uuid, [])) == 0,
     }
+
+
+def invalidate_condition_usage_cache() -> None:
+    _discover_usage_cached.cache_clear()
+    invalidate_dependency_graph_cache()
+
+
+def discover_usage(condition_uuid: str) -> Dict[str, Any]:
+    return _discover_usage_cached(condition_uuid)
 
 
 def impact_analysis(

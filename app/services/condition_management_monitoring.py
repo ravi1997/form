@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from functools import lru_cache
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List
 
 from app.models.condition_management import ConditionEvaluationStat
 from app.models.form import Condition
 from app.services.condition_evaluator import ConditionEvaluator
+from app.services.condition_management_analysis import invalidate_condition_usage_cache
 from app.services.condition_management_graph import (
     build_dependency_graph,
     detect_circular_references,
+    invalidate_dependency_graph_cache,
 )
+
+DEFAULT_MONITORING_STATS_RETENTION_DAYS = 30
 
 
 def record_evaluation_stat(
@@ -24,9 +29,23 @@ def record_evaluation_stat(
         operator=condition.operator,
         condition_type=condition.conditionType,
     ).save()
+    invalidate_monitoring_cache()
 
 
-def get_monitoring_snapshot(window_days: int = 30) -> Dict[str, Any]:
+def ensure_monitoring_stats_retention_index(
+    retention_days: int = DEFAULT_MONITORING_STATS_RETENTION_DAYS,
+) -> None:
+    expire_after_seconds = max(1, int(retention_days)) * 24 * 60 * 60
+    collection = ConditionEvaluationStat._get_collection()
+    collection.create_index(
+        [("created_at", 1)],
+        name="created_at_ttl",
+        expireAfterSeconds=expire_after_seconds,
+    )
+
+
+@lru_cache(maxsize=32)
+def _get_monitoring_snapshot_cached(window_days: int = 30) -> Dict[str, Any]:
     since = datetime.now(timezone.utc) - timedelta(days=window_days)
     rows = ConditionEvaluationStat.objects(created_at__gte=since)
 
@@ -76,6 +95,16 @@ def get_monitoring_snapshot(window_days: int = 30) -> Dict[str, Any]:
         ],
         "evaluation_stats": evaluation_stats,
     }
+
+
+def invalidate_monitoring_cache() -> None:
+    _get_monitoring_snapshot_cached.cache_clear()
+    invalidate_dependency_graph_cache()
+    invalidate_condition_usage_cache()
+
+
+def get_monitoring_snapshot(window_days: int = 30) -> Dict[str, Any]:
+    return _get_monitoring_snapshot_cached(window_days)
 
 
 def operator_metadata() -> Dict[str, Dict[str, Any]]:

@@ -12,6 +12,7 @@ variables produce a warning (or raise in production) to catch typos early.
 from __future__ import annotations
 
 import logging
+import json
 import os
 import warnings
 from typing import Any, Dict, Mapping, Optional, Type
@@ -47,9 +48,17 @@ ENV_ENABLE_AUDIT_LOGS = "ENABLE_AUDIT_LOGS"
 ENV_REQUEST_ID_HEADER = "REQUEST_ID_HEADER"
 ENV_API_VERSION = "API_VERSION"
 ENV_AUDIT_LOG_RETENTION_DAYS = "AUDIT_LOG_RETENTION_DAYS"
+ENV_MONITORING_STATS_RETENTION_DAYS = "MONITORING_STATS_RETENTION_DAYS"
 ENV_MONGODB_URI = "MONGODB_URI"
 ENV_MONGODB_DB = "MONGODB_DB"
 ENV_MONGODB_CONNECT_TIMEOUT_MS = "MONGODB_CONNECT_TIMEOUT_MS"
+ENV_CELERY_BROKER_URL = "CELERY_BROKER_URL"
+ENV_CELERY_RESULT_BACKEND = "CELERY_RESULT_BACKEND"
+ENV_CELERY_TASK_DEFAULT_QUEUE = "CELERY_TASK_DEFAULT_QUEUE"
+ENV_CELERY_TASK_TIME_LIMIT = "CELERY_TASK_TIME_LIMIT"
+ENV_CELERY_TASK_SOFT_TIME_LIMIT = "CELERY_TASK_SOFT_TIME_LIMIT"
+ENV_CELERY_TASK_ALWAYS_EAGER = "CELERY_TASK_ALWAYS_EAGER"
+ENV_CELERY_TASK_EAGER_PROPAGATES = "CELERY_TASK_EAGER_PROPAGATES"
 ENV_LOG_LEVEL = "LOG_LEVEL"
 ENV_LOG_DIR = "LOG_DIR"
 ENV_LOG_MAX_BYTES = "LOG_MAX_BYTES"
@@ -81,9 +90,17 @@ KNOWN_ENV_KEYS = {
     ENV_REQUEST_ID_HEADER,
     ENV_API_VERSION,
     ENV_AUDIT_LOG_RETENTION_DAYS,
+    ENV_MONITORING_STATS_RETENTION_DAYS,
     ENV_MONGODB_URI,
     ENV_MONGODB_DB,
     ENV_MONGODB_CONNECT_TIMEOUT_MS,
+    ENV_CELERY_BROKER_URL,
+    ENV_CELERY_RESULT_BACKEND,
+    ENV_CELERY_TASK_DEFAULT_QUEUE,
+    ENV_CELERY_TASK_TIME_LIMIT,
+    ENV_CELERY_TASK_SOFT_TIME_LIMIT,
+    ENV_CELERY_TASK_ALWAYS_EAGER,
+    ENV_CELERY_TASK_EAGER_PROPAGATES,
     ENV_LOG_LEVEL,
     ENV_LOG_DIR,
     ENV_LOG_MAX_BYTES,
@@ -120,9 +137,17 @@ class BaseConfig:
     REQUEST_ID_HEADER = "X-Request-Id"
     API_VERSION = "v1"
     AUDIT_LOG_RETENTION_DAYS = 180
+    MONITORING_STATS_RETENTION_DAYS = 30
     MONGODB_URI = "mongodb://localhost:27017/form_dev"
     MONGODB_DB = "form_dev"
     MONGODB_CONNECT_TIMEOUT_MS = 2000
+    CELERY_BROKER_URL = "redis://localhost:6379/0"
+    CELERY_RESULT_BACKEND = "redis://localhost:6379/1"
+    CELERY_TASK_DEFAULT_QUEUE = "form_tasks"
+    CELERY_TASK_TIME_LIMIT = 300
+    CELERY_TASK_SOFT_TIME_LIMIT = 240
+    CELERY_TASK_ALWAYS_EAGER = False
+    CELERY_TASK_EAGER_PROPAGATES = False
     LOG_LEVEL = "INFO"
     LOG_DIR = "logs"
     LOG_MAX_BYTES = 10 * 1024 * 1024
@@ -144,7 +169,10 @@ class BaseConfig:
         "RESOURCE_RATE_LIMIT_MAX",
         "RESOURCE_RATE_LIMIT_WINDOW_SECONDS",
         "AUDIT_LOG_RETENTION_DAYS",
+        "MONITORING_STATS_RETENTION_DAYS",
         "MONGODB_CONNECT_TIMEOUT_MS",
+        "CELERY_TASK_TIME_LIMIT",
+        "CELERY_TASK_SOFT_TIME_LIMIT",
         "LOG_MAX_BYTES",
         "LOG_BACKUP_COUNT",
     )
@@ -161,7 +189,10 @@ class BaseConfig:
         "RESOURCE_RATE_LIMIT_MAX": (1, 10000),
         "RESOURCE_RATE_LIMIT_WINDOW_SECONDS": (1, 3600),
         "AUDIT_LOG_RETENTION_DAYS": (1, 3650),
+        "MONITORING_STATS_RETENTION_DAYS": (1, 3650),
         "MONGODB_CONNECT_TIMEOUT_MS": (100, 120000),
+        "CELERY_TASK_TIME_LIMIT": (1, 3600),
+        "CELERY_TASK_SOFT_TIME_LIMIT": (1, 3600),
         "LOG_MAX_BYTES": (1024, 1024 * 1024 * 1024),
         "LOG_BACKUP_COUNT": (1, 1000),
     }
@@ -186,13 +217,27 @@ class BaseConfig:
     @staticmethod
     def _env_key_map(
         name: str, default: Optional[Dict[str, str]] = None
-    ) -> Dict[str, str]:
+    ) -> Dict[str, Any]:
         raw = os.getenv(name)
         if raw is None or raw.strip() == "":
             return dict(default or {})
 
+        raw = raw.strip()
+        if raw.startswith("{"):
+            try:
+                parsed_mapping = json.loads(raw)
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"{name} must be valid JSON or 'kid:secret' pairs"
+                ) from exc
+            if not isinstance(parsed_mapping, dict):
+                raise RuntimeError(
+                    f"{name} must be a mapping of kid to secret metadata"
+                )
+            return parsed_mapping
+
         items = [item.strip() for item in raw.split(",") if item.strip()]
-        parsed: Dict[str, str] = {}
+        parsed: Dict[str, Any] = {}
         for item in items:
             if ":" not in item:
                 raise RuntimeError(f"{name} must be 'kid:secret,kid2:secret2'")
@@ -345,11 +390,43 @@ class BaseConfig:
                 ENV_AUDIT_LOG_RETENTION_DAYS,
                 cls.AUDIT_LOG_RETENTION_DAYS,
             ),
+            "MONITORING_STATS_RETENTION_DAYS": cls._env_int(
+                ENV_MONITORING_STATS_RETENTION_DAYS,
+                cls.MONITORING_STATS_RETENTION_DAYS,
+            ),
             "MONGODB_URI": cls._env_str(ENV_MONGODB_URI, cls.MONGODB_URI),
             "MONGODB_DB": cls._env_str(ENV_MONGODB_DB, cls.MONGODB_DB),
             "MONGODB_CONNECT_TIMEOUT_MS": cls._env_int(
                 ENV_MONGODB_CONNECT_TIMEOUT_MS,
                 cls.MONGODB_CONNECT_TIMEOUT_MS,
+            ),
+            "CELERY_BROKER_URL": cls._env_str(
+                ENV_CELERY_BROKER_URL,
+                cls.CELERY_BROKER_URL,
+            ),
+            "CELERY_RESULT_BACKEND": cls._env_str(
+                ENV_CELERY_RESULT_BACKEND,
+                cls.CELERY_RESULT_BACKEND,
+            ),
+            "CELERY_TASK_DEFAULT_QUEUE": cls._env_str(
+                ENV_CELERY_TASK_DEFAULT_QUEUE,
+                cls.CELERY_TASK_DEFAULT_QUEUE,
+            ),
+            "CELERY_TASK_TIME_LIMIT": cls._env_int(
+                ENV_CELERY_TASK_TIME_LIMIT,
+                cls.CELERY_TASK_TIME_LIMIT,
+            ),
+            "CELERY_TASK_SOFT_TIME_LIMIT": cls._env_int(
+                ENV_CELERY_TASK_SOFT_TIME_LIMIT,
+                cls.CELERY_TASK_SOFT_TIME_LIMIT,
+            ),
+            "CELERY_TASK_ALWAYS_EAGER": cls._env_bool(
+                ENV_CELERY_TASK_ALWAYS_EAGER,
+                cls.CELERY_TASK_ALWAYS_EAGER,
+            ),
+            "CELERY_TASK_EAGER_PROPAGATES": cls._env_bool(
+                ENV_CELERY_TASK_EAGER_PROPAGATES,
+                cls.CELERY_TASK_EAGER_PROPAGATES,
             ),
             "LOG_LEVEL": cls._env_str(ENV_LOG_LEVEL, cls.LOG_LEVEL),
             "LOG_DIR": cls._env_str(ENV_LOG_DIR, cls.LOG_DIR),
@@ -399,6 +476,21 @@ class BaseConfig:
             lower, upper = cls.INT_BOUNDS[key]
             if value < lower or value > upper:
                 raise RuntimeError(f"{key} must be between {lower} and {upper}")
+
+        soft_time_limit = cls.get_int(
+            app.config,
+            "CELERY_TASK_SOFT_TIME_LIMIT",
+            cls.CELERY_TASK_SOFT_TIME_LIMIT,
+        )
+        task_time_limit = cls.get_int(
+            app.config,
+            "CELERY_TASK_TIME_LIMIT",
+            cls.CELERY_TASK_TIME_LIMIT,
+        )
+        if soft_time_limit >= task_time_limit:
+            raise RuntimeError(
+                "CELERY_TASK_SOFT_TIME_LIMIT must be less than CELERY_TASK_TIME_LIMIT"
+            )
 
         cls.get_bool(app.config, "ENABLE_AUDIT_LOGS", cls.ENABLE_AUDIT_LOGS)
         api_version = cls.get_str(app.config, "API_VERSION", cls.API_VERSION)
@@ -584,8 +676,32 @@ class BaseConfig:
                 "AUDIT_LOG_RETENTION_DAYS",
                 cls.AUDIT_LOG_RETENTION_DAYS,
             ),
+            "monitoring_stats_retention_days": cls.get_int(
+                config,
+                "MONITORING_STATS_RETENTION_DAYS",
+                cls.MONITORING_STATS_RETENTION_DAYS,
+            ),
             "mongodb_db": cls.get_str(config, "MONGODB_DB", cls.MONGODB_DB),
             "mongodb_uri_configured": bool(config.get("MONGODB_URI")),
+            "celery_broker_url_configured": bool(config.get("CELERY_BROKER_URL")),
+            "celery_result_backend_configured": bool(
+                config.get("CELERY_RESULT_BACKEND")
+            ),
+            "celery_task_default_queue": cls.get_str(
+                config,
+                "CELERY_TASK_DEFAULT_QUEUE",
+                cls.CELERY_TASK_DEFAULT_QUEUE,
+            ),
+            "celery_task_time_limit": cls.get_int(
+                config,
+                "CELERY_TASK_TIME_LIMIT",
+                cls.CELERY_TASK_TIME_LIMIT,
+            ),
+            "celery_task_soft_time_limit": cls.get_int(
+                config,
+                "CELERY_TASK_SOFT_TIME_LIMIT",
+                cls.CELERY_TASK_SOFT_TIME_LIMIT,
+            ),
             "log_level": cls.get_str(config, "LOG_LEVEL", cls.LOG_LEVEL),
             "log_dir": cls.get_str(config, "LOG_DIR", cls.LOG_DIR),
             "log_max_bytes": cls.get_int(
@@ -684,6 +800,10 @@ class RuntimeSettings(BaseModel):
         default=BaseConfig.MONGODB_CONNECT_TIMEOUT_MS,
         ge=100,
     )
+    monitoring_stats_retention_days: int = Field(
+        default=BaseConfig.MONITORING_STATS_RETENTION_DAYS,
+        ge=1,
+    )
     request_id_header: str = Field(default=BaseConfig.REQUEST_ID_HEADER)
     cors_allow_origins: list[str] = Field(default_factory=list)
     enable_compression: bool = Field(default=BaseConfig.ENABLE_COMPRESSION)
@@ -712,6 +832,11 @@ def build_runtime_settings(config: Mapping[str, Any]) -> RuntimeSettings:
             config,
             "MONGODB_CONNECT_TIMEOUT_MS",
             BaseConfig.MONGODB_CONNECT_TIMEOUT_MS,
+        ),
+        "monitoring_stats_retention_days": BaseConfig.get_int(
+            config,
+            "MONITORING_STATS_RETENTION_DAYS",
+            BaseConfig.MONITORING_STATS_RETENTION_DAYS,
         ),
         "request_id_header": BaseConfig.get_str(
             config, "REQUEST_ID_HEADER", BaseConfig.REQUEST_ID_HEADER

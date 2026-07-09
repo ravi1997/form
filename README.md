@@ -1,6 +1,6 @@
 # Form Service API
 
-Production-ready Flask OpenAPI service for form/resource management, auth/session lifecycle, condition evaluation, rate limiting, and UI template management backed by MongoDB.
+Production-ready Flask OpenAPI service for form/resource management, auth/session lifecycle, condition evaluation, rate limiting, async job execution, and UI template management backed by MongoDB with Celery/Redis workers.
 
 Current release status: READY.
 
@@ -12,10 +12,11 @@ Current release status: READY.
 - Hierarchical form structures: Project → Form → Section → Question → Choice
 - Form workflow state machine with configurable approval gates
 - Condition evaluation engine (8 types: regex, comparison, logical, temporal, arithmetic, set, dsl, custom)
-- Condition management: presets, versioning, approval workflow, async evaluation, monitoring
+- Condition management: presets, versioning, approval workflow, Celery-backed async evaluation, monitoring
 - Structured rotating log files with `X-Request-Id` correlation throughout
 - Health, liveness, readiness, and metrics endpoints
 - Configurable rate limiting (MongoDB counters + Redis/in-memory tiers)
+- Celery worker execution with Redis broker and MongoDB job history/audit tracking
 - Full audit logging with configurable TTL-based retention
 - Docker and docker-compose support
 
@@ -28,6 +29,7 @@ Current release status: READY.
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Docker, production checklist, Kubernetes probes, JWT key rotation |
 | [SECURITY.md](SECURITY.md) | Security model, headers, rate limiting, known limitations |
 | [OBSERVABILITY.md](OBSERVABILITY.md) | Metrics, logging, async visibility |
+| [docs/CELERY_OPERATIONS.md](docs/CELERY_OPERATIONS.md) | Worker startup, scaling, retry handling, and troubleshooting |
 | [FUTURE_IMPROVEMENTS.md](FUTURE_IMPROVEMENTS.md) | Deferred roadmap and design decisions for the next phase |
 | [TESTING.md](TESTING.md) | Test strategy, fixtures, writing tests, coverage |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Branch naming, commit conventions, PR process |
@@ -72,6 +74,12 @@ make docker-up  # docker compose up --build -d
 | `MONGODB_DB` | Production | Database name |
 | `JWT_SECRET_KEY` | Production | Signing secret (≥32 random bytes) |
 | `JWT_ACTIVE_KID` | No | Key ID for JWT signing (default: `v1`) |
+| `CELERY_BROKER_URL` | No | Redis broker URL for async jobs |
+| `CELERY_RESULT_BACKEND` | No | Redis result backend URL |
+| `CELERY_TASK_DEFAULT_QUEUE` | No | Default Celery queue name |
+| `CELERY_TASK_TIME_LIMIT` | No | Hard task timeout in seconds |
+| `CELERY_TASK_SOFT_TIME_LIMIT` | No | Soft task timeout in seconds |
+| `MONITORING_STATS_RETENTION_DAYS` | No | TTL window for condition evaluation stats |
 
 See `.env.example` for the full list of optional settings.
 
@@ -99,6 +107,20 @@ docker compose up --build
 
 The service is exposed on `http://localhost:8000`. See [DEPLOYMENT.md](DEPLOYMENT.md) for production guidance.
 
+The default compose stack now includes:
+
+- `app` - Flask API
+- `mongo` - MongoDB metadata store
+- `redis` - Celery broker/result backend
+- `worker` - Celery worker for async condition jobs
+- `beat` - optional scheduler for future periodic tasks
+
+Operational references:
+
+- [OBSERVABILITY.md](OBSERVABILITY.md)
+- [docs/ALERTING.md](docs/ALERTING.md)
+- [docs/MONITORING_DATA_RETENTION.md](docs/MONITORING_DATA_RETENTION.md)
+
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push:
@@ -111,7 +133,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push:
 6. Docker image build
 7. Docker Compose smoke test (health, readiness, metrics)
 
-The full test suite currently passes at 329 tests.
+The full test suite currently passes at 337 tests.
 
 ## Troubleshooting
 

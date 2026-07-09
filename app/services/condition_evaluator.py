@@ -14,11 +14,32 @@ from app.services.condition_cache import (
     get_global_negative_cache,
     get_global_ttl_cache,
 )
-from app.services.safe_dsl import DSLValidationError, evaluate_expression
+from app.services.safe_dsl import DSLTokenizer, DSLValidationError, evaluate_expression
 
 
 class ConditionEvaluationError(Exception):
     pass
+
+
+def _is_safe_custom_condition_expression(
+    expression: str, allowed_keys: set[str]
+) -> bool:
+    tokens = DSLTokenizer().tokenize(expression)
+    for index, token in enumerate(tokens):
+        if token.kind != "ident":
+            continue
+
+        next_token = tokens[index + 1] if index + 1 < len(tokens) else None
+        if next_token and next_token.kind == "op" and next_token.value == "(":
+            # Function names are validated by the DSL engine itself.
+            continue
+
+        parts = token.value.split(".")
+        if any(not part or part.startswith("__") for part in parts):
+            return False
+        if parts[0] not in allowed_keys:
+            return False
+    return True
 
 
 @lru_cache(maxsize=256)
@@ -498,6 +519,10 @@ class ConditionEvaluator:
     def _evaluate_custom_condition(self, condition: Condition) -> bool:
         if not condition.expression:
             raise ConditionEvaluationError("Custom conditions require expression")
+        if not _is_safe_custom_condition_expression(
+            condition.expression, set(self.context.keys())
+        ):
+            raise ConditionEvaluationError("Custom condition references unsafe fields")
         result = evaluate_expression(condition.expression, self.context)
         return bool(result)
 

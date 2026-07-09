@@ -44,7 +44,9 @@ def transition_approval_state(
     if target_state not in APPROVAL_STATE_CHOICES:
         raise ConditionManagementError(f"Invalid state: {target_state}")
 
-    current_state = (condition.metadata or {}).get("approval_state", "draft")
+    current_state = condition.approval_state or (condition.metadata or {}).get(
+        "approval_state", "draft"
+    )
     allowed = APPROVAL_TRANSITIONS.get(current_state, set())
     if target_state not in allowed:
         raise ConditionManagementError(
@@ -96,7 +98,7 @@ def rollback_approval_state(
         raise ConditionManagementError("No approval history available")
     previous_state = latest.from_state or "draft"
     metadata = dict(condition.metadata or {})
-    current_state = metadata.get("approval_state", "draft")
+    current_state = condition.approval_state or metadata.get("approval_state", "draft")
     metadata["approval_state"] = previous_state
     metadata["approval_updated_at"] = datetime.now(timezone.utc).isoformat() + "Z"
     condition.metadata = metadata

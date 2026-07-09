@@ -1,0 +1,25 @@
+{
+  "title": "Form Service Application",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Requests per second",
+      "targets": [
+        {
+          "expr": "rate(form_requests_total[5m])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency p95",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(form_request_duration_seconds_bucket[5m]))"
+        }
+      ]
+    }
+  ]
+}

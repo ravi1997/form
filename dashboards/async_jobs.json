@@ -1,0 +1,25 @@
+{
+  "title": "Form Service Async Jobs",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Queued jobs",
+      "targets": [
+        {
+          "expr": "form_async_jobs_queued"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Failed jobs",
+      "targets": [
+        {
+          "expr": "rate(form_async_jobs_failed_total[5m])"
+        }
+      ]
+    }
+  ]
+}

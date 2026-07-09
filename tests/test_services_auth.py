@@ -19,6 +19,7 @@ from app.services.auth import (
     get_session,
     list_active_sessions,
     _token_hash,
+    _jwt_keyring,
 )
 from app.models.auth import UserSession
 
@@ -43,6 +44,18 @@ class TestAuthUtilityFunctions:
             with patch.object(app, "config", {}):
                 with pytest.raises(AuthError, match="JWT secret is not configured"):
                     _jwt_secret()
+
+    def test_additional_key_with_expiry_is_ignored_when_expired(self, app):
+        """Expired additional JWT keys should not be added to the keyring."""
+        expired_at = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        with app.app_context():
+            app.config["JWT_ADDITIONAL_KEYS"] = {
+                "old-key": {"secret": "old-secret", "expires_at": expired_at}
+            }
+            keyring = _jwt_keyring()
+
+        assert "old-key" not in keyring
+        assert keyring[app.config["JWT_ACTIVE_KID"]] == app.config["JWT_SECRET_KEY"]
 
     def test_jwt_algorithm_from_config(self, app_context):
         """Test getting JWT algorithm from config."""

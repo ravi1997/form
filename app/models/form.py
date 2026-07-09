@@ -98,6 +98,10 @@ def _validate_versioned_map_keys(versioned_map, versions, field_name):
 
 
 def _persisted_state(instance, field_name):
+    cache = getattr(instance, "_persisted_state_cache", None)
+    if isinstance(cache, dict) and field_name in cache:
+        return cache[field_name]
+
     if not getattr(instance, "id", None):
         return None
 
@@ -137,9 +141,6 @@ class Version(db.EmbeddedDocument):
     )
 
     def clean(self):
-        if self.status == "DISABLED":
-            self.status = "disabled"
-
         if self.created and self.updated is None:
             self.updated = self.created
 
@@ -288,7 +289,24 @@ class Condition(db.Document):
             self.subConditions = original_sub_conditions
 
         self.updated_at = datetime.now(timezone.utc)
-        return super().save(*args, **kwargs)
+        result = super().save(*args, **kwargs)
+        try:
+            from app.services.condition_management_analysis import (
+                invalidate_condition_usage_cache,
+            )
+            from app.services.condition_management_graph import (
+                invalidate_dependency_graph_cache,
+            )
+            from app.services.condition_management_monitoring import (
+                invalidate_monitoring_cache,
+            )
+
+            invalidate_dependency_graph_cache()
+            invalidate_condition_usage_cache()
+            invalidate_monitoring_cache()
+        except Exception:
+            pass
+        return result
 
 
 class Choice(db.EmbeddedDocument):
@@ -444,7 +462,9 @@ class Question(db.Document):
 
     def save(self, *args, **kwargs):
         self.updated_at = datetime.now(timezone.utc)
-        return super().save(*args, **kwargs)
+        result = super().save(*args, **kwargs)
+        self._persisted_state_cache = {"status": self.status}
+        return result
 
 
 class Section(db.Document):
@@ -525,7 +545,9 @@ class Section(db.Document):
 
     def save(self, *args, **kwargs):
         self.updated_at = datetime.now(timezone.utc)
-        return super().save(*args, **kwargs)
+        result = super().save(*args, **kwargs)
+        self._persisted_state_cache = {"status": self.status}
+        return result
 
 
 class Form(db.Document):
@@ -583,6 +605,10 @@ class Form(db.Document):
         ],
     }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._persisted_state_cache = {"workflow_state": self.workflow_state}
+
     def clean(self):
         previous_state = _persisted_state(self, "workflow_state")
         _ensure_transition_allowed(
@@ -634,7 +660,9 @@ class Form(db.Document):
     def save(self, *args, **kwargs):
         self.updated_at = datetime.now(timezone.utc)
         self.workflow_updated_at = datetime.now(timezone.utc)
-        return super().save(*args, **kwargs)
+        result = super().save(*args, **kwargs)
+        self._persisted_state_cache = {"workflow_state": self.workflow_state}
+        return result
 
 
 class Project(db.Document):
@@ -669,7 +697,9 @@ class Project(db.Document):
 
     def save(self, *args, **kwargs):
         self.updated_at = datetime.now(timezone.utc)
-        return super().save(*args, **kwargs)
+        result = super().save(*args, **kwargs)
+        self._persisted_state_cache = {"status": self.status}
+        return result
 
 
 class ResponseItem(db.EmbeddedDocument):
@@ -753,8 +783,21 @@ class FormResponse(db.Document):
         ],
     }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._persisted_state_cache = {"status": self.status}
+
     def clean(self):
         previous_status = _persisted_state(self, "status")
+        if self.status_history:
+            last_transition = self.status_history[-1]
+            history_status = getattr(last_transition, "transition_to", None)
+            if (
+                previous_status is not None
+                and history_status is not None
+                and previous_status != history_status
+            ):
+                previous_status = history_status
         _ensure_transition_allowed(
             previous_status,
             self.status,
@@ -855,7 +898,9 @@ class FormResponse(db.Document):
 
     def save(self, *args, **kwargs):
         self.updated_at = datetime.now(timezone.utc)
-        return super().save(*args, **kwargs)
+        result = super().save(*args, **kwargs)
+        self._persisted_state_cache = {"status": self.status}
+        return result
 
 
 class ActionExecution(db.Document):

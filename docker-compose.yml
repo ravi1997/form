@@ -10,6 +10,11 @@ services:
       APP_ENV: production
       MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-formadmin}:${MONGO_INITDB_ROOT_PASSWORD:?set MONGO_INITDB_ROOT_PASSWORD in your environment}@mongo:27017/form_prod?authSource=admin
       MONGODB_DB: form_prod
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      CELERY_TASK_DEFAULT_QUEUE: form_tasks
+      CELERY_TASK_TIME_LIMIT: 300
+      CELERY_TASK_SOFT_TIME_LIMIT: 240
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in your environment}
       JWT_ACTIVE_KID: ${JWT_ACTIVE_KID:-v1}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -22,6 +27,8 @@ services:
       - app_logs:/app/logs
     depends_on:
       mongo:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - appnet
@@ -51,9 +58,82 @@ services:
       retries: 10
       start_period: 10s
 
+  redis:
+    image: redis:7-alpine
+    container_name: form-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - appnet
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: form-service:latest
+    container_name: form-worker
+    restart: unless-stopped
+    command: ["celery", "-A", "app.celery.app", "worker", "--loglevel=info"]
+    environment:
+      APP_ENV: production
+      MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-formadmin}:${MONGO_INITDB_ROOT_PASSWORD:?set MONGO_INITDB_ROOT_PASSWORD in your environment}@mongo:27017/form_prod?authSource=admin
+      MONGODB_DB: form_prod
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      CELERY_TASK_DEFAULT_QUEUE: form_tasks
+      CELERY_TASK_TIME_LIMIT: 300
+      CELERY_TASK_SOFT_TIME_LIMIT: 240
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in your environment}
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID:-v1}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - appnet
+
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: form-service:latest
+    container_name: form-beat
+    restart: unless-stopped
+    command: ["celery", "-A", "app.celery.app", "beat", "--loglevel=info"]
+    environment:
+      APP_ENV: production
+      MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-formadmin}:${MONGO_INITDB_ROOT_PASSWORD:?set MONGO_INITDB_ROOT_PASSWORD in your environment}@mongo:27017/form_prod?authSource=admin
+      MONGODB_DB: form_prod
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      CELERY_TASK_DEFAULT_QUEUE: form_tasks
+      CELERY_TASK_TIME_LIMIT: 300
+      CELERY_TASK_SOFT_TIME_LIMIT: 240
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in your environment}
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID:-v1}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - appnet
+
 volumes:
   mongo_data:
   app_logs:
+  redis_data:
 
 networks:
   appnet:

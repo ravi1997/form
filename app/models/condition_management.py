@@ -6,7 +6,16 @@ from app.extensions import db
 
 
 APPROVAL_STATE_CHOICES = ("draft", "review", "published", "deprecated", "archived")
-ASYNC_JOB_STATE_CHOICES = ("queued", "running", "success", "failed", "timeout")
+ASYNC_JOB_STATE_CHOICES = (
+    "created",
+    "queued",
+    "running",
+    "success",
+    "failed",
+    "retrying",
+    "cancelled",
+    "timeout",
+)
 
 
 class ConditionPresetVersion(db.EmbeddedDocument):
@@ -90,17 +99,23 @@ class ConditionAsyncJob(db.Document):
     job_id = db.StringField(required=True, unique=True)
     condition_uuid = db.StringField(required=True)
     status = db.StringField(
-        required=True, choices=ASYNC_JOB_STATE_CHOICES, default="queued"
+        required=True, choices=ASYNC_JOB_STATE_CHOICES, default="created"
     )
+    celery_task_id = db.StringField()
+    task_name = db.StringField()
     context = db.DictField(default=dict)
     result = db.BooleanField()
-    error = db.StringField()
+    error_message = db.StringField()
     trace = db.ListField(db.DictField(), default=list)
     retries = db.IntField(default=0)
+    retry_count = db.IntField(default=0)
     fallback_result = db.BooleanField(default=False)
     timeout_ms = db.IntField(default=1000)
     started_at = db.DateTimeField()
     completed_at = db.DateTimeField()
+    execution_time = db.FloatField()
+    lock_token = db.StringField()
+    lock_expires_at = db.DateTimeField()
     created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
     updated_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
 
@@ -112,6 +127,14 @@ class ConditionAsyncJob(db.Document):
     def save(self, *args, **kwargs):
         self.updated_at = datetime.now(timezone.utc)
         return super().save(*args, **kwargs)
+
+    @property
+    def error(self):
+        return self.error_message
+
+    @error.setter
+    def error(self, value):
+        self.error_message = value
 
 
 class ConditionEvaluationStat(db.Document):
@@ -130,6 +153,5 @@ class ConditionEvaluationStat(db.Document):
             "matched",
             "operator",
             "condition_type",
-            {"fields": ["created_at"], "expireAfterSeconds": 60 * 60 * 24 * 30},
         ],
     }

@@ -17,11 +17,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Audit logging**: `log_audit` now prefers `uuid` over `id` when capturing resource identifiers from returned payloads and model instances.
 - **Condition evaluation**: numeric temporal inputs are treated as Unix timestamps, and DSL string literals now preserve Unicode characters.
 - **Async evaluation**: timeout retries are re-queued instead of recursively blocking the worker thread.
-- **Async recovery**: pending async condition jobs are re-queued from MongoDB state during app startup, and queue counts are exposed via `/api/v1/metrics`.
+- **Async execution**: Celery now executes async condition jobs via Redis-backed workers while MongoDB remains the source of truth for job history, retries, and audit state.
+- **Async observability**: `/api/v1/metrics` now reports created, queued, running, retrying, success, failed, timeout, and cancelled async jobs plus Celery worker availability.
+- **Deployment**: Docker Compose now includes Redis, a Celery worker, and an optional beat service for async execution.
 - **Monitoring retention**: condition evaluation statistics now use a 30-day MongoDB TTL index so the analytics collection stays bounded.
 - **Resource coverage**: nested section, question, and choice lifecycle tests now verify invalid version links, missing parent resources, and delete cascades at the API layer.
-- **Async lifecycle**: the in-memory async executor now has a shutdown hook so worker teardown is controlled instead of implicit.
 - **Deployment**: Docker Compose now requires MongoDB authentication and connects the app with `authSource=admin`.
+- **Documentation**: architecture, deployment, observability, and technical debt docs now describe the Celery/Redis job model and operational workflow.
 
 ### Added
 
@@ -64,4 +66,4 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Docker Compose setup with MongoDB 8 and health checks.
 - GitHub Actions CI: lint, type check, tests, coverage, pip-audit, Docker build, smoke test.
 - `scripts/` directory: `benchmark_conditions.py`, `init_rate_limits.py`, `setup_condition_indexes.py`.
-- 329 automated tests with mongomock (no real MongoDB required).
+- 337 automated tests with mongomock (no real MongoDB required).

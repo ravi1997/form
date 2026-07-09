@@ -5,6 +5,8 @@ Collections:
 - rate_limit_counters: sliding-window counters for auth endpoint rate limiting
 - session_audit_logs: TTL-backed audit trail of auth events
 - token_blocklist   : revoked refresh-token JTIs (TTL-backed)
+
+Token and session hashes are generated with SHA-256 in `app/services/auth.py`.
 """
 
 from datetime import datetime, timezone
@@ -92,6 +94,8 @@ class SessionAuditLog(db.Document):
 
 
 class TokenBlocklist(db.Document):
+    # Only refresh tokens are blocklisted today; access-token revocation would
+    # require a separate token family and invalidation path.
     jti = db.StringField(required=True, unique=True)
     token_hash = db.StringField(required=True, unique=True)
     user_uuid = db.StringField(required=True)

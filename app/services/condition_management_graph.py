@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 from app.models.form import Condition
 from app.services.condition_evaluator import ConditionEvaluator
 
 
-def build_dependency_graph() -> Dict[str, List[str]]:
+@lru_cache(maxsize=1)
+def _build_dependency_graph_cached() -> Dict[str, List[str]]:
     graph = defaultdict(list)
     for condition in Condition.objects:
         deps = []
@@ -17,6 +19,14 @@ def build_dependency_graph() -> Dict[str, List[str]]:
                 deps.append(ref.uuid)
         graph[condition.uuid] = sorted(set(deps))
     return dict(graph)
+
+
+def invalidate_dependency_graph_cache() -> None:
+    _build_dependency_graph_cached.cache_clear()
+
+
+def build_dependency_graph() -> Dict[str, List[str]]:
+    return _build_dependency_graph_cached()
 
 
 def reverse_dependency_graph(

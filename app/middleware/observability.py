@@ -46,13 +46,16 @@ def register_observability_middleware(app) -> None:
         if started is not None:
             duration_ms = (time.perf_counter() - started) * 1000
 
+        if request.method != "OPTIONS":
+            with _metrics_lock:
+                _metrics_state.requests_total += 1
+                _metrics_state.request_duration_ms_sum += duration_ms
+                _metrics_state.responses_by_status[str(response.status_code)] += 1
+
         with _metrics_lock:
-            _metrics_state.requests_total += 1
             _metrics_state.requests_inflight = max(
                 0, _metrics_state.requests_inflight - 1
             )
-            _metrics_state.request_duration_ms_sum += duration_ms
-            _metrics_state.responses_by_status[str(response.status_code)] += 1
 
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")

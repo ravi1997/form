@@ -62,12 +62,16 @@ def create_openapi_app(config: Optional[Dict[str, Any]] = None):
 
     db.init_app(app)
 
-    # Initialize cache system
+    # Initialize cache system and async execution layer
     from app.services.condition_cache import initialize_global_caches
-    from app.services.condition_management_async import recover_pending_async_jobs
+    from app.celery.app import init_celery
+    from app.services.condition_management_monitoring import (
+        ensure_monitoring_stats_retention_index,
+    )
 
     initialize_global_caches(ttl_seconds=300, ttl_max_size=1000)
-    recover_pending_async_jobs()
+    init_celery(app)
+    ensure_monitoring_stats_retention_index(settings.monitoring_stats_retention_days)
 
     register_api_routes(app)
 

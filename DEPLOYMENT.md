@@ -23,11 +23,19 @@ export MONGO_INITDB_ROOT_PASSWORD='your-strong-mongo-root-password'
 docker compose up --build
 ```
 
-The service binds to `http://localhost:8000`. MongoDB data is persisted in the `mongo_data` volume and log files in the `app_logs` volume.
+The service binds to `http://localhost:8000`. MongoDB data is persisted in the `mongo_data` volume, Redis data in the `redis_data` volume, and log files in the `app_logs` volume.
 
-On startup, the application recovers pending async condition jobs from MongoDB
-and re-queues them. This improves restart resilience without requiring a heavier
-queue framework.
+The compose stack now includes:
+
+- `app` - Flask API
+- `mongo` - persistent job metadata and application data
+- `redis` - Celery broker/result backend
+- `worker` - Celery worker for async condition jobs
+- `beat` - optional Celery beat scheduler for periodic jobs
+
+Async jobs are executed by Celery workers and tracked in MongoDB. The job
+collection remains the source of truth for lifecycle history, retry counts,
+timestamps, and audit state.
 
 Condition evaluation statistics are retained for 30 days via a MongoDB TTL
 index on `created_at`. No separate archival job is required for the current
@@ -47,6 +55,11 @@ JWT_ACTIVE_KID=v1
 MONGO_INITDB_ROOT_PASSWORD=<strong-random-mongo-root-password>
 MONGODB_URI=mongodb://formadmin:<password>@mongo:27017/form_prod?authSource=admin
 MONGODB_DB=form_prod
+CELERY_BROKER_URL=redis://redis:6379/0
+CELERY_RESULT_BACKEND=redis://redis:6379/1
+CELERY_TASK_DEFAULT_QUEUE=form_tasks
+CELERY_TASK_TIME_LIMIT=300
+CELERY_TASK_SOFT_TIME_LIMIT=240
 ```
 
 All other variables default to safe production values when `APP_ENV=production`.
@@ -64,6 +77,10 @@ All other variables default to safe production values when `APP_ENV=production`.
 - [ ] Log directory (`LOG_DIR`) mounted to persistent storage
 - [ ] MongoDB authentication enabled
 - [ ] MongoDB network access restricted to the application containers
+- [ ] Redis available for Celery broker/result backend
+- [ ] Celery worker containers deployed and scaled independently from the API
+- [ ] `CELERY_TASK_TIME_LIMIT` set above expected task duration
+- [ ] `CELERY_TASK_SOFT_TIME_LIMIT` set below `CELERY_TASK_TIME_LIMIT`
 - [ ] Redis configured for distributed rate limiting (optional but recommended for multi-worker)
 - [ ] `LOG_LEVEL=INFO` (not DEBUG — avoids verbose debug output in production)
 
@@ -182,3 +199,8 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and pull
 6. **Vulnerability audit** — `pip-audit -r requirements.txt`
 7. **Docker build** — verifies image builds successfully
 8. **Smoke test** — `docker compose up`, hits `/health`, `/readiness`, `/metrics`
+
+## Celery worker operations
+
+See [docs/CELERY_OPERATIONS.md](docs/CELERY_OPERATIONS.md) for worker startup,
+scaling, retry behavior, and troubleshooting guidance.

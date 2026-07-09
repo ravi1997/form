@@ -13,9 +13,6 @@ from app.services.condition_management_approval import (
     transition_approval_state,
 )
 from app.services.condition_management_async import (
-    InMemoryConditionQueue,
-    _default_queue,
-    _run_async_job,
     enqueue_async_evaluation,
     evaluate_condition_async,
     get_async_job_status,
@@ -64,9 +61,6 @@ _diff_dict = diff_dict
 __all__ = [
     "APPROVAL_TRANSITIONS",
     "ConditionManagementError",
-    "InMemoryConditionQueue",
-    "_default_queue",
-    "_run_async_job",
     "_serialize_condition",
     "_diff_dict",
     "record_condition_version",

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Form Service is a production-ready REST API built with **Flask** and **flask-openapi3**, backed by **MongoDB** via **MongoEngine**. It manages hierarchical form structures (Projects → Forms → Sections → Questions → Choices), user authentication with JWT session management, condition evaluation, rate limiting, and audit logging.
+Form Service is a production-ready REST API built with **Flask** and **flask-openapi3**, backed by **MongoDB** via **MongoEngine** and **Celery/Redis** for durable async execution. It manages hierarchical form structures (Projects → Forms → Sections → Questions → Choices), user authentication with JWT session management, condition evaluation, rate limiting, job lifecycle tracking, and audit logging.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -36,7 +36,7 @@ Form Service is a production-ready REST API built with **Flask** and **flask-ope
 │  │  • RBAC (role-based access control)                   │   │
 │  │  • ConditionEvaluator (DSL + type system)             │   │
 │  │  • RateLimitService (Redis / in-memory fallback)      │   │
-│  │  • Async condition queue (MongoDB-backed recovery)    │   │
+│  │  • Celery task layer (Redis broker, MongoDB ledger)    │   │
 │  │  • RotatingLoggerService (structured file logging)    │   │
 │  └─────────────────────────────────────────────────────┘   │
 │  ┌─────────────────────────────────────────────────────┐   │
@@ -49,6 +49,15 @@ Form Service is a production-ready REST API built with **Flask** and **flask-ope
             ┌─────────────▼──────────────┐
             │   MongoDB (mongoengine)     │
             └────────────────────────────┘
+
+                       ▲
+                       │ lifecycle/audit state
+                       │
+┌──────────────────────▼──────────────────────────────────────┐
+│                      Celery / Redis                         │
+│   Flask API → Celery client → Redis broker → workers        │
+│   MongoDB stores job metadata, retry history, and audit     │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -128,6 +137,7 @@ app/
     ├── condition_management_presets.py
     ├── condition_management_analysis.py
     ├── condition_management_async.py
+    ├── celery/                # Celery app, tasks, signals, config
     ├── condition_management_graph.py
     ├── condition_management_monitoring.py
     ├── rotating_logger.py    # RotatingLoggerService (singleton)
@@ -138,10 +148,10 @@ app/
         └── decorators.py
 
 Operational notes:
-- Async condition jobs are persisted in MongoDB and are re-queued on app startup.
-- The queue implementation remains intentionally lightweight to avoid a full Celery/RQ dependency.
-- The default in-memory executor is closed on process exit so in-flight work has a controlled shutdown path.
-- Queue status is observable via `GET /api/v1/metrics` and the async job status endpoint.
+- Async condition jobs are executed by Celery workers with Redis as the broker and result backend.
+- MongoDB remains the source of truth for job metadata, retry history, execution timestamps, and audit state.
+- Flask tasks run inside the active Flask application context via a custom Celery task base.
+- Queue status is observable via `GET /api/v1/metrics`, the async job status endpoint, and Celery worker logs/inspect output.
 - Condition evaluation statistics use a MongoDB TTL index on `created_at` with a 30-day retention window, preventing unbounded growth of the analytics collection.
 ```
 
@@ -169,9 +179,9 @@ Operational notes:
 6. Response sent to client
 
 Startup recovery:
-- `create_openapi_app()` invokes `recover_pending_async_jobs()` after the app and database are initialized.
-- Jobs that were queued or running when a worker exited are recovered from MongoDB state.
-- `GET /api/v1/metrics` includes a snapshot of queued, running, failed, and timeout async jobs.
+- `create_openapi_app()` initializes Celery after the Flask app and MongoDB connection are ready.
+- Jobs that were queued or running when a worker exited remain durable in MongoDB and can be resumed by Celery workers after restart.
+- `GET /api/v1/metrics` includes a snapshot of created, queued, running, retrying, success, failed, timeout, and cancelled async jobs.
 - `condition_evaluation_stats` is automatically aged out by MongoDB after 30 days via a TTL index on `created_at`.
 
 ## Future Roadmap
