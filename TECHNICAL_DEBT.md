@@ -6,6 +6,7 @@ This file tracks known deferred work that is not blocking the current remediatio
 
 - `ConditionEvaluationStat` retention is configurable via `MONITORING_STATS_RETENTION_DAYS` and defaults to 30 days; broader archival policy for other analytics collections remains deferred.
 - The Celery job ledger is durable, but we still do not have a formal archival/retention policy for completed async job history.
+- The new `/ready` alias exists for compose/CI compatibility, but the API still primarily documents `/readiness`.
 
 ## Engineering improvements
 

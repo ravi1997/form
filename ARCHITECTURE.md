@@ -36,7 +36,7 @@ Form Service is a production-ready REST API built with **Flask** and **flask-ope
 │  │  • RBAC (role-based access control)                   │   │
 │  │  • ConditionEvaluator (DSL + type system)             │   │
 │  │  • RateLimitService (Redis / in-memory fallback)      │   │
-│  │  • Celery task layer (Redis broker, MongoDB ledger)    │   │
+│  │  • Celery task layer (Redis broker, MongoDB ledger)   │   │
 │  │  • RotatingLoggerService (structured file logging)    │   │
 │  └─────────────────────────────────────────────────────┘   │
 │  ┌─────────────────────────────────────────────────────┐   │
@@ -151,6 +151,7 @@ Operational notes:
 - Async condition jobs are executed by Celery workers with Redis as the broker and result backend.
 - MongoDB remains the source of truth for job metadata, retry history, execution timestamps, and audit state.
 - Flask tasks run inside the active Flask application context via a custom Celery task base.
+- Celery worker startup is independent from API startup and is exposed via `app.celery.worker`.
 - Queue status is observable via `GET /api/v1/metrics`, the async job status endpoint, and Celery worker logs/inspect output.
 - Condition evaluation statistics use a MongoDB TTL index on `created_at` with a 30-day retention window, preventing unbounded growth of the analytics collection.
 ```

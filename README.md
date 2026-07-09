@@ -62,7 +62,9 @@ make lint       # ruff check
 make format     # ruff format + ruff check --fix
 make type-check # mypy
 make audit      # pip-audit vulnerability scan
-make docker-up  # docker compose up --build -d
+make up         # docker compose up -d --build
+make down       # docker compose down -v --remove-orphans
+make logs       # follow app and worker logs
 ```
 
 ## Required environment variables
@@ -99,7 +101,6 @@ The OpenAPI schema is served at `/openapi.json` by flask-openapi3.
 ## Docker
 
 ```bash
-docker build -t form-service:latest .
 export JWT_SECRET_KEY='replace-me'
 export MONGO_INITDB_ROOT_PASSWORD='replace-me-too'
 docker compose up --build
@@ -133,7 +134,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push:
 6. Docker image build
 7. Docker Compose smoke test (health, readiness, metrics)
 
-The full test suite currently passes at 337 tests.
+The full test suite currently passes at 339 tests.
 
 ## Troubleshooting
 

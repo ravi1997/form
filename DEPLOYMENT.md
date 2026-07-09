@@ -37,6 +37,9 @@ Async jobs are executed by Celery workers and tracked in MongoDB. The job
 collection remains the source of truth for lifecycle history, retry counts,
 timestamps, and audit state.
 
+The Celery worker entrypoint is `celery -A app.celery.worker worker --loglevel=info`.
+The optional scheduler entrypoint is `celery -A app.celery.worker beat --loglevel=info`.
+
 Condition evaluation statistics are retained for 30 days via a MongoDB TTL
 index on `created_at`. No separate archival job is required for the current
 operational footprint.
@@ -60,6 +63,8 @@ CELERY_RESULT_BACKEND=redis://redis:6379/1
 CELERY_TASK_DEFAULT_QUEUE=form_tasks
 CELERY_TASK_TIME_LIMIT=300
 CELERY_TASK_SOFT_TIME_LIMIT=240
+CELERY_TASK_ALWAYS_EAGER=false
+CELERY_TASK_EAGER_PROPAGATES=false
 ```
 
 All other variables default to safe production values when `APP_ENV=production`.

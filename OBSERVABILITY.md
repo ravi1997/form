@@ -10,6 +10,10 @@ The service exposes structured logging, request metrics, security event logs, Ce
 - inflight request count
 - average request latency
 - response counts by status code
+- Celery queue health:
+  - pending tasks
+  - active tasks
+  - worker availability
 - async queue snapshot:
   - queued
   - running

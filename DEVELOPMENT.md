@@ -45,9 +45,11 @@ make lint        # ruff check
 make type-check  # mypy
 make format      # ruff format (auto-fix)
 make audit       # pip-audit vulnerability scan
-make docker-build
-make docker-up   # docker compose up --build -d
-make docker-down
+make build       # docker compose build
+make up          # docker compose up -d --build
+make down        # docker compose down -v --remove-orphans
+make logs        # follow app and worker logs
+make shell       # open a shell in the app container
 make clean       # remove __pycache__, .coverage, etc.
 ```
 

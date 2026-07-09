@@ -63,21 +63,57 @@ jobs:
       - name: Validate docker compose file
         env:
           JWT_SECRET_KEY: ci-secret
+          MONGO_INITDB_ROOT_PASSWORD: ci-mongo-secret
         run: docker compose config
 
       - name: Docker compose smoke test
         env:
           JWT_SECRET_KEY: ci-secret
           JWT_ACTIVE_KID: v1
+          MONGO_INITDB_ROOT_PASSWORD: ci-mongo-secret
         run: |
-          docker compose up -d --build
-          for _ in {1..20}; do
-            if curl -fsS http://127.0.0.1:8000/api/v1/health >/dev/null; then
+          docker compose up -d --build app mongo redis worker
+          for _ in {1..30}; do
+            if curl -fsS http://127.0.0.1:8000/api/v1/health >/dev/null && curl -fsS http://127.0.0.1:8000/api/v1/ready >/dev/null; then
               break
             fi
-            sleep 3
+            sleep 2
           done
           curl -fsS http://127.0.0.1:8000/api/v1/health
-          curl -fsS http://127.0.0.1:8000/api/v1/readiness
+          curl -fsS http://127.0.0.1:8000/api/v1/ready
           curl -fsS http://127.0.0.1:8000/api/v1/metrics
+          docker compose exec -T app python - <<'PY'
+from app.models.form import Condition
+from app.models.condition_management import ConditionAsyncJob
+from app.services.condition_management_async import enqueue_async_evaluation, get_async_job_status
+import time
+
+Condition.drop_collection()
+ConditionAsyncJob.drop_collection()
+Condition(
+    uuid="ci-async",
+    conditionType="comparison",
+    targetField="status",
+    operator="equals",
+    operands=["approved"],
+    isActive=True,
+).save()
+job = enqueue_async_evaluation(
+    "ci-async",
+    {"status": "approved"},
+    timeout_ms=1000,
+    retries=1,
+    fallback_result=False,
+)
+deadline = time.time() + 30
+payload = None
+status = None
+while time.time() < deadline:
+    payload = get_async_job_status(job.job_id)
+    status = payload["status"]
+    if status in ("success", "failed", "timeout", "cancelled"):
+        break
+    time.sleep(0.5)
+assert status == "success", payload
+PY
           docker compose down -v

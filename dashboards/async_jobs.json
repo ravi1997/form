@@ -5,10 +5,28 @@
   "panels": [
     {
       "type": "timeseries",
-      "title": "Queued jobs",
+      "title": "Pending jobs",
       "targets": [
         {
           "expr": "form_async_jobs_queued"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Active jobs",
+      "targets": [
+        {
+          "expr": "form_async_jobs_running"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Task throughput",
+      "targets": [
+        {
+          "expr": "rate(form_async_jobs_success_total[5m]) + rate(form_async_jobs_failed_total[5m])"
         }
       ]
     },
@@ -18,6 +36,15 @@
       "targets": [
         {
           "expr": "rate(form_async_jobs_failed_total[5m])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Worker availability",
+      "targets": [
+        {
+          "expr": "form_async_workers_available"
         }
       ]
     }

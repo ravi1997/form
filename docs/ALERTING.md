@@ -17,6 +17,8 @@ Recommended alert thresholds for the current operational model.
 - Queue backlog: more than 1000 queued jobs
 - Job failure rate: more than 5% over 10 minutes
 - Retry storms: retry count spikes above baseline for 10 minutes
+- Worker unavailable: no successful heartbeat for 5 minutes
+- Long running tasks: execution time above the configured soft time limit or SLA
 
 ## Latency
 

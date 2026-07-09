@@ -7,13 +7,13 @@ job metadata, status history, retry counts, timestamps, and audit state.
 ## Start workers
 
 ```bash
-celery -A app.celery.app worker --loglevel=info
+celery -A app.celery.worker worker --loglevel=info
 ```
 
 For periodic tasks:
 
 ```bash
-celery -A app.celery.app beat --loglevel=info
+celery -A app.celery.worker beat --loglevel=info
 ```
 
 ## Scale workers
