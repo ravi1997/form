@@ -2,6 +2,7 @@
 
 import logging
 import json
+import threading
 import pytest
 from flask import Flask, g
 
@@ -242,6 +243,21 @@ class TestLoggerSingletons:
         logger = get_logger("test")
         assert isinstance(logger, LoggerService)
 
+    def test_get_logger_is_thread_safe(self):
+        """Test concurrent singleton initialization returns one instance."""
+        results = []
+
+        def fetch_logger():
+            results.append(get_logger("threaded"))
+
+        threads = [threading.Thread(target=fetch_logger) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert len({id(logger) for logger in results}) == 1
+
 
 class TestLogRequestDecorator:
     """Tests for log_request_middleware decorator."""
@@ -332,6 +348,35 @@ class TestLogAuditDecorator:
 
         assert result["uuid"] == "user_123"
         assert captured["resource_id"] == "user_123"
+        assert captured["status"] == "success"
+
+    def test_log_audit_decorator_stringifies_dict_id(self):
+        """Test log_audit decorator stringifies dict id fallback."""
+        app = Flask(__name__)
+        captured = {}
+
+        class DummyLogger:
+            def log_audit_event(self, **kwargs):
+                captured.update(kwargs)
+
+        @log_audit("update", "user")
+        def update_operation():
+            return {"id": 12345}
+
+        with app.test_request_context():
+            original_get_logger = logging_decorators.get_logger
+
+            def fake_get_logger() -> DummyLogger:
+                return DummyLogger()
+
+            logging_decorators.get_logger = fake_get_logger
+            try:
+                result = update_operation()
+            finally:
+                logging_decorators.get_logger = original_get_logger
+
+        assert result["id"] == 12345
+        assert captured["resource_id"] == "12345"
         assert captured["status"] == "success"
 
     def test_log_audit_decorator_exception(self):

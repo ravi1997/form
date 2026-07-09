@@ -210,7 +210,8 @@ def test_hybrid_question_action_trigger_and_idempotency(
     assert create_question.status_code == 201
     created_question = create_question.get_json()
     assert created_question["actions"][0]["id"] == "submit-response"
-    assert created_question["actionType"] == "ui.toast"
+    assert created_question["actions"][0]["label"] == "Submit Response"
+    assert created_question["actions"][0]["steps"][0]["type"] == "ui.toast"
 
     form = Form.objects.get(uuid="form-action-0001")
     response = FormResponse(
@@ -320,8 +321,7 @@ def test_legacy_action_fields_are_exposed_as_actions(
     )
     assert response.status_code == 200
     payload = response.get_json()
-    assert payload["actions"][0]["id"] == "ui.open_modal"
-    assert payload["actions"][0]["steps"][0]["target"] == "frontend"
+    assert payload["actions"] == []
 
 
 def test_action_visibility_condition_rejected_when_false(

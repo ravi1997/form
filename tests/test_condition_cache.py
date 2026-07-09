@@ -125,6 +125,14 @@ class TestRequestLevelCache:
         assert result is None
         assert cache.get_stats().total_keys == 0
 
+    def test_request_cache_hash_context_is_stable(self):
+        """RequestLevelCache should hash equivalent contexts consistently."""
+        cache = RequestLevelCache()
+        context1 = {"b": 2, "a": 1, "nested": {"x": True}}
+        context2 = {"nested": {"x": True}, "a": 1, "b": 2}
+
+        assert cache._hash_context(context1) == cache._hash_context(context2)
+
 
 class TestTTLEvaluationCache:
     """Tests for TTL-based evaluation cache."""
@@ -242,6 +250,28 @@ class TestNegativeCache:
 
         result = cache.is_always_false("cond-1", context)
         assert result is False
+
+    def test_negative_cache_hash_context_handles_unordered_dicts(self):
+        """NegativeCache should hash equivalent contexts consistently."""
+        cache = NegativeCache()
+        context1 = {"b": 2, "a": 1}
+        context2 = {"a": 1, "b": 2}
+
+        assert cache._hash_context(context1) == cache._hash_context(context2)
+
+    def test_negative_cache_eviction_clears_bucket_state(self):
+        """Evicting a key should not leave a permanent false-positive trace."""
+        cache = NegativeCache(max_entries=1, bucket_count=16)
+        context1 = {"value": "first"}
+        context2 = {"value": "second"}
+
+        cache.mark_always_false("cond-1", context1)
+        assert cache.is_always_false("cond-1", context1) is True
+
+        cache.mark_always_false("cond-2", context2)
+
+        assert cache.is_always_false("cond-1", context1) is False
+        assert cache.is_always_false("cond-2", context2) is True
 
 
 class TestCacheInvalidationManager:
