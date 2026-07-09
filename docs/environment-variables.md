@@ -16,6 +16,14 @@
 | `LOG_DIR` | Directory for rotating logs |
 | `CORS_ALLOW_ORIGINS` | Allowed browser origins |
 
+## JWT variables
+
+| Variable | Purpose |
+| --- | --- |
+| `JWT_ALGORITHM` | JWT signing algorithm, currently `HS256` |
+| `JWT_ACCESS_TOKEN_EXPIRES_MINUTES` | Access token TTL |
+| `JWT_REFRESH_TOKEN_EXPIRES_DAYS` | Refresh token TTL |
+
 ## Auth and limits
 
 | Variable | Purpose |
@@ -26,6 +34,11 @@
 | `AUTH_RATE_LIMIT_REFRESH_MAX` | Refresh rate window count |
 | `AUTH_RATE_LIMIT_LOGOUT_MAX` | Logout rate window count |
 | `RESOURCE_RATE_LIMIT_MAX` | Resource API request count |
+| `RESOURCE_RATE_LIMIT_WINDOW_SECONDS` | Resource API rate-limit window |
+| `RESOURCE_RBAC_REQUIRE_ORG_ROLE_ALIGNMENT` | Require org-role alignment for project access |
+| `WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE` | Enforce review before approval in form workflow |
+| `ENABLE_AUDIT_LOGS` | Enable or disable security/audit event logging |
+| `RATE_LIMIT_FAIL_OPEN` | Fail open when the Redis rate limiter is unavailable |
 
 ## Ops and retention
 
@@ -37,3 +50,27 @@
 | `CELERY_TASK_SOFT_TIME_LIMIT` | Soft async task timeout |
 | `ENABLE_COMPRESSION` | Enables response compression |
 | `REQUEST_ID_HEADER` | Request ID header name |
+| `API_VERSION` | Exposed API version string |
+
+## Logging and database
+
+| Variable | Purpose |
+| --- | --- |
+| `LOG_LEVEL` | Root application log level |
+| `LOG_DIR` | Path used by the rotating logger |
+| `LOG_MAX_BYTES` | Maximum size of one log file before rotation |
+| `LOG_BACKUP_COUNT` | Number of rotated log files to retain |
+| `MONGODB_CONNECT_TIMEOUT_MS` | MongoDB connection timeout budget |
+
+## Example production set
+
+```bash
+APP_ENV=production
+JWT_SECRET_KEY=<strong-random-secret>
+JWT_ACTIVE_KID=v1
+MONGODB_URI=mongodb://formadmin:<password>@mongo:27017/form_prod?authSource=admin
+MONGODB_DB=form_prod
+CELERY_BROKER_URL=redis://redis:6379/0
+CELERY_RESULT_BACKEND=redis://redis:6379/1
+LOG_LEVEL=INFO
+```

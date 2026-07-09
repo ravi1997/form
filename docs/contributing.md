@@ -13,3 +13,17 @@
 3. Update the documentation that reflects the changed behavior.
 4. Run targeted tests and quality checks.
 5. Summarize the behavioral change and validation in the PR.
+
+## When to update docs
+
+- when a route is added, renamed, or removed
+- when configuration defaults or validation rules change
+- when auth or RBAC behavior changes
+- when operational behavior changes, such as logging or rate limiting
+- when background job behavior changes
+
+## Review standard
+
+- favor evidence over assumptions
+- update README only as an index, not as the sole source of detail
+- prefer focused commits when the change naturally separates into code, docs, and tests
