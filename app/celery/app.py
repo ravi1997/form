@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Optional
 
 from celery import Celery
@@ -9,6 +10,7 @@ from app.celery.config import build_celery_config
 
 
 celery_app = Celery("form_service", include=["app.celery.tasks"])
+celery_app.conf.update(build_celery_config(os.environ))
 app = celery_app
 _registered = False
 

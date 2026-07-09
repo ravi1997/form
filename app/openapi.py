@@ -68,10 +68,18 @@ def create_openapi_app(config: Optional[Dict[str, Any]] = None):
     from app.services.condition_management_monitoring import (
         ensure_monitoring_stats_retention_index,
     )
+    from pymongo.errors import PyMongoError
 
     initialize_global_caches(ttl_seconds=300, ttl_max_size=1000)
     init_celery(app)
-    ensure_monitoring_stats_retention_index(settings.monitoring_stats_retention_days)
+    try:
+        ensure_monitoring_stats_retention_index(
+            settings.monitoring_stats_retention_days
+        )
+    except PyMongoError as exc:
+        app.logger.warning(
+            "monitoring_stats_retention_index_setup_failed: %s", exc
+        )
 
     register_api_routes(app)
 

@@ -68,6 +68,11 @@ def readiness():
     )
 
 
+@health_api.get("/ready", tags=[system_tag], responses={200: ReadinessResponse})
+def ready():
+    return readiness()
+
+
 @health_api.get("/metrics", tags=[system_tag])
 def metrics():
     snapshot = get_metrics_snapshot()

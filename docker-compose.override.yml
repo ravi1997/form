@@ -1,9 +1,17 @@
+x-form-dev-env: &form_dev_env
+  APP_ENV: development
+  MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-formadmin}:${MONGO_INITDB_ROOT_PASSWORD:?set MONGO_INITDB_ROOT_PASSWORD in your environment}@mongo:27017/form_dev?authSource=admin
+  MONGODB_DB: form_dev
+  LOG_LEVEL: DEBUG
+
 services:
   app:
-    environment:
-      APP_ENV: development
-      MONGODB_URI: mongodb://mongo:27017/form_dev
-      MONGODB_DB: form_dev
-      LOG_LEVEL: DEBUG
+    environment: *form_dev_env
     volumes:
       - ./:/app
+
+  worker:
+    environment: *form_dev_env
+
+  beat:
+    environment: *form_dev_env

@@ -18,6 +18,7 @@ import warnings
 from typing import Any, Dict, Mapping, Optional, Type
 
 from pydantic import BaseModel, Field, ValidationError as PydanticValidationError
+from pymongo.uri_parser import parse_uri
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +257,47 @@ class BaseConfig:
         if raw is None or raw.strip() == "":
             return list(default or [])
         return [item.strip() for item in raw.split(",") if item.strip()]
+
+    @staticmethod
+    def _mongodb_settings_from_uri(uri: str) -> Dict[str, Any]:
+        settings: Dict[str, Any] = {"host": uri}
+        try:
+            parsed = parse_uri(uri)
+        except Exception:
+            return settings
+
+        options = parsed.get("options") or {}
+        nodelist = parsed.get("nodelist") or []
+        if nodelist:
+            hosts = ",".join(f"{host}:{port}" for host, port in nodelist)
+            database = parsed.get("database")
+            query_parts = []
+            auth_source = options.get("authsource") or options.get("authSource")
+            if auth_source:
+                query_parts.append(f"authSource={auth_source}")
+            auth_mechanism = options.get("authmechanism") or options.get(
+                "authMechanism"
+            )
+            if auth_mechanism:
+                query_parts.append(f"authMechanism={auth_mechanism}")
+            query = f"?{'&'.join(query_parts)}" if query_parts else ""
+            settings["host"] = f"mongodb://{hosts}"
+            if database:
+                settings["host"] = f"{settings['host']}/{database}"
+            settings["host"] = f"{settings['host']}{query}"
+        if parsed.get("username"):
+            settings["username"] = parsed["username"]
+        if parsed.get("password"):
+            settings["password"] = parsed["password"]
+        auth_source = options.get("authsource") or options.get("authSource")
+        if auth_source:
+            settings["authentication_source"] = auth_source
+        auth_mechanism = options.get("authmechanism") or options.get("authMechanism")
+        if auth_mechanism:
+            settings["authentication_mechanism"] = auth_mechanism
+        settings.setdefault("uuidRepresentation", "standard")
+
+        return settings
 
     @staticmethod
     def _env_bool(name: str, default: bool) -> bool:
@@ -536,9 +578,8 @@ class BaseConfig:
         existing_settings = app.config.get("MONGODB_SETTINGS")
         if isinstance(existing_settings, dict):
             merged_settings = dict(existing_settings)
-            merged_settings.setdefault(
-                "host", cls.get_str(app.config, "MONGODB_URI", cls.MONGODB_URI)
-            )
+            mongodb_uri = cls.get_str(app.config, "MONGODB_URI", cls.MONGODB_URI)
+            merged_settings.setdefault("host", mongodb_uri)
             merged_settings.setdefault(
                 "db", cls.get_str(app.config, "MONGODB_DB", cls.MONGODB_DB)
             )
@@ -559,10 +600,14 @@ class BaseConfig:
                 ),
             )
             merged_settings.setdefault("alias", "default")
+            merged_settings.update(
+                cls._mongodb_settings_from_uri(mongodb_uri)
+            )
             app.config["MONGODB_SETTINGS"] = merged_settings
         else:
+            mongodb_uri = cls.get_str(app.config, "MONGODB_URI", cls.MONGODB_URI)
             app.config["MONGODB_SETTINGS"] = {
-                "host": cls.get_str(app.config, "MONGODB_URI", cls.MONGODB_URI),
+                "host": mongodb_uri,
                 "db": cls.get_str(app.config, "MONGODB_DB", cls.MONGODB_DB),
                 "connectTimeoutMS": cls.get_int(
                     app.config,
@@ -575,7 +620,11 @@ class BaseConfig:
                     cls.MONGODB_CONNECT_TIMEOUT_MS,
                 ),
                 "alias": "default",
+                "uuidRepresentation": "standard",
             }
+            app.config["MONGODB_SETTINGS"].update(
+                cls._mongodb_settings_from_uri(mongodb_uri)
+            )
 
     @classmethod
     def load_app_config(
