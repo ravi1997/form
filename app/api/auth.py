@@ -87,6 +87,7 @@ def register(body: RegisterRequest):
         password_hash=generate_password_hash(body.password),
         created_at=now,
         updated_at=now,
+        status="unverified",
     )
     user.save()
 
@@ -132,6 +133,28 @@ def login(body: LoginRequest):
             details={"email": email},
         )
         return _unauthorized("Invalid email or password")
+
+    if user.status == "unverified":
+        _security_event(
+            event="login",
+            outcome="failed",
+            endpoint="/api/v1/auth/login",
+            actor_user_uuid=user.uuid,
+            reason="user_unverified",
+            details={"email": email},
+        )
+        return _unauthorized("User is unverified. Please contact an organization administrator.")
+
+    if user.status in ("inactive", "suspended", "locked", "deleted"):
+        _security_event(
+            event="login",
+            outcome="failed",
+            endpoint="/api/v1/auth/login",
+            actor_user_uuid=user.uuid,
+            reason="user_disabled",
+            details={"email": email, "status": user.status},
+        )
+        return _unauthorized("User account is inactive or disabled")
 
     if not check_password_hash(user.password_hash, body.password):
         _security_event(

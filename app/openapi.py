@@ -81,6 +81,14 @@ def create_openapi_app(config: Optional[Dict[str, Any]] = None):
             "monitoring_stats_retention_index_setup_failed: %s", exc
         )
 
+    # Seed default superadmin if configured (skip during testing to prevent conflicts)
+    if not app.config.get("TESTING"):
+        try:
+            from scripts.seed_superadmin import seed_superadmin
+            seed_superadmin(app)
+        except Exception as exc:
+            app.logger.warning("superadmin_seeding_failed: %s", exc)
+
     register_api_routes(app)
 
     atexit.register(

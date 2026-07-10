@@ -16,9 +16,15 @@ from app.api.auth_support import (
     _require_admin_for_user,
     _security_event,
     _unauthorized,
+    _resolve_access_identity,
     auth_api,
     auth_tag,
 )
+from werkzeug.security import generate_password_hash
+from app.models.user import User, Organization
+from app.utils import utcnow
+from app.schemas.user import UserCreateInput, UserUpdateInput, UserOutput
+from app.api.resources_schemas import UserListResponse, MessageResponse
 from app.utils import client_ip
 from app.schemas.auth import (
     AdminAuditLogEntry,
@@ -509,3 +515,309 @@ def admin_audit_logs_search(
         },
     )
     return to_json_ready(response)
+
+
+def _resolve_and_require_elevated_admin(header: AuthorizationHeader):
+    from app.services.rbac import require_admin_by_payload
+    payload = _resolve_access_identity(header)
+    return require_admin_by_payload(payload)
+
+
+@auth_api.get(
+    "/admin/users",
+    tags=[auth_tag],
+    responses={200: UserListResponse, 401: ErrorResponse, 403: ErrorResponse},
+)
+def admin_list_users(header: AuthorizationHeader, query: SessionListQuery):
+    try:
+        payload, admin_user = _resolve_and_require_elevated_admin(header)
+    except AuthError as exc:
+        return _unauthorized(str(exc))
+
+    touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
+
+    if admin_user.is_super_admin:
+        qs = User.objects
+    else:
+        # Organization admin can see only users of organizations they manage
+        admin_org_ids = [str(org.id) for org in admin_user.organizations or [] if "admin" in (admin_user.roles or {}).get(str(org.id), [])]
+        # Resolve to database Organization references to filter
+        resolved_orgs = Organization.objects(id__in=admin_org_ids)
+        qs = User.objects(organizations__in=list(resolved_orgs))
+
+    total_items = qs.count()
+    total_pages = (total_items + query.page_size - 1) // query.page_size if total_items else 0
+    skip = (query.page - 1) * query.page_size
+    items = list(qs.skip(skip).limit(query.page_size))
+
+    from app.schemas.mappers import to_user_output
+    response = UserListResponse(
+        items=[to_user_output(item) for item in items],
+        page=query.page,
+        page_size=query.page_size,
+        total_items=total_items,
+        total_pages=total_pages,
+    )
+    return to_json_ready(response)
+
+
+@auth_api.post(
+    "/admin/users",
+    tags=[auth_tag],
+    responses={201: UserOutput, 400: ErrorResponse, 401: ErrorResponse, 403: ErrorResponse},
+)
+def admin_create_user(header: AuthorizationHeader, body: UserCreateInput):
+    try:
+        payload, admin_user = _resolve_and_require_elevated_admin(header)
+    except AuthError as exc:
+        return _unauthorized(str(exc))
+
+    touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
+
+    if not admin_user.is_super_admin:
+        admin_org_ids = [str(org.id) for org in admin_user.organizations or [] if "admin" in (admin_user.roles or {}).get(str(org.id), [])]
+        for org_uuid in body.organizations:
+            org = Organization.objects(uuid=org_uuid).first()
+            if not org or str(org.id) not in admin_org_ids:
+                return _unauthorized(f"You cannot create users in organization: {org_uuid}")
+
+    # Determine status: org admin created by super admin -> verified/active by default
+    status = "unverified"
+    is_email_verified = False
+    if admin_user.is_super_admin and (body.is_organisation_admin or any("admin" in roles for roles in body.roles.values())):
+        status = "active"
+        is_email_verified = True
+
+    try:
+        resolved_orgs = []
+        for org_uuid in body.organizations:
+            org = Organization.objects(uuid=org_uuid).first()
+            if not org:
+                return _bad_request(f"Organization not found: {org_uuid}")
+            resolved_orgs.append(org)
+
+        mapped_roles = {}
+        for k, v in body.roles.items():
+            org = Organization.objects(uuid=k).first() or Organization.objects(id=k).first()
+            if org:
+                mapped_roles[str(org.id)] = v
+            else:
+                mapped_roles[k] = v
+
+        user = User(
+            uuid=body.uuid,
+            name=body.name,
+            designation=body.designation,
+            email=body.email.strip().lower(),
+            phone=body.phone,
+            organizations=resolved_orgs,
+            roles=mapped_roles,
+            status=status,
+            auth_provider=body.auth_provider,
+            password_hash=body.password_hash or generate_password_hash("TempPass123!"),
+            is_email_verified=is_email_verified,
+            is_organisation_admin=body.is_organisation_admin,
+            is_super_admin=body.is_super_admin,
+        )
+        user.save()
+    except Exception as exc:
+        current_app.logger.exception("Failed to create user")
+        return _bad_request(str(exc))
+
+    from app.schemas.mappers import to_user_output
+    return to_json_ready(to_user_output(user)), 201
+
+
+@auth_api.get(
+    "/admin/users/<user_uuid>",
+    tags=[auth_tag],
+    responses={200: UserOutput, 401: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse},
+)
+def admin_get_user(header: AuthorizationHeader, path: AdminUserPath):
+    try:
+        payload, admin_user = _resolve_and_require_elevated_admin(header)
+    except AuthError as exc:
+        return _unauthorized(str(exc))
+
+    touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
+
+    target_user = User.objects(uuid=path.user_uuid).first()
+    if not target_user:
+        return _bad_request("User not found")
+
+    is_authorized = False
+    if admin_user.is_super_admin:
+        is_authorized = True
+    else:
+        admin_org_ids = [str(org.id) for org in admin_user.organizations or [] if "admin" in (admin_user.roles or {}).get(str(org.id), [])]
+        target_org_ids = [str(org.id) for org in target_user.organizations or []]
+        if set(admin_org_ids) & set(target_org_ids):
+            is_authorized = True
+
+    if not is_authorized:
+        return _unauthorized("You are not authorized to view this user")
+
+    from app.schemas.mappers import to_user_output
+    return to_json_ready(to_user_output(target_user))
+
+
+@auth_api.patch(
+    "/admin/users/<user_uuid>",
+    tags=[auth_tag],
+    responses={200: UserOutput, 400: ErrorResponse, 401: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse},
+)
+def admin_update_user(header: AuthorizationHeader, path: AdminUserPath, body: UserUpdateInput):
+    try:
+        payload, admin_user = _resolve_and_require_elevated_admin(header)
+    except AuthError as exc:
+        return _unauthorized(str(exc))
+
+    touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
+
+    target_user = User.objects(uuid=path.user_uuid).first()
+    if not target_user:
+        return _bad_request("User not found")
+
+    is_authorized = False
+    if admin_user.is_super_admin:
+        is_authorized = True
+    else:
+        admin_org_ids = [str(org.id) for org in admin_user.organizations or [] if "admin" in (admin_user.roles or {}).get(str(org.id), [])]
+        target_org_ids = [str(org.id) for org in target_user.organizations or []]
+        if set(admin_org_ids) & set(target_org_ids):
+            is_authorized = True
+
+    if not is_authorized:
+        return _unauthorized("You are not authorized to update this user")
+
+    try:
+        if body.name is not None:
+            target_user.name = body.name
+        if body.designation is not None:
+            target_user.designation = body.designation
+        if body.email is not None:
+            target_user.email = body.email.strip().lower()
+        if body.phone is not None:
+            target_user.phone = body.phone
+        if body.organizations is not None:
+            resolved_orgs = []
+            for org_uuid in body.organizations:
+                org = Organization.objects(uuid=org_uuid).first()
+                if not org:
+                    return _bad_request(f"Organization not found: {org_uuid}")
+                resolved_orgs.append(org)
+            target_user.organizations = resolved_orgs
+        if body.roles is not None:
+            mapped_roles = {}
+            for k, v in body.roles.items():
+                org = Organization.objects(uuid=k).first() or Organization.objects(id=k).first()
+                if org:
+                    mapped_roles[str(org.id)] = v
+                else:
+                    mapped_roles[k] = v
+            target_user.roles = mapped_roles
+        if body.status is not None:
+            target_user.status = body.status
+        if body.auth_provider is not None:
+            target_user.auth_provider = body.auth_provider
+        if body.is_email_verified is not None:
+            target_user.is_email_verified = body.is_email_verified
+        if body.is_phone_verified is not None:
+            target_user.is_phone_verified = body.is_phone_verified
+        if body.is_organisation_admin is not None:
+            target_user.is_organisation_admin = body.is_organisation_admin
+        if body.is_super_admin is not None:
+            target_user.is_super_admin = body.is_super_admin
+        if body.is_mfa_enabled is not None:
+            target_user.is_mfa_enabled = body.is_mfa_enabled
+        if body.verified_at is not None:
+            target_user.verified_at = body.verified_at
+        if body.verified_by is not None:
+            target_user.verified_by = body.verified_by
+        if body.deleted_at is not None:
+            target_user.deleted_at = body.deleted_at
+        if body.deleted_by is not None:
+            target_user.deleted_by = body.deleted_by
+
+        target_user.save()
+    except (ValidationError, NotUniqueError, ValueError) as exc:
+        return _bad_request(str(exc))
+
+    from app.schemas.mappers import to_user_output
+    return to_json_ready(to_user_output(target_user))
+
+
+@auth_api.delete(
+    "/admin/users/<user_uuid>",
+    tags=[auth_tag],
+    responses={200: MessageResponse, 401: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse},
+)
+def admin_delete_user(header: AuthorizationHeader, path: AdminUserPath):
+    try:
+        payload, admin_user = _resolve_and_require_elevated_admin(header)
+    except AuthError as exc:
+        return _unauthorized(str(exc))
+
+    touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
+
+    target_user = User.objects(uuid=path.user_uuid).first()
+    if not target_user:
+        return _bad_request("User not found")
+
+    is_authorized = False
+    if admin_user.is_super_admin:
+        is_authorized = True
+    else:
+        admin_org_ids = [str(org.id) for org in admin_user.organizations or [] if "admin" in (admin_user.roles or {}).get(str(org.id), [])]
+        target_org_ids = [str(org.id) for org in target_user.organizations or []]
+        if set(admin_org_ids) & set(target_org_ids):
+            is_authorized = True
+
+    if not is_authorized:
+        return _unauthorized("You are not authorized to delete this user")
+
+    target_user.status = "deleted"
+    target_user.deleted_at = utcnow()
+    target_user.deleted_by = str(admin_user.uuid)
+    target_user.save()
+
+    return to_json_ready(MessageResponse(message="user_deleted"))
+
+
+@auth_api.post(
+    "/admin/users/<user_uuid>/verify",
+    tags=[auth_tag],
+    responses={200: UserOutput, 401: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse},
+)
+def admin_verify_user(header: AuthorizationHeader, path: AdminUserPath):
+    try:
+        payload, admin_user = _resolve_and_require_elevated_admin(header)
+    except AuthError as exc:
+        return _unauthorized(str(exc))
+
+    touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
+
+    target_user = User.objects(uuid=path.user_uuid).first()
+    if not target_user:
+        return _bad_request("User not found")
+
+    is_authorized = False
+    if admin_user.is_super_admin:
+        is_authorized = True
+    else:
+        admin_org_ids = [str(org.id) for org in admin_user.organizations or [] if "admin" in (admin_user.roles or {}).get(str(org.id), [])]
+        target_org_ids = [str(org.id) for org in target_user.organizations or []]
+        if set(admin_org_ids) & set(target_org_ids):
+            is_authorized = True
+
+    if not is_authorized:
+        return _unauthorized("You are not authorized to verify this user")
+
+    target_user.status = "active"
+    target_user.is_email_verified = True
+    target_user.verified_at = utcnow()
+    target_user.verified_by = str(admin_user.uuid)
+    target_user.save()
+
+    from app.schemas.mappers import to_user_output
+    return to_json_ready(to_user_output(target_user))

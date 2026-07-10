@@ -21,6 +21,7 @@ from app.api.resources_support import resources_api  # noqa: F401
 # Import route modules so their decorators register routes on resources_api.
 from app.api import (  # noqa: F401
     resources_projects,
+    resources_organizations,
     resources_forms,
     resources_sections,
     resources_questions,

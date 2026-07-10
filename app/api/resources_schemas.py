@@ -6,7 +6,9 @@ from app.schemas.action import ActionExecutionOutput
 from app.schemas.choice import ChoiceOutput
 from app.schemas.common import SchemaModel
 from app.schemas.form import FormOutput
+from app.schemas.organization import OrganizationOutput
 from app.schemas.project import ProjectOutput
+from app.schemas.user import UserOutput
 from app.schemas.question import QuestionOutput
 from app.schemas.section import SectionOutput
 
@@ -204,3 +206,33 @@ class ActionExecutionListResponse(SchemaModel):
     total_items: Optional[int] = None
     total_pages: Optional[int] = None
     next_cursor: Optional[str] = None
+
+
+class OrganizationListResponse(SchemaModel):
+    items: List[OrganizationOutput]
+    page: int
+    page_size: int
+    total_items: Optional[int] = None
+    total_pages: Optional[int] = None
+    next_cursor: Optional[str] = None
+
+
+class AddAdminInput(SchemaModel):
+    user_uuid: str
+
+
+class AdminPath(SchemaModel):
+    uuid: str
+    user_uuid: str
+
+
+class OrganizationAdminsResponse(SchemaModel):
+    admins: List[UserOutput]
+
+
+class UserListResponse(SchemaModel):
+    items: List[UserOutput]
+    page: int
+    page_size: int
+    total_items: Optional[int] = None
+    total_pages: Optional[int] = None

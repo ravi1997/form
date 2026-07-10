@@ -15,6 +15,9 @@ x-form-service-env: &form_service_env
   CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-}
   MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-formadmin}
   MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?set MONGO_INITDB_ROOT_PASSWORD in your .env file}
+  SUPERADMIN_NAME: ${SUPERADMIN_NAME:-Super Admin}
+  SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:-admin@example.com}
+  SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD:-admin123}
 
 services:
 
@@ -50,6 +53,9 @@ services:
     container_name: form-mongo
     restart: unless-stopped
     command: ["--bind_ip_all"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-formadmin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
     volumes:
       - mongo_data:/data/db
     networks:

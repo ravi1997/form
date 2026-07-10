@@ -34,11 +34,31 @@ def _is_origin_allowed(origin: str | None, allowed_origins: list[str]) -> bool:
 
 def register_observability_middleware(app) -> None:
     @app.before_request
-    def _before_request_metrics() -> None:
+    def _before_request_metrics() -> Response | None:
+        if request.method == "OPTIONS":
+            response = Response()
+            allowed_origins = list(app.config.get("CORS_ALLOW_ORIGINS") or [])
+            origin = request.headers.get("Origin")
+            if _is_origin_allowed(origin, allowed_origins):
+                allow_any = "*" in allowed_origins
+                response.headers["Access-Control-Allow-Origin"] = (
+                    "*" if allow_any else (origin or "")
+                )
+                response.headers["Vary"] = "Origin"
+                if not allow_any:
+                    response.headers["Access-Control-Allow-Credentials"] = "true"
+                response.headers["Access-Control-Allow-Headers"] = (
+                    "Authorization, Content-Type, X-Request-Id"
+                )
+                response.headers["Access-Control-Allow-Methods"] = (
+                    "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+                )
+            return response
+
         g.request_started_monotonic = time.perf_counter()
-        if request.method != "OPTIONS":
-            with _metrics_lock:
-                _metrics_state.requests_inflight += 1
+        with _metrics_lock:
+            _metrics_state.requests_inflight += 1
+        return None
 
     @app.after_request
     def _after_request_metrics_and_headers(response: Response) -> Response:

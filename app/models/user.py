@@ -29,6 +29,7 @@ USER_STATUS_CHOICES = (
     "deleted",
     "suspended",
     "locked",
+    "unverified",
 )
 
 ORGANIZATION_STATUS_CHOICES = (
