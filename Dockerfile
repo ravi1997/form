@@ -15,6 +15,8 @@ FROM python:3.13-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     APP_ENV=production \
+    HOME=/tmp \
+    TMPDIR=/tmp \
     LOG_DIR=/app/logs \
     LOG_LEVEL=INFO \
     ENABLE_COMPRESSION=true \
@@ -23,7 +25,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN addgroup --system app && adduser --system --ingroup app app && \
-    mkdir -p /var/log/form /app/logs && chown -R app:app /var/log/form /app/logs
+    mkdir -p /var/log/form /app/logs /tmp && chown -R app:app /var/log/form /app/logs /tmp
 
 COPY --from=builder /wheels /wheels
 RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir /wheels/* && rm -rf /wheels
@@ -35,6 +37,6 @@ USER app
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=5 --start-period=20s \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)"
+  CMD .venv/bin/python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)"
 
 CMD ["python", "-m", "gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--threads", "4", "--timeout", "60", "--graceful-timeout", "30", "--access-logfile", "-", "--error-logfile", "-", "app.wsgi:app"]

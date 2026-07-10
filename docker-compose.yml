@@ -1,18 +1,20 @@
 x-form-service-env: &form_service_env
-  APP_ENV: production
-  MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-formadmin}:${MONGO_INITDB_ROOT_PASSWORD:?set MONGO_INITDB_ROOT_PASSWORD in your environment}@mongo:27017/form_prod?authSource=admin
-  MONGODB_DB: form_prod
-  CELERY_BROKER_URL: redis://redis:6379/0
-  CELERY_RESULT_BACKEND: redis://redis:6379/1
-  CELERY_TASK_DEFAULT_QUEUE: form_tasks
-  CELERY_TASK_TIME_LIMIT: 300
-  CELERY_TASK_SOFT_TIME_LIMIT: 240
-  JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in your environment}
+  APP_ENV: ${APP_ENV:-production}
+  MONGODB_URI: ${MONGODB_URI:?set MONGODB_URI in your .env file}
+  MONGODB_DB: ${MONGODB_DB:-form_prod}
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+  CELERY_TASK_DEFAULT_QUEUE: ${CELERY_TASK_DEFAULT_QUEUE:-form_tasks}
+  CELERY_TASK_TIME_LIMIT: ${CELERY_TASK_TIME_LIMIT:-300}
+  CELERY_TASK_SOFT_TIME_LIMIT: ${CELERY_TASK_SOFT_TIME_LIMIT:-240}
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in your .env file}
   JWT_ACTIVE_KID: ${JWT_ACTIVE_KID:-v1}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
-  LOG_DIR: /app/logs
+  LOG_DIR: ${LOG_DIR:-/app/logs}
   ENABLE_COMPRESSION: ${ENABLE_COMPRESSION:-true}
   CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-}
+  MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-formadmin}
+  MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?set MONGO_INITDB_ROOT_PASSWORD in your .env file}
 
 services:
 
@@ -48,9 +50,6 @@ services:
     container_name: form-mongo
     restart: unless-stopped
     command: ["--bind_ip_all"]
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-formadmin}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?set MONGO_INITDB_ROOT_PASSWORD in your environment}
     volumes:
       - mongo_data:/data/db
     networks:

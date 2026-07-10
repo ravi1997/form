@@ -3,6 +3,8 @@ x-form-dev-env: &form_dev_env
   MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-formadmin}:${MONGO_INITDB_ROOT_PASSWORD:?set MONGO_INITDB_ROOT_PASSWORD in your environment}@mongo:27017/form_dev?authSource=admin
   MONGODB_DB: form_dev
   LOG_LEVEL: DEBUG
+  CELERY_BROKER_URL: redis://redis:6379/0
+  CELERY_RESULT_BACKEND: redis://redis:6379/1
 
 services:
   app:

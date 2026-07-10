@@ -34,6 +34,18 @@ pytest -q
 gunicorn --bind 0.0.0.0:8000 app.wsgi:app
 ```
 
+For Docker-based development, keep the same `.env` file in the project root and
+run:
+
+```bash
+make docker-dev
+make docker-status-all
+```
+
+Compose reads `.env` from the project root and uses it for container
+configuration. The local override adds the source mount and development-specific
+settings.
+
 ## Common commands
 
 ```bash
@@ -42,8 +54,18 @@ make test
 make lint
 make format
 make type-check
-make up
-make down
+make docker-dev
+make docker-prod
+make docker-status-all
+make docker-rebuild-clean
 ```
 
 The OpenAPI document is served from `/openapi.json`, and the API is mounted under `/api/v1`.
+
+## Docker notes
+
+- `docker-compose.yml` defines the full stack
+- `docker-compose.override.yml` applies local development behavior
+- `.env.example` is the template for your project-root `.env`
+- `docker-status-all` may report a transient app reset during the first few
+  seconds after startup; re-run `make docker-health` if that happens

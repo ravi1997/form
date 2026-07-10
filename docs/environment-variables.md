@@ -1,5 +1,9 @@
 # Environment Variables
 
+The application reads its configuration from environment variables, and Docker
+Compose loads those values from the project-root `.env` file. The same variable
+names are used whether you run the app directly or inside containers.
+
 ## Core variables
 
 | Variable | Purpose |
@@ -15,6 +19,8 @@
 | `LOG_LEVEL` | Application log level |
 | `LOG_DIR` | Directory for rotating logs |
 | `CORS_ALLOW_ORIGINS` | Allowed browser origins |
+| `MONGO_INITDB_ROOT_USERNAME` | MongoDB root username used by the container |
+| `MONGO_INITDB_ROOT_PASSWORD` | MongoDB root password used by the container |
 
 ## JWT variables
 
@@ -61,6 +67,20 @@
 | `LOG_MAX_BYTES` | Maximum size of one log file before rotation |
 | `LOG_BACKUP_COUNT` | Number of rotated log files to retain |
 | `MONGODB_CONNECT_TIMEOUT_MS` | MongoDB connection timeout budget |
+
+## Docker-specific guidance
+
+When running under Docker Compose:
+
+- `MONGODB_URI` should point at `mongo:27017` inside the compose network
+- `CELERY_BROKER_URL` should point at `redis:6379` inside the compose network
+- `CELERY_RESULT_BACKEND` should point at `redis:6379` inside the compose network
+- `LOG_DIR` should usually stay `/app/logs`
+- `APP_ENV=development` is used by `docker-compose.override.yml`
+- `APP_ENV=production` is used by the base compose file
+
+If you switch MongoDB credentials after the volume has been created, remove the
+`mongo_data` volume before restarting so the container can reinitialize cleanly.
 
 ## Example production set
 
