@@ -1,4 +1,5 @@
 from app.extensions import db
+from app.services.condition_metadata import validate_condition_operator
 from datetime import datetime, timezone
 from mongoengine.errors import ValidationError
 
@@ -238,12 +239,20 @@ class Condition(db.Document):
                     raise ValidationError(
                         "Regex conditions require expression and targetField"
                     )
+                try:
+                    validate_condition_operator(self.conditionType, self.operator)
+                except ValueError as exc:
+                    raise ValidationError(str(exc)) from exc
 
             if self.conditionType in ("comparison", "temporal", "set"):
                 if not self.targetField or not self.operator:
                     raise ValidationError(
                         "Comparison conditions require targetField and operator"
                     )
+                try:
+                    validate_condition_operator(self.conditionType, self.operator)
+                except ValueError as exc:
+                    raise ValidationError(str(exc)) from exc
                 if (
                     self.operator not in ("is_empty", "is_not_empty")
                     and not self.operands
@@ -257,6 +266,11 @@ class Condition(db.Document):
                 and not self.expression
             ):
                 raise ValidationError("Custom conditions require expression")
+            if self.conditionType in ("custom", "dsl", "arithmetic") and self.operator:
+                try:
+                    validate_condition_operator(self.conditionType, self.operator)
+                except ValueError as exc:
+                    raise ValidationError(str(exc)) from exc
 
     def save(self, *args, **kwargs):
         saving_ids = kwargs.pop("_saving_ids", None)

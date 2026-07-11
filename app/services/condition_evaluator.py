@@ -14,6 +14,7 @@ from app.services.condition_cache import (
     get_global_negative_cache,
     get_global_ttl_cache,
 )
+from app.services.condition_metadata import validate_condition_operator
 from app.services.safe_dsl import DSLTokenizer, DSLValidationError, evaluate_expression
 
 
@@ -427,6 +428,10 @@ class ConditionEvaluator:
             )
 
         operator = condition.operator
+        try:
+            validate_condition_operator("comparison", operator)
+        except ValueError as exc:
+            raise ConditionEvaluationError(str(exc)) from exc
         if operator not in self.COMPARISON_OPERATORS:
             raise ConditionEvaluationError(f"Unknown comparison operator: {operator}")
 
