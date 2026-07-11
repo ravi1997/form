@@ -82,7 +82,9 @@ def create_openapi_app(config: Optional[Dict[str, Any]] = None):
         )
 
     # Seed default superadmin if configured (skip during testing to prevent conflicts)
-    if not app.config.get("TESTING"):
+    if not app.config.get("TESTING") and app.config.get(
+        "ENABLE_SUPERADMIN_BOOTSTRAP"
+    ):
         try:
             from scripts.seed_superadmin import seed_superadmin
             seed_superadmin(app)

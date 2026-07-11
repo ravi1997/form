@@ -15,6 +15,13 @@ DevelopmentConfig = CONFIG_MODULE.DevelopmentConfig
 ProductionConfig = CONFIG_MODULE.ProductionConfig
 get_config_class = CONFIG_MODULE.get_config_class
 
+SEED_SPEC = importlib.util.spec_from_file_location(
+    "seed_superadmin", pathlib.Path(__file__).resolve().parents[1] / "scripts" / "seed_superadmin.py"
+)
+SEED_MODULE = importlib.util.module_from_spec(SEED_SPEC)
+assert SEED_SPEC and SEED_SPEC.loader
+SEED_SPEC.loader.exec_module(SEED_MODULE)
+
 
 class DummyConfig(dict):
     def from_object(self, obj):
@@ -169,6 +176,51 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(
             settings["host"], "mongodb://mongo:27017/form_prod?authSource=admin"
         )
+
+    def test_bootstrap_requires_explicit_credentials(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "ENABLE_SUPERADMIN_BOOTSTRAP": "true",
+                "SUPERADMIN_NAME": "",
+                "SUPERADMIN_EMAIL": "",
+                "SUPERADMIN_PASSWORD": "",
+            },
+            clear=True,
+        ):
+            with self.assertRaises(RuntimeError):
+                SEED_MODULE._read_bootstrap_settings()
+
+    def test_bootstrap_rejects_weak_password(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "ENABLE_SUPERADMIN_BOOTSTRAP": "true",
+                "SUPERADMIN_NAME": "Super Admin",
+                "SUPERADMIN_EMAIL": "admin@example.com",
+                "SUPERADMIN_PASSWORD": "weakpass123",
+            },
+            clear=True,
+        ):
+            with self.assertRaises(RuntimeError):
+                SEED_MODULE._read_bootstrap_settings()
+
+    def test_bootstrap_allows_explicit_provisioning(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "ENABLE_SUPERADMIN_BOOTSTRAP": "true",
+                "SUPERADMIN_NAME": "Super Admin",
+                "SUPERADMIN_EMAIL": "admin@example.com",
+                "SUPERADMIN_PASSWORD": "StrongPass123!",
+            },
+            clear=True,
+        ):
+            name, email, password = SEED_MODULE._read_bootstrap_settings()
+
+        self.assertEqual(name, "Super Admin")
+        self.assertEqual(email, "admin@example.com")
+        self.assertEqual(password, "StrongPass123!")
 
 
 if __name__ == "__main__":

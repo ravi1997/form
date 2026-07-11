@@ -22,18 +22,55 @@ from app.utils import utcnow
 from mongoengine.errors import NotUniqueError
 
 
+BOOTSTRAP_FLAG = "ENABLE_SUPERADMIN_BOOTSTRAP"
+BOOTSTRAP_NAME = "SUPERADMIN_NAME"
+BOOTSTRAP_EMAIL = "SUPERADMIN_EMAIL"
+BOOTSTRAP_PASSWORD = "SUPERADMIN_PASSWORD"
+
+
+def _bootstrap_enabled() -> bool:
+    value = os.environ.get(BOOTSTRAP_FLAG, "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def _validate_bootstrap_password(password: str) -> None:
+    if len(password) < 12:
+        raise RuntimeError("SUPERADMIN_PASSWORD must be at least 12 characters long")
+    has_alpha = any(ch.isalpha() for ch in password)
+    has_digit = any(ch.isdigit() for ch in password)
+    has_symbol = any(not ch.isalnum() for ch in password)
+    if not (has_alpha and has_digit and has_symbol):
+        raise RuntimeError(
+            "SUPERADMIN_PASSWORD must include letters, numbers, and symbols"
+        )
+
+
+def _read_bootstrap_settings() -> tuple[str, str, str]:
+    name = os.environ.get(BOOTSTRAP_NAME, "").strip()
+    email = os.environ.get(BOOTSTRAP_EMAIL, "").strip().lower()
+    password = os.environ.get(BOOTSTRAP_PASSWORD, "")
+    if not name or not email or not password:
+        raise RuntimeError(
+            "Superadmin bootstrap requires SUPERADMIN_NAME, SUPERADMIN_EMAIL, "
+            "SUPERADMIN_PASSWORD, and ENABLE_SUPERADMIN_BOOTSTRAP"
+        )
+    _validate_bootstrap_password(password)
+    return name, email, password
+
+
 def seed_superadmin(app=None):
-    """Seed a default superadmin user if none exists."""
+    """Seed a superadmin user only when explicit bootstrap is enabled."""
     # If app is passed, use its context; otherwise, create an app instance
     if app is None:
         from app import create_openapi_app
         app = create_openapi_app()
 
     with app.app_context():
-        # Load credentials from environment or use defaults
-        name = os.environ.get("SUPERADMIN_NAME", "Super Admin").strip()
-        email = os.environ.get("SUPERADMIN_EMAIL", "admin@example.com").strip().lower()
-        password = os.environ.get("SUPERADMIN_PASSWORD", "admin123")
+        if not _bootstrap_enabled():
+            app.logger.info("Superadmin bootstrap disabled")
+            return False, None
+
+        name, email, password = _read_bootstrap_settings()
 
         # Check if any superadmin already exists
         existing_superadmin = User.objects(is_super_admin=True).first()
@@ -87,7 +124,7 @@ if __name__ == "__main__":
             print(f"✓ Created/promoted superadmin: {user.email}")
             sys.exit(0)
         else:
-            print(f"⊘ Superadmin already exists: {user.email}")
+            print("⊘ Superadmin bootstrap skipped or already exists")
             sys.exit(0)
     except Exception as exc:
         print(f"✗ Error: {exc}", file=sys.stderr)
