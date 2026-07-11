@@ -23,7 +23,7 @@ from app.api.auth_support import (
 from werkzeug.security import generate_password_hash
 from app.models.user import User, Organization
 from app.utils import utcnow
-from app.schemas.user import UserCreateInput, UserUpdateInput, UserOutput
+from app.schemas.user import UserCreateInput, UserUpdateInput, UserOutput, VerifyUserInput
 from app.api.resources_schemas import UserListResponse, MessageResponse
 from app.utils import client_ip
 from app.schemas.auth import (
@@ -787,9 +787,9 @@ def admin_delete_user(header: AuthorizationHeader, path: AdminUserPath):
 @auth_api.post(
     "/admin/users/<user_uuid>/verify",
     tags=[auth_tag],
-    responses={200: UserOutput, 401: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse},
+    responses={200: UserOutput, 400: ErrorResponse, 401: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse},
 )
-def admin_verify_user(header: AuthorizationHeader, path: AdminUserPath):
+def admin_verify_user(header: AuthorizationHeader, path: AdminUserPath, body: VerifyUserInput):
     try:
         payload, admin_user = _resolve_and_require_elevated_admin(header)
     except AuthError as exc:
@@ -801,17 +801,42 @@ def admin_verify_user(header: AuthorizationHeader, path: AdminUserPath):
     if not target_user:
         return _bad_request("User not found")
 
+    # Resolve target organization
+    org = Organization.objects(uuid=body.organization_uuid).first()
+    if not org:
+        return _bad_request("Organization not found")
+
+    # Check permission: caller must be superadmin or admin of the target organization
     is_authorized = False
     if admin_user.is_super_admin:
         is_authorized = True
     else:
-        admin_org_ids = [str(org.id) for org in admin_user.organizations or [] if "admin" in (admin_user.roles or {}).get(str(org.id), [])]
-        target_org_ids = [str(org.id) for org in target_user.organizations or []]
-        if set(admin_org_ids) & set(target_org_ids):
+        admin_org_ids = [str(o.id) for o in admin_user.organizations or [] if "admin" in (admin_user.roles or {}).get(str(o.id), [])]
+        if str(org.id) in admin_org_ids:
             is_authorized = True
 
     if not is_authorized:
-        return _unauthorized("You are not authorized to verify this user")
+        return _unauthorized("You are not authorized to verify users for this organization")
+
+    # Enforce: only superadmins can assign "admin" role
+    if "admin" in body.roles and not admin_user.is_super_admin:
+        return _unauthorized("Only superadmins can manage organization administrators")
+
+    # Associate with organization
+    if org not in target_user.organizations:
+        target_user.organizations.append(org)
+
+    # Set roles
+    if not target_user.roles:
+        target_user.roles = {}
+    target_user.roles[str(org.id)] = body.roles
+
+    # Adjust flag and organization admin membership if admin role is assigned
+    if "admin" in body.roles:
+        target_user.is_organisation_admin = True
+        if target_user not in org.admins:
+            org.admins.append(target_user)
+            org.save()
 
     target_user.status = "active"
     target_user.is_email_verified = True

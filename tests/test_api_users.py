@@ -93,7 +93,10 @@ def test_user_verification_lifecycle(client, app_context):
     assert created_org_admin["status"] == "active"
     assert created_org_admin["is_email_verified"] is True
 
-    # 5. Let's make the self-registered user a member of org-usrmgr-0001 so the org admin can verify them
+    # Verify self-registered user has no roles
+    assert user_db.roles == {}
+
+    # Associate user with the organization so the org admin can list them
     user_db.organizations = [org]
     user_db.save()
 
@@ -106,13 +109,21 @@ def test_user_verification_lifecycle(client, app_context):
     user_list = res.get_json()
     assert any(u["email"] == "selfuser@example.com" for u in user_list["items"])
 
-    # Org admin verifies the user
+    # Org admin verifies the user and assigns roles
+    verify_payload = {
+        "organization_uuid": org.uuid,
+        "roles": ["editor"]
+    }
     res = client.post(
         f"/api/v1/auth/admin/users/{user_db.uuid}/verify",
-        headers=org_admin_headers
+        data=json.dumps(verify_payload),
+        headers=org_admin_headers,
+        content_type="application/json"
     )
     assert res.status_code == 200
-    assert res.get_json()["status"] == "active"
+    res_data = res.get_json()
+    assert res_data["status"] == "active"
+    assert "editor" in res_data["roles"][str(org.id)]
 
     # 6. Now the verified user can successfully log in!
     res = client.post(

@@ -97,3 +97,8 @@ class UserOutput(UserBase):
     last_login_at: Optional[datetime] = None
     last_logout_at: Optional[datetime] = None
     last_password_change_at: Optional[datetime] = None
+
+
+class VerifyUserInput(SchemaModel):
+    organization_uuid: str
+    roles: List[Role]
