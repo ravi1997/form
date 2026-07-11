@@ -17,7 +17,7 @@ This is the route-level reference for the `/api/v1` surface. Every row below map
 
 | Method | Path | Path params | Query/body | Success response | Errors |
 | --- | --- | --- | --- | --- | --- |
-| `POST` | `/api/v1/auth/register` | - | `RegisterRequest` | `TokenPairResponse` | `ErrorResponse` |
+| `POST` | `/api/v1/auth/register` | - | `RegisterRequest` | `UserOutput` with verification required; no active session is issued | `ErrorResponse` |
 | `POST` | `/api/v1/auth/login` | - | `LoginRequest` | `TokenPairResponse` | `ErrorResponse` |
 | `POST` | `/api/v1/auth/change-password` | - | `ChangePasswordRequest` with `AuthorizationHeader` | `ChangePasswordResponse` | `ErrorResponse` |
 | `POST` | `/api/v1/auth/refresh` | - | `RefreshTokenRequest` | `AccessTokenResponse` | `ErrorResponse` |
@@ -193,4 +193,3 @@ This is the route-level reference for the `/api/v1` surface. Every row below map
 - Nested path parameters are documented explicitly in the tables above, including deep resource trees such as `project_uuid`, `form_uuid`, `section_uuid`, `question_uuid`, `choice_uuid`, `action_id`, `response_uuid`, `version_uuid`, `rule_id`, `condition_uuid`, `template_uuid`, and `revision_uuid`.
 - Response schema names are listed at the route level so the OpenAPI contract can be traced directly back to the corresponding model in `app/schemas/`.
 - Where a handler returns a plain JSON payload or inline dict instead of a named schema, the table says so explicitly.
-

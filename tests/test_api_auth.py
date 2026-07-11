@@ -88,8 +88,10 @@ class TestAuthAPIRegister:
         response_data = response.get_json()
         assert "access_token" not in response_data
         assert "refresh_token" not in response_data
+        assert "session_uuid" not in response_data
         assert response_data["status"] == "unverified"
         assert response_data["email"] == "newuser@example.com"
+        assert response_data["must_change_password"] is False
 
     def test_register_duplicate_email_fails(self, client, test_user, app_context):
         """Test that registering with duplicate email fails."""
