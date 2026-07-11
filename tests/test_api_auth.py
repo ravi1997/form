@@ -4,6 +4,7 @@ Comprehensive tests for auth API endpoints.
 
 import pytest
 import json
+from base64 import urlsafe_b64encode
 from datetime import datetime, timedelta, timezone
 from werkzeug.security import generate_password_hash
 from app.models.user import User, Organization
@@ -703,6 +704,49 @@ class TestAuthAPISessions:
         combined = [item["session_uuid"] for item in first_payload["sessions"] + second_payload["sessions"]]
         assert sorted(combined) == sorted(session_ids)
 
+    def test_admin_session_pagination_accepts_legacy_cursor_format(
+        self, client, test_user
+    ):
+        admin = User(
+            uuid="admin-pagination-legacy-0001",
+            name="Admin Pagination Legacy",
+            email="admin-pagination-legacy@example.com",
+            password_hash=generate_password_hash("test_password_123"),
+            auth_provider="local",
+            is_super_admin=True,
+        )
+        admin.save()
+
+        base = datetime.now(timezone.utc)
+        for idx in range(3):
+            UserSession(
+                session_uuid=f"session-legacy-{idx}",
+                user_uuid=test_user.uuid,
+                email=test_user.email,
+                refresh_jti=f"jti-legacy-{idx}",
+                refresh_token_hash=f"hash-legacy-{idx}",
+                refresh_expires_at=base + timedelta(days=7),
+                created_at=base - timedelta(minutes=idx),
+                last_seen_at=base - timedelta(minutes=idx),
+                is_active=True,
+            ).save()
+
+        login_response = client.post(
+            "/api/v1/auth/login",
+            data=json.dumps({"email": admin.email, "password": "test_password_123"}),
+            content_type="application/json",
+        )
+        login_data = json.loads(login_response.data)
+        access_token = login_data.get("access_token") or login_data.get("accessToken")
+
+        legacy_cursor = urlsafe_b64encode((base - timedelta(minutes=1)).isoformat().encode("utf-8")).decode("utf-8")
+        second_page = client.get(
+            f"/api/v1/auth/admin/users/{test_user.uuid}/sessions?page=1&page_size=2&cursor={legacy_cursor}",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert second_page.status_code == 200
+        assert len(second_page.get_json()["sessions"]) == 1
+
     def test_admin_audit_log_pagination_uses_cursor(self, client, test_user):
         admin = User(
             uuid="admin-audit-0001",
@@ -807,6 +851,47 @@ class TestAuthAPISessions:
                 "session-audit-collision-2",
             ]
         )
+
+    def test_admin_audit_log_pagination_accepts_legacy_cursor_format(
+        self, client, test_user
+    ):
+        admin = User(
+            uuid="admin-audit-legacy-0001",
+            name="Admin Audit Legacy",
+            email="admin-audit-legacy@example.com",
+            password_hash=generate_password_hash("test_password_123"),
+            auth_provider="local",
+            is_super_admin=True,
+        )
+        admin.save()
+
+        base = datetime.now(timezone.utc)
+        for idx in range(3):
+            SessionAuditLog(
+                actor_user_uuid=admin.uuid,
+                target_user_uuid=test_user.uuid,
+                session_uuid=f"session-audit-legacy-{idx}",
+                action="admin_session_revoke",
+                reason="test",
+                created_at=base - timedelta(minutes=idx),
+                expires_at=base + timedelta(days=180),
+            ).save()
+
+        login_response = client.post(
+            "/api/v1/auth/login",
+            data=json.dumps({"email": admin.email, "password": "test_password_123"}),
+            content_type="application/json",
+        )
+        login_data = json.loads(login_response.data)
+        access_token = login_data.get("access_token") or login_data.get("accessToken")
+
+        legacy_cursor = urlsafe_b64encode((base - timedelta(minutes=1)).isoformat().encode("utf-8")).decode("utf-8")
+        cursor_page = client.get(
+            f"/api/v1/auth/admin/audit-logs?page=1&page_size=2&cursor={legacy_cursor}",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert cursor_page.status_code == 200
+        assert len(cursor_page.get_json()["items"]) == 1
 
 
 class TestAuthAPIEdgeCases:

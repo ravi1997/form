@@ -66,10 +66,13 @@ def _encode_composite_cursor(*, timestamp: datetime, tie_breaker: str) -> str:
     return urlsafe_b64encode(payload).decode("utf-8")
 
 
-def _decode_composite_cursor(cursor: str) -> tuple[datetime, str]:
+def _decode_composite_cursor(cursor: str) -> tuple[datetime, str | None]:
     raw = urlsafe_b64decode(cursor.encode("utf-8")).decode("utf-8")
-    payload = json.loads(raw)
-    return datetime.fromisoformat(payload["timestamp"]), payload["tie_breaker"]
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return datetime.fromisoformat(raw), None
+    return datetime.fromisoformat(payload["timestamp"]), payload.get("tie_breaker")
 
 
 def _build_session_list_response(
@@ -91,7 +94,8 @@ def _build_session_list_response(
             if (
                 s.last_seen_at < cursor_created_at
                 or (
-                    s.last_seen_at == cursor_created_at
+                    cursor_session_uuid is not None
+                    and s.last_seen_at == cursor_created_at
                     and s.session_uuid < cursor_session_uuid
                 )
             )
@@ -495,12 +499,14 @@ def admin_audit_logs(header: AuthorizationHeader, query: AdminAuditLogQuery):
     total_pages: Optional[int] = None
     if query.cursor:
         cursor_created_at, cursor_session_uuid = _decode_composite_cursor(query.cursor)
-        filters["created_at__lte"] = cursor_created_at
         queryset = SessionAuditLog.objects(**filters).order_by("-created_at", "-session_uuid")
-        queryset = queryset.filter(
-            Q(created_at__lt=cursor_created_at)
-            | Q(created_at=cursor_created_at, session_uuid__lt=cursor_session_uuid)
-        )
+        if cursor_session_uuid is None:
+            queryset = queryset.filter(created_at__lt=cursor_created_at)
+        else:
+            queryset = queryset.filter(
+                Q(created_at__lt=cursor_created_at)
+                | Q(created_at=cursor_created_at, session_uuid__lt=cursor_session_uuid)
+            )
         entries = list(queryset.limit(query.page_size + 1))
     else:
         queryset = SessionAuditLog.objects(**filters).order_by("-created_at", "-session_uuid")
@@ -564,13 +570,18 @@ def admin_audit_logs_search(
     total_pages: Optional[int] = None
     if query.cursor:
         cursor_created_at, cursor_session_uuid = _decode_composite_cursor(query.cursor)
-        queryset = SessionAuditLog.objects(
-            base_filter
-            & (
-                Q(created_at__lt=cursor_created_at)
-                | Q(created_at=cursor_created_at, session_uuid__lt=cursor_session_uuid)
-            )
-        ).order_by("-created_at", "-session_uuid")
+        if cursor_session_uuid is None:
+            queryset = SessionAuditLog.objects(
+                base_filter & Q(created_at__lt=cursor_created_at)
+            ).order_by("-created_at", "-session_uuid")
+        else:
+            queryset = SessionAuditLog.objects(
+                base_filter
+                & (
+                    Q(created_at__lt=cursor_created_at)
+                    | Q(created_at=cursor_created_at, session_uuid__lt=cursor_session_uuid)
+                )
+            ).order_by("-created_at", "-session_uuid")
         entries = list(queryset.limit(query.page_size + 1))
     else:
         queryset = SessionAuditLog.objects(base_filter).order_by("-created_at", "-session_uuid")

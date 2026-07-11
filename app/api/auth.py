@@ -75,10 +75,13 @@ def _encode_composite_cursor(*, timestamp, tie_breaker: str) -> str:
     return urlsafe_b64encode(payload).decode("utf-8")
 
 
-def _decode_composite_cursor(cursor: str) -> tuple:
+def _decode_composite_cursor(cursor: str) -> tuple[datetime, str | None]:
     raw = urlsafe_b64decode(cursor.encode("utf-8")).decode("utf-8")
-    payload = json.loads(raw)
-    return payload["timestamp"], payload["tie_breaker"]
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return datetime.fromisoformat(raw), None
+    return datetime.fromisoformat(payload["timestamp"]), payload.get("tie_breaker")
 
 
 @auth_api.post(
@@ -412,14 +415,14 @@ def sessions(header: AuthorizationHeader, query: SessionListQuery):
         cursor_created_at_raw, cursor_session_uuid = _decode_composite_cursor(
             query.cursor
         )
-        cursor_created_at = datetime.fromisoformat(cursor_created_at_raw)
         filtered = [
             s
             for s in all_items
             if (
-                s.last_seen_at < cursor_created_at
+                s.last_seen_at < cursor_created_at_raw
                 or (
-                    s.last_seen_at == cursor_created_at
+                    cursor_session_uuid is not None
+                    and s.last_seen_at == cursor_created_at_raw
                     and s.session_uuid < cursor_session_uuid
                 )
             )
