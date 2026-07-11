@@ -2,11 +2,17 @@ from __future__ import annotations
 
 from flask import request
 
+from app.models.form import Project
 from app.models.ui_template import LayoutTemplate, TemplateRevision, ThemeTemplate
 from app.models.user import User
 from app.schemas.common import SchemaModel
 from app.services.auth import AuthError
-from app.services.rbac import resolve_access_identity_from_header
+from app.services.rbac import (
+    admin_org_scope_keys,
+    has_global_admin_privileges,
+    resolve_access_identity_from_header,
+    user_org_scope_keys,
+)
 
 try:
     from flask_openapi3 import APIBlueprint, Tag
@@ -43,12 +49,100 @@ def _resolve_user_from_auth() -> User | None:
 
 
 def _resolve_users(uuids: list[str]) -> list[User]:
-    users = []
-    for user_uuid in uuids or []:
-        user = User.objects(uuid=user_uuid).first()
-        if user:
-            users.append(user)
-    return users
+    requested = [user_uuid for user_uuid in (uuids or []) if user_uuid]
+    if not requested:
+        return []
+    users = User.objects(uuid__in=requested)
+    lookup = {user.uuid: user for user in users}
+    return [lookup[user_uuid] for user_uuid in requested if user_uuid in lookup]
+
+
+def _resolve_authorized_actor() -> User | None:
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header:
+        return None
+    try:
+        payload = resolve_access_identity_from_header(auth_header)
+    except AuthError:
+        return None
+    user_uuid = (
+        payload.get("user_id")
+        or payload.get("user_uuid")
+        or payload.get("sub")
+        or payload.get("uuid")
+    )
+    if not user_uuid:
+        return None
+    return User.objects(uuid=user_uuid).first()
+
+
+def _project_admin_keys(actor: User, project_uuid: str) -> set[str]:
+    project = Project.objects(uuid=project_uuid).first()
+    if not project:
+        return set()
+
+    project_scope = set()
+    for org in project.organizations or []:
+        org_id = getattr(org, "id", None)
+        if org_id is not None:
+            project_scope.add(str(org_id))
+        org_uuid = getattr(org, "uuid", None)
+        if org_uuid:
+            project_scope.add(str(org_uuid))
+
+    actor_org_scope = user_org_scope_keys(actor)
+    if actor.is_super_admin:
+        return project_scope
+
+    if project.admins and actor.uuid in {user.uuid for user in project.admins or []}:
+        return project_scope
+
+    if project_scope & admin_org_scope_keys(actor):
+        return project_scope
+
+    if project_scope & actor_org_scope:
+        return project_scope
+
+    return set()
+
+
+def _can_manage_template_scope(actor: User, scope_type: str, scope_uuid: str | None) -> bool:
+    if has_global_admin_privileges(actor):
+        return True
+
+    if scope_type == "global":
+        return False
+
+    if not scope_uuid:
+        return False
+
+    if scope_type == "organization":
+        return scope_uuid in admin_org_scope_keys(actor) or scope_uuid in user_org_scope_keys(
+            actor
+        )
+
+    if scope_type == "project":
+        return bool(_project_admin_keys(actor, scope_uuid))
+
+    return False
+
+
+def _validate_template_access(body, actor: User) -> None:
+    if not _can_manage_template_scope(actor, body.get("scope_type", "global"), body.get("scope_uuid")):
+        raise AuthError("Template creation not permitted for this scope")
+
+    if body.get("scope_type", "global") == "global" and not actor.is_super_admin:
+        raise AuthError("Global templates require superadmin privileges")
+
+    if actor.is_super_admin:
+        return
+
+    else:
+        # Non-superadmins can only manage themselves in the access lists.
+        for key in ("admins", "editors", "viewers"):
+            requested = body.get(key, [])
+            if any(user_uuid != actor.uuid for user_uuid in requested):
+                raise AuthError("You cannot assign template permissions to other users")
 
 
 def _serialize_template(template) -> dict:
@@ -78,6 +172,26 @@ def _serialize_template(template) -> dict:
 
 def _create_template(model):
     body = request.get_json(silent=True) or {}
+    actor = _resolve_authorized_actor()
+    if not actor:
+        return {"message": "Unauthorized"}, 401
+    try:
+        _validate_template_access(body, actor)
+    except AuthError as exc:
+        return {"message": str(exc)}, 403
+
+    if body.get("scope_type", "global") != "global" and not body.get("scope_uuid"):
+        return {"message": "scope_uuid is required for non-global templates"}, 400
+
+    if actor.is_super_admin:
+        admins = _resolve_users(body.get("admins", []))
+        editors = _resolve_users(body.get("editors", []))
+        viewers = _resolve_users(body.get("viewers", []))
+    else:
+        admins = [actor]
+        editors = [actor]
+        viewers = [actor]
+
     template = model(
         uuid=body.get("uuid"),
         name=body.get("name"),
@@ -87,9 +201,9 @@ def _create_template(model):
         scope_type=body.get("scope_type", "global"),
         scope_uuid=body.get("scope_uuid"),
         visibility=body.get("visibility", "private"),
-        admins=_resolve_users(body.get("admins", [])),
-        editors=_resolve_users(body.get("editors", [])),
-        viewers=_resolve_users(body.get("viewers", [])),
+        admins=admins,
+        editors=editors,
+        viewers=viewers,
         status=body.get("status", "draft"),
     )
 

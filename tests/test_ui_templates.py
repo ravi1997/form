@@ -31,6 +31,18 @@ def _create_super_admin_user():
     return user
 
 
+def _create_regular_user():
+    user = User(
+        uuid="ui-template-user-0001",
+        name="UI Template User",
+        email="ui-template-user@example.com",
+        password_hash=generate_password_hash("StrongPass123!"),
+        auth_provider="local",
+    )
+    user.save()
+    return user
+
+
 def test_theme_and_layout_template_binding_and_effective_ui(client, app_context):
     _create_super_admin_user()
     headers = _auth_header(client, "ui-template-admin@example.com", "StrongPass123!")
@@ -215,3 +227,95 @@ def test_template_publish_requires_template_admin(client, app_context):
         headers=user_headers,
     )
     assert forbidden_publish.status_code == 403
+
+
+def test_template_creation_requires_auth_and_scope_permission(client, app_context):
+    _create_super_admin_user()
+    _create_regular_user()
+
+    unauthenticated = client.post(
+        "/api/v1/ui/theme-templates",
+        data=json.dumps(
+            {
+                "uuid": "theme-template-unauth-001",
+                "name": "Unauthorized Theme",
+                "scope_type": "global",
+                "visibility": "private",
+                "status": "draft",
+            }
+        ),
+        content_type="application/json",
+    )
+    assert unauthenticated.status_code in {401, 403}
+
+    regular_headers = _auth_header(
+        client, "ui-template-user@example.com", "StrongPass123!"
+    )
+    forbidden = client.post(
+        "/api/v1/ui/layout-templates",
+        data=json.dumps(
+            {
+                "uuid": "layout-template-unauth-001",
+                "name": "Forbidden Layout",
+                "scope_type": "global",
+                "visibility": "private",
+                "status": "draft",
+            }
+        ),
+        content_type="application/json",
+        headers=regular_headers,
+    )
+    assert forbidden.status_code == 403
+
+    admin_headers = _auth_header(
+        client, "ui-template-admin@example.com", "StrongPass123!"
+    )
+    allowed = client.post(
+        "/api/v1/ui/theme-templates",
+        data=json.dumps(
+            {
+                "uuid": "theme-template-allow-001",
+                "name": "Allowed Theme",
+                "scope_type": "global",
+                "visibility": "private",
+                "status": "draft",
+                "initial_revision": {
+                    "uuid": "theme-revision-allow-001",
+                    "schema_version": 1,
+                    "config": {"palette": {"primary": "#123456"}},
+                    "status": "draft",
+                },
+            }
+        ),
+        content_type="application/json",
+        headers=admin_headers,
+    )
+    assert allowed.status_code == 201
+
+
+def test_template_creation_rejects_arbitrary_permission_assignment(
+    client, app_context
+):
+    _create_super_admin_user()
+    _create_regular_user()
+    headers = _auth_header(client, "ui-template-user@example.com", "StrongPass123!")
+
+    response = client.post(
+        "/api/v1/ui/theme-templates",
+        data=json.dumps(
+            {
+                "uuid": "theme-template-perm-001",
+                "name": "Invalid Permission Theme",
+                "scope_type": "organization",
+                "scope_uuid": "org-001",
+                "visibility": "private",
+                "admins": ["ui-template-admin-0001"],
+                "editors": ["ui-template-admin-0001"],
+                "viewers": ["ui-template-admin-0001"],
+                "status": "draft",
+            }
+        ),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert response.status_code == 403
