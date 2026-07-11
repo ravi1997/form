@@ -36,13 +36,11 @@ from app.schemas.auth import (
     SessionInfo,
     SessionListQuery,
     SessionListResponse,
-    TokenPairResponse,
 )
 from app.schemas.mappers import to_json_ready, to_user_output
 from app.schemas.user import UserOutput
 from app.services.auth import (
     AuthError,
-    access_token_ttl_seconds,
     create_user_session,
     decode_token,
     revoke_access_token,
@@ -67,7 +65,7 @@ from app.utils import client_ip, utcnow
 @auth_api.post(
     "/register",
     tags=[auth_tag],
-    responses={201: TokenPairResponse, 400: ErrorResponse},
+    responses={201: UserOutput, 400: ErrorResponse},
 )
 def register(body: RegisterRequest):
     email = str(body.email).strip().lower()
@@ -98,28 +96,15 @@ def register(body: RegisterRequest):
     )
     user.save()
 
-    session = create_user_session(
-        user_uuid=user.uuid,
-        email=user.email,
-        user_agent=request.headers.get("User-Agent"),
-        ip_address=request.remote_addr,
-        device_name=body.device_name,
-    )
-    payload = TokenPairResponse(
-        access_token=str(session["access_token"]),
-        refresh_token=str(session["refresh_token"]),
-        session_uuid=str(session["session_uuid"]),
-        expires_in=access_token_ttl_seconds(),
-        user=to_user_output(user),
-    )
     _security_event(
         event="register",
         outcome="success",
         endpoint="/api/v1/auth/register",
         actor_user_uuid=user.uuid,
-        details={"session_uuid": str(session["session_uuid"]), "email": email},
+        reason="verification_required",
+        details={"email": email},
     )
-    return to_json_ready(payload), 201
+    return to_json_ready(to_user_output(user)), 201
 
 
 @rate_limit

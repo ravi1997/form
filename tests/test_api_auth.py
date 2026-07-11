@@ -84,8 +84,12 @@ class TestAuthAPIRegister:
             content_type="application/json",
         )
 
-        # Check response status (could be 201 or 200 depending on implementation)
-        assert response.status_code in [200, 201]
+        assert response.status_code == 201
+        response_data = response.get_json()
+        assert "access_token" not in response_data
+        assert "refresh_token" not in response_data
+        assert response_data["status"] == "unverified"
+        assert response_data["email"] == "newuser@example.com"
 
     def test_register_duplicate_email_fails(self, client, test_user, app_context):
         """Test that registering with duplicate email fails."""
