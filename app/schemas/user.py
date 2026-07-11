@@ -26,6 +26,7 @@ class UserBase(SchemaModel):
     is_organisation_admin: bool = False
     is_super_admin: bool = False
     is_mfa_enabled: bool = False
+    must_change_password: bool = False
 
     @model_validator(mode="after")
     def validate_admin_flag_against_roles(self) -> "UserBase":
@@ -71,6 +72,7 @@ class UserUpdateInput(SchemaModel):
     is_organisation_admin: Optional[bool] = None
     is_super_admin: Optional[bool] = None
     is_mfa_enabled: Optional[bool] = None
+    must_change_password: Optional[bool] = None
     verified_at: Optional[datetime] = None
     verified_by: Optional[str] = None
     deleted_at: Optional[datetime] = None
@@ -78,6 +80,7 @@ class UserUpdateInput(SchemaModel):
     last_login_at: Optional[datetime] = None
     last_logout_at: Optional[datetime] = None
     last_password_change_at: Optional[datetime] = None
+    must_change_password: Optional[bool] = None
 
 
 class UserRef(SchemaModel):
@@ -97,6 +100,7 @@ class UserOutput(UserBase):
     last_login_at: Optional[datetime] = None
     last_logout_at: Optional[datetime] = None
     last_password_change_at: Optional[datetime] = None
+    must_change_password: bool
 
 
 class VerifyUserInput(SchemaModel):

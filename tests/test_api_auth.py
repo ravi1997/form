@@ -258,6 +258,59 @@ class TestAuthAPILogin:
 
         assert response.status_code in [200, 201]
 
+    def test_login_blocked_when_password_change_required(self, client, test_user):
+        test_user.must_change_password = True
+        test_user.save()
+
+        payload = {"email": "test@example.com", "password": "test_password_123"}
+        response = client.post(
+            "/api/v1/auth/login",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 401
+        assert "password change required" in response.get_json()["message"].lower()
+
+
+class TestAuthAPIPasswordChange:
+    def test_change_password_clears_must_change_password_flag(
+        self, client, test_user
+    ):
+        login_response = client.post(
+            "/api/v1/auth/login",
+            data=json.dumps({"email": "test@example.com", "password": "test_password_123"}),
+            content_type="application/json",
+        )
+        assert login_response.status_code == 200
+        access_token = login_response.get_json()["access_token"]
+
+        test_user.must_change_password = True
+        test_user.save()
+
+        response = client.post(
+            "/api/v1/auth/change-password",
+            headers={"Authorization": f"Bearer {access_token}"},
+            data=json.dumps(
+                {
+                    "current_password": "test_password_123",
+                    "new_password": "NewSecurePass123!",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        refreshed = User.objects.get(uuid=test_user.uuid)
+        assert refreshed.must_change_password is False
+
+        relogin = client.post(
+            "/api/v1/auth/login",
+            data=json.dumps({"email": "test@example.com", "password": "NewSecurePass123!"}),
+            content_type="application/json",
+        )
+        assert relogin.status_code == 200
+
     def test_login_response_contains_user_info(self, client, test_user):
         """Test that login response contains user information."""
         payload = {"email": "test@example.com", "password": "test_password_123"}

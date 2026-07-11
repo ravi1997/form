@@ -21,6 +21,8 @@ from app.api.auth_support import (
 from app.schemas.auth import (
     AccessTokenResponse,
     AuthorizationHeader,
+    ChangePasswordRequest,
+    ChangePasswordResponse,
     ErrorResponse,
     LoginRequest,
     LogoutAllSessionsRequest,
@@ -52,6 +54,7 @@ from app.services.auth import (
     touch_session,
 )
 from app.services.rbac import (
+    enforce_must_change_password,
     get_user_by_uuid,
 )
 from app.middleware.rate_limit import rate_limit
@@ -88,6 +91,8 @@ def register(body: RegisterRequest):
         created_at=now,
         updated_at=now,
         status="unverified",
+        must_change_password=False,
+        last_password_change_at=now,
     )
     user.save()
 
@@ -167,6 +172,19 @@ def login(body: LoginRequest):
         )
         return _unauthorized("Invalid email or password")
 
+    try:
+        enforce_must_change_password(user)
+    except AuthError:
+        _security_event(
+            event="login",
+            outcome="failed",
+            endpoint="/api/v1/auth/login",
+            actor_user_uuid=user.uuid,
+            reason="password_change_required",
+            details={"email": email},
+        )
+        return _unauthorized("Password change required")
+
     user.last_login_at = utcnow()
     user.save()
 
@@ -192,6 +210,44 @@ def login(body: LoginRequest):
         details={"session_uuid": str(session["session_uuid"]), "email": email},
     )
     return to_json_ready(payload)
+
+
+@auth_api.post(
+    "/change-password",
+    tags=[auth_tag],
+    responses={200: ChangePasswordResponse, 401: ErrorResponse, 400: ErrorResponse},
+)
+def change_password(header: AuthorizationHeader, body: ChangePasswordRequest):
+    try:
+        token = _extract_bearer(header)
+        payload = decode_token(token, expected_type="access")
+        user = get_user_by_uuid(payload["sub"], allow_access=True)
+    except AuthError as exc:
+        return _unauthorized(str(exc))
+
+    if not check_password_hash(user.password_hash, body.current_password):
+        _security_event(
+            event="change_password",
+            outcome="failed",
+            endpoint="/api/v1/auth/change-password",
+            actor_user_uuid=user.uuid,
+            reason="invalid_current_password",
+        )
+        return _unauthorized("Invalid current password")
+
+    user.password_hash = generate_password_hash(body.new_password)
+    user.must_change_password = False
+    user.last_password_change_at = utcnow()
+    user.save()
+
+    touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
+    _security_event(
+        event="change_password",
+        outcome="success",
+        endpoint="/api/v1/auth/change-password",
+        actor_user_uuid=user.uuid,
+    )
+    return to_json_ready(ChangePasswordResponse())
 
 
 @rate_limit
@@ -271,6 +327,7 @@ def refresh_token(body: RefreshTokenRequest):
 def logout(body: LogoutRequest):
     try:
         payload = decode_token(body.refresh_token, expected_type="refresh")
+        get_user_by_uuid(payload["sub"])
         revoke_refresh_token(body.refresh_token, reason="logout")
     except AuthError as exc:
         _security_event(
@@ -337,6 +394,7 @@ def me(header: AuthorizationHeader):
 def sessions(header: AuthorizationHeader, query: SessionListQuery):
     try:
         payload = _resolve_access_identity(header)
+        get_user_by_uuid(payload["sub"])
     except AuthError as exc:
         return _unauthorized(str(exc))
 
@@ -396,6 +454,7 @@ def sessions(header: AuthorizationHeader, query: SessionListQuery):
 def revoke_session_endpoint(header: AuthorizationHeader, body: RevokeSessionRequest):
     try:
         payload = _resolve_access_identity(header)
+        get_user_by_uuid(payload["sub"])
     except AuthError as exc:
         return _unauthorized(str(exc))
 
@@ -458,6 +517,7 @@ def revoke_session_endpoint(header: AuthorizationHeader, body: RevokeSessionRequ
 def logout_all(header: AuthorizationHeader, body: LogoutAllSessionsRequest):
     try:
         payload = _resolve_access_identity(header)
+        get_user_by_uuid(payload["sub"])
     except AuthError as exc:
         return _unauthorized(str(exc))
 

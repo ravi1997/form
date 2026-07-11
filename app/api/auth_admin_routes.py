@@ -31,6 +31,8 @@ from app.schemas.auth import (
     AdminAuditLogListResponse,
     AdminAuditLogQuery,
     AdminAuditLogSearchQuery,
+    AdminBulkMustChangePasswordRequest,
+    AdminBulkMustChangePasswordResponse,
     AdminConfigHealthResponse,
     AdminRevokeAllSessionsResponse,
     AdminRevokeSessionRequest,
@@ -618,6 +620,8 @@ def admin_create_user(header: AuthorizationHeader, body: UserCreateInput):
             is_email_verified=is_email_verified,
             is_organisation_admin=body.is_organisation_admin,
             is_super_admin=body.is_super_admin,
+            must_change_password=bool(body.must_change_password),
+            last_password_change_at=utcnow(),
         )
         user.save()
     except Exception as exc:
@@ -730,6 +734,8 @@ def admin_update_user(header: AuthorizationHeader, path: AdminUserPath, body: Us
             target_user.is_super_admin = body.is_super_admin
         if body.is_mfa_enabled is not None:
             target_user.is_mfa_enabled = body.is_mfa_enabled
+        if body.must_change_password is not None:
+            target_user.must_change_password = body.must_change_password
         if body.verified_at is not None:
             target_user.verified_at = body.verified_at
         if body.verified_by is not None:
@@ -745,6 +751,55 @@ def admin_update_user(header: AuthorizationHeader, path: AdminUserPath, body: Us
 
     from app.schemas.mappers import to_user_output
     return to_json_ready(to_user_output(target_user))
+
+
+@auth_api.post(
+    "/admin/users/bulk/must-change-password",
+    tags=[auth_tag],
+    responses={
+        200: AdminBulkMustChangePasswordResponse,
+        400: ErrorResponse,
+        401: ErrorResponse,
+        403: ErrorResponse,
+    },
+)
+def admin_bulk_set_must_change_password(
+    header: AuthorizationHeader, body: AdminBulkMustChangePasswordRequest
+):
+    try:
+        payload, admin_user = _resolve_and_require_elevated_admin(header)
+    except AuthError as exc:
+        return _unauthorized(str(exc))
+
+    touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
+
+    if body.must_change_password is not True:
+        return _bad_request("This bulk route only supports enabling must_change_password")
+
+    updated_count = 0
+    admin_org_ids = [
+        str(org.id)
+        for org in admin_user.organizations or []
+        if "admin" in (admin_user.roles or {}).get(str(org.id), [])
+    ]
+    for user_uuid in body.user_uuids:
+        target_user = User.objects(uuid=user_uuid).first()
+        if not target_user:
+            return _bad_request(f"User not found: {user_uuid}")
+        if not admin_user.is_super_admin:
+            target_org_ids = [str(org.id) for org in target_user.organizations or []]
+            if not set(admin_org_ids) & set(target_org_ids):
+                return _unauthorized(
+                    f"You are not authorized to update this user: {user_uuid}"
+                )
+        if not bool(getattr(target_user, "must_change_password", False)):
+            target_user.must_change_password = True
+            target_user.save()
+            updated_count += 1
+
+    return to_json_ready(
+        AdminBulkMustChangePasswordResponse(updated_count=updated_count)
+    )
 
 
 @auth_api.delete(

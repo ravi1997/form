@@ -60,6 +60,7 @@ class TestUserBasicCreation:
             is_email_verified=True,
             is_phone_verified=True,
             is_organisation_admin=True,
+            must_change_password=True,
         )
         user.save()
 
@@ -69,6 +70,7 @@ class TestUserBasicCreation:
         assert len(retrieved.organizations) == 1
         assert retrieved.is_email_verified is True
         assert retrieved.is_organisation_admin is True
+        assert retrieved.must_change_password is True
 
     def test_user_email_lowercase_normalization(self, app_context):
         """Test that emails are normalized to lowercase."""
@@ -231,6 +233,19 @@ class TestUserRolesAndOrganizations:
         retrieved = User.objects.get(uuid=user.uuid)
         assert len(retrieved.organizations) == 2
         assert len(retrieved.roles) == 2
+
+    def test_must_change_password_defaults_to_false(self, app_context):
+        user = User(
+            uuid="01-01-24-0001-01-01-24-0013a",
+            name="Test User",
+            email="defaultflag@example.com",
+            password_hash="hashed",
+            auth_provider="local",
+        )
+        user.save()
+
+        retrieved = User.objects.get(uuid=user.uuid)
+        assert retrieved.must_change_password is False
 
     def test_invalid_organization_key_in_roles_raises_error(
         self, app_context, organization
@@ -473,6 +488,30 @@ class TestUserPasswordReset:
             )
             < 0.001
         )
+
+
+class TestPasswordExpiryPolicy:
+    def test_enforce_password_expiry_sets_flag_for_stale_passwords(
+        self, app_context
+    ):
+        from app.services.password_policy import enforce_password_expiry
+
+        stale_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=200)
+        user = User(
+            uuid="01-01-24-0001-01-01-24-0030",
+            name="Test User",
+            email="stale@example.com",
+            password_hash="hashed",
+            auth_provider="local",
+            last_password_change_at=stale_time,
+        )
+        user.save()
+
+        updated = enforce_password_expiry()
+
+        retrieved = User.objects.get(uuid=user.uuid)
+        assert updated >= 1
+        assert retrieved.must_change_password is True
 
 
 class TestUserEmailVerification:

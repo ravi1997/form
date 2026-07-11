@@ -116,10 +116,11 @@ class User(db.Document):
     is_organisation_admin = db.BooleanField(default=False)
     is_super_admin = db.BooleanField(default=False)
     is_mfa_enabled = db.BooleanField(default=False)
+    must_change_password = db.BooleanField(default=False)
 
     meta = {
         "collection": "users",
-        "indexes": ["uuid", "email", "status", "is_super_admin"],
+        "indexes": ["uuid", "email", "status", "is_super_admin", "must_change_password"],
     }
 
     def clean(self):

@@ -133,3 +133,59 @@ def test_user_verification_lifecycle(client, app_context):
     )
     assert res.status_code == 200
     assert "access_token" in res.get_json()
+
+
+def test_must_change_password_blocks_admin_routes(client, app_context):
+    admin = _create_super_admin_user()
+    admin_headers = _auth_header(client, "usrmgr-admin@example.com", "StrongPass123!")
+
+    target = User(
+        uuid="usrmgr-target-0001",
+        name="Target User",
+        email="target@example.com",
+        password_hash=generate_password_hash("TargetPass123!"),
+        auth_provider="local",
+        must_change_password=True,
+    )
+    target.save()
+
+    response = client.get(
+        f"/api/v1/auth/admin/users/{target.uuid}", headers=admin_headers
+    )
+    assert response.status_code == 401
+    assert "password change required" in response.get_json()["message"].lower()
+
+
+def test_admin_bulk_must_change_password_route(client, app_context):
+    admin = _create_super_admin_user()
+    admin_headers = _auth_header(client, "usrmgr-admin@example.com", "StrongPass123!")
+
+    user1 = User(
+        uuid="usrmgr-bulk-0001",
+        name="Bulk One",
+        email="bulk1@example.com",
+        password_hash=generate_password_hash("BulkPass123!"),
+        auth_provider="local",
+    )
+    user1.save()
+    user2 = User(
+        uuid="usrmgr-bulk-0002",
+        name="Bulk Two",
+        email="bulk2@example.com",
+        password_hash=generate_password_hash("BulkPass123!"),
+        auth_provider="local",
+    )
+    user2.save()
+
+    response = client.post(
+        "/api/v1/auth/admin/users/bulk/must-change-password",
+        headers=admin_headers,
+        data=json.dumps(
+            {"user_uuids": [user1.uuid, user2.uuid], "must_change_password": True}
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert User.objects.get(uuid=user1.uuid).must_change_password is True
+    assert User.objects.get(uuid=user2.uuid).must_change_password is True

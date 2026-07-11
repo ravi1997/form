@@ -15,6 +15,7 @@ from typing import Set, Tuple
 from app.models.user import User
 from app.services.auth import AuthError, decode_token
 from app.services import get_rotating_logger
+from app.services.password_policy import should_force_password_change
 
 logger = get_rotating_logger()
 
@@ -41,7 +42,15 @@ def resolve_access_identity_from_header(raw_authorization: str) -> dict:
     return payload
 
 
-def get_user_by_uuid(user_uuid: str) -> User:
+def enforce_must_change_password(user: User, allow_access: bool = False) -> None:
+    if should_force_password_change(user):
+        user.must_change_password = True
+        user.save()
+    if not allow_access and bool(getattr(user, "must_change_password", False)):
+        raise AuthError("Password change required")
+
+
+def get_user_by_uuid(user_uuid: str, *, allow_access: bool = False) -> User:
     logger.log_debug(
         "db_query_started",
         context={"model": "User", "operation": "get_by_uuid", "user_uuid": user_uuid},
@@ -58,6 +67,7 @@ def get_user_by_uuid(user_uuid: str) -> User:
             },
         )
         raise AuthError("User not found")
+    enforce_must_change_password(user, allow_access=allow_access)
     logger.log_debug(
         "db_query_succeeded",
         context={"model": "User", "operation": "get_by_uuid", "user_uuid": user_uuid},

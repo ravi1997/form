@@ -105,6 +105,15 @@ class LogoutAllSessionsResponse(SchemaModel):
     revoked_count: int
 
 
+class ChangePasswordRequest(SchemaModel):
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=8)
+
+
+class ChangePasswordResponse(SchemaModel):
+    message: Literal["password_changed"] = "password_changed"
+
+
 class AdminUserPath(SchemaModel):
     user_uuid: str = Field(min_length=1)
 
@@ -120,6 +129,16 @@ class AdminRevokeSessionResponse(SchemaModel):
 class AdminRevokeAllSessionsResponse(SchemaModel):
     message: Literal["admin_sessions_revoked"] = "admin_sessions_revoked"
     revoked_count: int
+
+
+class AdminBulkMustChangePasswordRequest(SchemaModel):
+    user_uuids: List[str] = Field(min_length=1)
+    must_change_password: bool = True
+
+
+class AdminBulkMustChangePasswordResponse(SchemaModel):
+    message: Literal["bulk_password_flag_updated"] = "bulk_password_flag_updated"
+    updated_count: int
 
 
 class AdminConfigHealthResponse(SchemaModel):

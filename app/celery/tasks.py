@@ -7,6 +7,7 @@ from app.services.condition_management_async import (
     ConditionEvaluationError,
     process_async_job,
 )
+from app.services.password_policy import enforce_password_expiry
 
 
 @celery_app.task(
@@ -26,3 +27,12 @@ def process_condition_async_job(self, job_id: str):
         if self.request.retries >= min(self.max_retries, max_job_retries):
             raise
         raise self.retry(exc=exc, countdown=delay)
+
+
+@celery_app.task(
+    bind=True,
+    name="app.celery.tasks.enforce_password_expiry_task",
+    acks_late=False,
+)
+def enforce_password_expiry_task(self):
+    return {"updated_count": enforce_password_expiry()}

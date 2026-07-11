@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Mapping
 
+from celery.schedules import crontab
+
 from app.config import BaseConfig
 
 
@@ -48,6 +50,12 @@ def build_celery_config(config: Mapping[str, Any]) -> Dict[str, Any]:
         "task_send_sent_event": True,
         "timezone": "UTC",
         "enable_utc": True,
+        "beat_schedule": {
+            "enforce-password-expiry": {
+                "task": "app.celery.tasks.enforce_password_expiry_task",
+                "schedule": crontab(minute=0, hour="*/6"),
+            }
+        },
     }
 
 
