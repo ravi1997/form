@@ -27,6 +27,19 @@
 - `GET /api/v1/auth/admin/audit-logs`
 - `GET /api/v1/auth/admin/config-health`
 
+## Organizations
+
+- `POST /api/v1/organizations`
+- `GET /api/v1/organizations`
+- `GET /api/v1/organizations/<uuid>`
+- `PATCH /api/v1/organizations/<uuid>`
+- `DELETE /api/v1/organizations/<uuid>`
+- `GET /api/v1/organizations/<uuid>/admins`
+- `POST /api/v1/organizations/<uuid>/admins`
+- `DELETE /api/v1/organizations/<uuid>/admins/<user_uuid>`
+- `POST /api/v1/organizations/<uuid>/invitations`
+- `POST /api/v1/invitations/<uuid>/accept`
+
 ## Resources
 
 - `POST /api/v1/projects`
@@ -42,9 +55,34 @@
 - `PATCH /api/v1/projects/<project_uuid>/forms/<form_uuid>`
 - `DELETE /api/v1/projects/<project_uuid>/forms/<form_uuid>`
 - `POST /api/v1/projects/<project_uuid>/forms/<form_uuid>/versions`
-- `POST /api/v1/projects/<project_uuid>/forms/<form_uuid>/workflow/...`
 - `GET /api/v1/projects/<project_uuid>/forms/<form_uuid>/ui/effective`
-- Sections, questions, choices, and actions follow the same project/form nesting
+- `POST /api/v1/projects/<project_uuid>/forms/<form_uuid>/responses`
+- `POST /api/v1/public/projects/<project_uuid>/forms/<form_uuid>/responses`
+- `POST /api/v1/projects/<project_uuid>/forms/<form_uuid>/workflow/submit`
+- `POST /api/v1/projects/<project_uuid>/forms/<form_uuid>/workflow/review`
+- `POST /api/v1/projects/<project_uuid>/forms/<form_uuid>/workflow/approve`
+- Sections, questions, choices, and actions follow the same project/form nesting:
+- `POST /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections`
+- `GET /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections`
+- `GET /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>`
+- `PATCH /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>`
+- `DELETE /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>`
+- `POST /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>/versions`
+- `PATCH /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>/versions/<version_uuid>`
+- `POST /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>/questions`
+- `GET /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>/questions`
+- `GET /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>/questions/<question_uuid>`
+- `PATCH /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>/questions/<question_uuid>`
+- `DELETE /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>/questions/<question_uuid>`
+- `POST /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>/questions/<question_uuid>/versions`
+- `PATCH /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>/questions/<question_uuid>/versions/<version_uuid>`
+- `POST /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>/questions/<question_uuid>/choices`
+- `GET /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>/questions/<question_uuid>/choices`
+- `GET /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>/questions/<question_uuid>/choices/<choice_uuid>`
+- `PATCH /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>/questions/<question_uuid>/choices/<choice_uuid>`
+- `DELETE /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>/questions/<question_uuid>/choices/<choice_uuid>`
+- `POST /api/v1/projects/<project_uuid>/forms/<form_uuid>/sections/<section_uuid>/questions/<question_uuid>/actions/<action_id>/trigger`
+- `GET /api/v1/projects/<project_uuid>/forms/<form_uuid>/responses/<response_uuid>/action-executions`
 
 ## Conditions
 
