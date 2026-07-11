@@ -299,6 +299,22 @@ class TestUserRolesAndOrganizations:
         )
         user.clean()  # Should not raise
 
+    def test_legacy_org_id_role_key_is_normalized_to_uuid(
+        self, app_context, organization
+    ):
+        user = User(
+            uuid="01-01-24-0001-01-01-24-0017a",
+            name="Test User",
+            email="normalize@example.com",
+            organizations=[organization],
+            roles={str(organization.id): ["admin"]},
+            password_hash="hashed",
+            auth_provider="local",
+        )
+
+        user.clean()
+        assert list(user.roles.keys()) == [organization.uuid]
+
 
 class TestUserStatus:
     """Test user status and lifecycle."""

@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from mongoengine.errors import ValidationError
 
 from app.extensions import db
+from app.services.org_keys import resolve_org_role_key
 from app.utils import utcnow
 
 ROLE_CHOICES = (
@@ -137,20 +138,39 @@ class User(db.Document):
             self.deleted_at = utcnow()
 
         if self.roles and self.organizations:
+            canonical_roles = {}
             organization_keys = set()
+            legacy_keys = set()
             for org in self.organizations:
-                organization_keys.add(str(org.id))
+                canonical_key = resolve_org_role_key(org)
+                organization_keys.add(canonical_key)
+                if getattr(org, "id", None) is not None:
+                    legacy_keys.add(str(org.id))
                 if getattr(org, "uuid", None):
-                    organization_keys.add(org.uuid)
+                    legacy_keys.add(str(org.uuid))
 
-            unknown_keys = [
-                key for key in self.roles.keys() if key not in organization_keys
-            ]
-            if unknown_keys:
+            for key, role_list in self.roles.items():
+                normalized_key = str(key)
+                if normalized_key in organization_keys:
+                    canonical_roles[normalized_key] = role_list
+                    continue
+                if normalized_key in legacy_keys:
+                    matched_key = None
+                    for org in self.organizations:
+                        if normalized_key in {
+                            str(getattr(org, "id", "")),
+                            str(getattr(org, "uuid", "")),
+                        }:
+                            matched_key = resolve_org_role_key(org)
+                            break
+                    if matched_key:
+                        canonical_roles[matched_key] = role_list
+                        continue
                 raise ValidationError(
                     "roles contains keys that are not in organizations: "
-                    + ", ".join(unknown_keys)
+                    + normalized_key
                 )
+            self.roles = canonical_roles
 
         if self.is_organisation_admin and self.roles:
             has_admin_role = any("admin" in roles for roles in self.roles.values())

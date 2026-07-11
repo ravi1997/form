@@ -16,6 +16,7 @@ from app.models.user import User
 from app.services.auth import AuthError, decode_token
 from app.services import get_rotating_logger
 from app.services.password_policy import should_force_password_change
+from app.services.org_keys import resolve_org_role_key, resolve_org_role_keys
 
 logger = get_rotating_logger()
 
@@ -126,9 +127,10 @@ def admin_org_scope_keys(user: User) -> Set[str]:
 
 def admin_org_ids_for_user(user: User) -> Set[str]:
     return {
-        str(org.id)
+        key
         for org in user.organizations or []
-        if "admin" in (user.roles or {}).get(str(org.id), [])
+        for key in resolve_org_role_keys(org)
+        if "admin" in (user.roles or {}).get(key, [])
     }
 
 

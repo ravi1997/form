@@ -77,3 +77,15 @@ def test_require_admin_for_user_payload_allows_scoped_org_admin(monkeypatch):
     assert payload["sub"] == "admin-user"
     assert resolved_admin is admin_user
     assert resolved_target is target_user
+
+
+def test_resolve_org_role_key_prefers_uuid():
+    org = _DummyOrg("123", uuid="org-uuid-1")
+    assert rbac.resolve_org_role_key(org) == "org-uuid-1"
+
+
+def test_admin_org_ids_for_user_supports_uuid_key():
+    org = _DummyOrg("123", uuid="org-uuid-1")
+    user = _DummyUser(roles={"org-uuid-1": ["admin"]}, organizations=[org])
+
+    assert rbac.admin_org_ids_for_user(user) == {"org-uuid-1"}

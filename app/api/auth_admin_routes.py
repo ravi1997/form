@@ -51,6 +51,7 @@ from app.services.auth import (
     revoke_session,
     touch_session,
 )
+from app.services.org_keys import resolve_org_role_key
 from app.services.rbac import admin_org_ids_for_user, can_admin_access_user
 
 
@@ -628,7 +629,7 @@ def admin_create_user(header: AuthorizationHeader, body: UserCreateInput):
         org_lookup = _resolve_orgs_by_uuid(body.organizations)
         for org_uuid in body.organizations:
             org = org_lookup.get(org_uuid)
-            if not org or str(org.id) not in admin_org_ids:
+            if not org or resolve_org_role_key(org) not in admin_org_ids:
                 return _unauthorized(f"You cannot create users in organization: {org_uuid}")
 
     # Determine status: org admin created by super admin -> verified/active by default
@@ -652,7 +653,7 @@ def admin_create_user(header: AuthorizationHeader, body: UserCreateInput):
         for k, v in body.roles.items():
             org = role_org_lookup.get(k) or Organization.objects(id=k).first()
             if org:
-                mapped_roles[str(org.id)] = v
+                mapped_roles[resolve_org_role_key(org)] = v
             else:
                 mapped_roles[k] = v
 
@@ -748,7 +749,7 @@ def admin_update_user(header: AuthorizationHeader, path: AdminUserPath, body: Us
             for k, v in body.roles.items():
                 org = Organization.objects(uuid=k).first() or Organization.objects(id=k).first()
                 if org:
-                    mapped_roles[str(org.id)] = v
+                    mapped_roles[resolve_org_role_key(org)] = v
                 else:
                     mapped_roles[k] = v
             target_user.roles = mapped_roles
@@ -879,7 +880,7 @@ def admin_verify_user(header: AuthorizationHeader, path: AdminUserPath, body: Ve
         return _bad_request("Organization not found")
 
     # Check permission: caller must be superadmin or admin of the target organization
-    if not admin_user.is_super_admin and str(org.id) not in admin_org_ids_for_user(admin_user):
+    if not admin_user.is_super_admin and resolve_org_role_key(org) not in admin_org_ids_for_user(admin_user):
         return _unauthorized("You are not authorized to verify users for this organization")
 
     # Enforce: only superadmins can assign "admin" role
@@ -893,7 +894,7 @@ def admin_verify_user(header: AuthorizationHeader, path: AdminUserPath, body: Ve
     # Set roles
     if not target_user.roles:
         target_user.roles = {}
-    target_user.roles[str(org.id)] = body.roles
+    target_user.roles[resolve_org_role_key(org)] = body.roles
 
     # Adjust flag and organization admin membership if admin role is assigned
     if "admin" in body.roles:

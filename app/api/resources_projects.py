@@ -10,6 +10,7 @@ from app.models.user import Organization, User
 from app.schemas.mappers import to_json_ready, to_project_output, to_version_output
 from app.schemas.project import ProjectCreateInput, ProjectOutput, ProjectUpdateInput
 from app.schemas.version import VersionCreateInput, VersionOutput, VersionUpdateInput
+from app.services.org_keys import resolve_org_role_keys
 from app.services.rbac import has_global_admin_privileges
 from app.api.resources_schemas import (
     ErrorResponse,
@@ -50,10 +51,12 @@ def create_project(body: ProjectCreateInput):
         for org_uuid in body.organizations:
             org = Organization.objects(uuid=org_uuid).first()
             if org:
-                org_id_str = str(org.id)
-                user_roles = (creator.roles or {}).get(org_id_str, [])
-                if "admin" in user_roles or "editor" in user_roles:
-                    has_permission = True
+                for org_id_str in resolve_org_role_keys(org):
+                    user_roles = (creator.roles or {}).get(org_id_str, [])
+                    if "admin" in user_roles or "editor" in user_roles:
+                        has_permission = True
+                        break
+                if has_permission:
                     break
         if not has_permission:
             return _error("Forbidden: You must be an administrator or editor of the organization to create projects", 403)

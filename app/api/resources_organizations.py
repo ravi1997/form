@@ -23,6 +23,7 @@ from app.api.resources_schemas import (
 from app.api.resources_support import _error, resources_api, resources_tag
 from app.api.resources_context import _resolve_refs, _resolve_user
 from app.api.resources_utils import paginate_queryset_with_predicate
+from app.services.org_keys import resolve_org_role_key, resolve_org_role_keys
 from app.utils import utcnow
 
 
@@ -172,7 +173,7 @@ def add_organization_admin(path: UUIDPath, body: AddAdminInput):
             user.organizations.append(organization)
         
         # Add admin role for this organization
-        org_id_str = str(organization.id)
+        org_id_str = resolve_org_role_key(organization)
         if org_id_str not in user.roles:
             user.roles[org_id_str] = []
         if "admin" not in user.roles[org_id_str]:
@@ -209,7 +210,7 @@ def remove_organization_admin(path: AdminPath):
             organization.save()
         
         # Remove admin role for this organization
-        org_id_str = str(organization.id)
+        org_id_str = resolve_org_role_key(organization)
         if org_id_str in user.roles:
             if "admin" in user.roles[org_id_str]:
                 user.roles[org_id_str].remove("admin")
@@ -254,11 +255,10 @@ def create_organization_invitation(path: UUIDPath, body: InvitationInput):
     elif user in org.admins:
         is_admin = True
     else:
-        org_id_str = str(org.id)
-        if org_id_str in user.roles and "admin" in user.roles[org_id_str]:
-            is_admin = True
-        elif org.uuid in user.roles and "admin" in user.roles[org.uuid]:
-            is_admin = True
+        for org_id_str in resolve_org_role_keys(org):
+            if org_id_str in user.roles and "admin" in user.roles[org_id_str]:
+                is_admin = True
+                break
 
     if not is_admin:
         return _error("Forbidden: You must be an administrator of this organization to send invitations", 403)
@@ -336,11 +336,16 @@ def accept_organization_invitation(path: UUIDPath):
         user.organizations.append(org)
 
     # Assign role
-    org_id_str = str(org.id)
+    org_id_str = resolve_org_role_key(org)
     if not user.roles:
         user.roles = {}
     
     current_roles = user.roles.get(org_id_str) or []
+    if not current_roles:
+        for legacy_key in resolve_org_role_keys(org):
+            if legacy_key != org_id_str and legacy_key in user.roles:
+                current_roles = user.roles.get(legacy_key) or []
+                break
     if invitation.role not in current_roles:
         current_roles.append(invitation.role)
         user.roles[org_id_str] = current_roles
