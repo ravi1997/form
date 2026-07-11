@@ -123,7 +123,7 @@ def test_user_verification_lifecycle(client, app_context):
     assert res.status_code == 200
     res_data = res.get_json()
     assert res_data["status"] == "active"
-    assert "editor" in res_data["roles"][str(org.id)]
+    assert "editor" in res_data["roles"][org.uuid]
 
     # 6. Now the verified user can successfully log in!
     res = client.post(

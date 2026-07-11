@@ -657,8 +657,7 @@ def admin_list_users(header: AuthorizationHeader, query: SessionListQuery):
     else:
         # Organization admin can see only users of organizations they manage
         admin_org_ids = admin_org_ids_for_user(admin_user)
-        # Resolve to database Organization references to filter
-        resolved_orgs = list(Organization.objects(id__in=admin_org_ids))
+        resolved_orgs = list(Organization.objects(uuid__in=admin_org_ids))
         qs = User.objects(organizations__in=list(resolved_orgs))
 
     total_items = qs.count()
@@ -756,18 +755,11 @@ def admin_create_user(header: AuthorizationHeader, body: UserCreateInput):
 )
 def admin_get_user(header: AuthorizationHeader, path: AdminUserPath):
     try:
-        payload, admin_user = _resolve_and_require_elevated_admin(header)
+        payload, admin_user, target_user = _require_admin_for_user(header, path.user_uuid)
     except AuthError as exc:
         return _unauthorized(str(exc))
 
     touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
-
-    target_user = _resolve_users_by_uuid([path.user_uuid]).get(path.user_uuid)
-    if not target_user:
-        return _bad_request("User not found")
-
-    if not can_admin_access_user(admin_user, target_user):
-        return _unauthorized("You are not authorized to view this user")
 
     from app.schemas.mappers import to_user_output
     return to_json_ready(to_user_output(target_user))
