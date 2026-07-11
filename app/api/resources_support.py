@@ -54,6 +54,11 @@ def _before_resources_request():
         )
         return throttle
 
+    from app.api.resources_utils import ENDPOINT_PERMISSION
+    required = ENDPOINT_PERMISSION.get(request.endpoint, "authenticated")
+    if required == "anonymous":
+        return None
+
     try:
         raw_authorization = request.headers.get("Authorization", "")
         payload = resolve_access_identity_from_header(raw_authorization)

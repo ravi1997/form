@@ -133,32 +133,12 @@ def delete_organization(path: UUIDPath):
 @resources_api.get(
     "/organizations/<uuid>/admins",
     tags=[resources_tag],
-    responses={200: OrganizationAdminsResponse, 404: ErrorResponse, 403: ErrorResponse},
+    responses={200: OrganizationAdminsResponse, 404: ErrorResponse},
 )
 def get_organization_admins(path: UUIDPath):
     item = Organization.objects(uuid=path.uuid).first()
     if not item:
         return _error("Organization not found", 404)
-    
-    # Check permissions: only superadmin or admins of this organization
-    user = getattr(g, "resources_user", None)
-    if not user:
-        return _error("Unauthorized", 401)
-        
-    is_authorized = False
-    if user.is_super_admin:
-        is_authorized = True
-    elif user in item.admins:
-        is_authorized = True
-    else:
-        org_id_str = str(item.id)
-        if org_id_str in user.roles and "admin" in user.roles[org_id_str]:
-            is_authorized = True
-        elif item.uuid in user.roles and "admin" in user.roles[item.uuid]:
-            is_authorized = True
-            
-    if not is_authorized:
-        return _error("Forbidden: You must be an administrator of this organization", 403)
     
     from app.schemas.mappers import to_user_output
     admins_output = [to_user_output(admin) for admin in item.admins or []]

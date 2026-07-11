@@ -82,15 +82,19 @@ def test_organization_crud_lifecycle(client, app_context):
     assert created_org["admins"] == [regular.uuid]
 
     # 2. Get Organization
-    # Regular user can get
+    # Regular user cannot get (403)
     res = client.get("/api/v1/organizations/org-test-0001", headers=user_headers)
+    assert res.status_code == 403
+
+    # Superadmin can get (200)
+    res = client.get("/api/v1/organizations/org-test-0001", headers=admin_headers)
     assert res.status_code == 200
     got_org = res.get_json()
     assert got_org["name"] == "Test Organization"
 
     # 3. List Organizations
-    # Regular user can list
-    res = client.get("/api/v1/organizations", headers=user_headers)
+    # Non-authenticated user (anonymous) can list
+    res = client.get("/api/v1/organizations")
     assert res.status_code == 200
     list_orgs = res.get_json()
     assert len(list_orgs["items"]) >= 1
@@ -161,10 +165,9 @@ def test_organization_crud_lifecycle(client, app_context):
     assert org_id_key in regular.roles
     assert "admin" in regular.roles[org_id_key]
 
-    # Now that the user is an admin of the organization, they can list admins!
+    # Under new rules, even organization admins cannot list admins (only superadmin / global_admin can)
     res = client.get("/api/v1/organizations/org-test-0001/admins", headers=user_headers)
-    assert res.status_code == 200
-    assert len(res.get_json()["admins"]) == 1
+    assert res.status_code == 403
 
     # Remove admin
     # Non-admin should not be allowed

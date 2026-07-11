@@ -37,11 +37,11 @@ PROJECT_UUID_ENDPOINTS = {
 
 ENDPOINT_PERMISSION = {
     "resources.create_organization": "global_admin",
-    "resources.list_organizations": "authenticated",
-    "resources.get_organization": "authenticated",
+    "resources.list_organizations": "anonymous",
+    "resources.get_organization": "global_admin",
     "resources.update_organization": "global_admin",
     "resources.delete_organization": "global_admin",
-    "resources.get_organization_admins": "authenticated",
+    "resources.get_organization_admins": "global_admin",
     "resources.add_organization_admin": "global_admin",
     "resources.remove_organization_admin": "global_admin",
     "resources.create_project": "global_admin",
@@ -605,6 +605,9 @@ def extract_project_uuid_from_request() -> Optional[str]:
 
 def authorize_resources_route(has_global_admin_privileges) -> Optional[tuple]:
     required = ENDPOINT_PERMISSION.get(request.endpoint, "authenticated")
+    if required == "anonymous":
+        return None
+
     payload = getattr(g, "resources_user_payload", None)
     user = getattr(g, "resources_user", None)
     if payload is None or user is None:
