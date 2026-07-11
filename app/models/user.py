@@ -39,6 +39,39 @@ ORGANIZATION_STATUS_CHOICES = (
     "deleted",
 )
 
+
+class OrgRoleMap(dict):
+    def __init__(self, *args, organizations=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._organizations = list(organizations or [])
+
+    def _legacy_keys_for(self, canonical_key: str) -> set[str]:
+        for org in self._organizations:
+            if resolve_org_role_key(org) == canonical_key:
+                keys = set()
+                legacy_id = getattr(org, "id", None)
+                if legacy_id is not None:
+                    keys.add(str(legacy_id))
+                org_uuid = getattr(org, "uuid", None)
+                if org_uuid:
+                    keys.add(str(org_uuid))
+                return keys
+        return set()
+
+    def __getitem__(self, key):
+        if super().__contains__(key):
+            return super().__getitem__(key)
+        for canonical_key in super().keys():
+            if key in self._legacy_keys_for(str(canonical_key)):
+                return super().__getitem__(canonical_key)
+        raise KeyError(key)
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
 class Organization(db.Document):
     uuid = db.StringField(required=True, unique=True)  # DD-MM-YY-XXXX
     name = db.StringField(required=True, unique=True)
@@ -124,6 +157,15 @@ class User(db.Document):
         "indexes": ["uuid", "email", "status", "is_super_admin", "must_change_password"],
     }
 
+    def __getattribute__(self, name):
+        value = super().__getattribute__(name)
+        if name == "roles" and value and not isinstance(value, OrgRoleMap):
+            alias_map = OrgRoleMap(value, organizations=super().__getattribute__("organizations"))
+            self._data["roles"] = alias_map
+            self.__dict__["roles"] = alias_map
+            return alias_map
+        return value
+
     def clean(self):
         if self.email:
             self.email = self.email.strip().lower()
@@ -182,6 +224,23 @@ class User(db.Document):
     def save(self, *args, **kwargs):
         self.updated_at = utcnow()
         return super().save(*args, **kwargs)
+
+    def _reload_role_aliases(self):
+        if self.roles:
+            alias_map = OrgRoleMap(self.roles, organizations=self.organizations)
+            self._data["roles"] = alias_map
+            self.__dict__["roles"] = alias_map
+
+
+from mongoengine import signals
+
+
+def _attach_role_aliases(sender, document, **kwargs):
+    if isinstance(document, User):
+        document._reload_role_aliases()
+
+
+signals.post_init.connect(_attach_role_aliases, sender=User)
 
 
 INVITATION_STATUS_CHOICES = (

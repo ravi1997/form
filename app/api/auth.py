@@ -36,11 +36,13 @@ from app.schemas.auth import (
     SessionInfo,
     SessionListQuery,
     SessionListResponse,
+    TokenPairResponse,
 )
 from app.schemas.mappers import to_json_ready, to_user_output
 from app.schemas.user import UserOutput
 from app.services.auth import (
     AuthError,
+    access_token_ttl_seconds,
     create_user_session,
     decode_token,
     revoke_access_token,
@@ -244,9 +246,8 @@ def refresh_token(body: RefreshTokenRequest):
         )
         return _unauthorized("Refresh token has been revoked")
 
-    try:
-        get_user_by_uuid(payload["sub"])
-    except AuthError:
+    user = User.objects(uuid=payload["sub"]).first()
+    if not user:
         _security_event(
             event="refresh",
             outcome="failed",
@@ -255,6 +256,17 @@ def refresh_token(body: RefreshTokenRequest):
             reason="user_not_found",
         )
         return _unauthorized("User not found")
+    try:
+        validate_account_status(user)
+    except AuthError as exc:
+        _security_event(
+            event="refresh",
+            outcome="failed",
+            endpoint="/api/v1/auth/refresh",
+            actor_user_uuid=user.uuid,
+            reason=str(exc),
+        )
+        return _unauthorized(str(exc))
 
     try:
         rotated = rotate_refresh_token(body.refresh_token)

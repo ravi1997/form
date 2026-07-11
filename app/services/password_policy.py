@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 from flask import current_app
@@ -29,6 +29,11 @@ def should_force_password_change(user: User) -> bool:
     if not last_change:
         return False
     expire_after = timedelta(days=max_password_expire_days())
+    if isinstance(last_change, datetime):
+        if last_change.tzinfo is None:
+            last_change = last_change.replace(tzinfo=timezone.utc)
+        else:
+            last_change = last_change.astimezone(timezone.utc)
     return last_change <= utcnow() - expire_after
 
 

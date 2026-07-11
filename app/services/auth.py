@@ -165,7 +165,9 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def decode_token(token: str, expected_type: str) -> Dict[str, Any]:
+def decode_token(
+    token: str, expected_type: str, *, check_revocation: bool = True
+) -> Dict[str, Any]:
     logger.log_debug("jwt_decode_started", context={"expected_type": expected_type})
     token_kid = None
     keyring = _jwt_keyring()
@@ -252,7 +254,9 @@ def decode_token(token: str, expected_type: str) -> Dict[str, Any]:
         "jwt_decode_successful",
         context={"expected_type": expected_type, "user_uuid": str(subject)},
     )
-    if is_token_revoked(token, expected_type=expected_type, payload=payload):
+    if check_revocation and is_token_revoked(
+        token, expected_type=expected_type, payload=payload
+    ):
         logger.log_app_event(
             "jwt_token_revoked",
             level="WARNING",
@@ -301,7 +305,9 @@ def create_user_session(
     refresh_token = create_refresh_token(
         user_uuid=user_uuid, email=email, session_uuid=session_uuid
     )
-    refresh_payload = decode_token(refresh_token, expected_type="refresh")
+    refresh_payload = decode_token(
+        refresh_token, expected_type="refresh", check_revocation=False
+    )
     access_token = create_access_token(
         user_uuid=user_uuid, email=email, session_uuid=session_uuid
     )
@@ -359,7 +365,17 @@ def touch_session(session_uuid: str, user_uuid: str) -> None:
 def is_token_revoked(
     token: str, expected_type: str, payload: Dict[str, Any] | None = None
 ) -> bool:
-    resolved_payload = payload or decode_token(token, expected_type=expected_type)
+    resolved_payload = payload or decode_token(
+        token, expected_type=expected_type, check_revocation=False
+    )
+    if TokenBlocklist.objects(jti=resolved_payload["jti"]).first():
+        return True
+
+    if TokenBlocklist.objects(token_hash=_token_hash(token)).first():
+        return True
+
+    if expected_type == "access":
+        return False
 
     session = get_session(
         session_uuid=resolved_payload["sid"], user_uuid=resolved_payload["sub"]
@@ -373,10 +389,7 @@ def is_token_revoked(
     if session.refresh_token_hash != _token_hash(token):
         return True
 
-    if TokenBlocklist.objects(jti=resolved_payload["jti"]).first():
-        return True
-
-    return bool(TokenBlocklist.objects(token_hash=_token_hash(token)).first())
+    return False
 
 
 def is_refresh_token_revoked(token: str, payload: Dict[str, Any] | None = None) -> bool:
@@ -492,7 +505,9 @@ def rotate_refresh_token(token: str) -> Dict[str, Any]:
         email=payload["email"],
         session_uuid=payload["sid"],
     )
-    new_refresh_payload = decode_token(new_refresh_token, expected_type="refresh")
+    new_refresh_payload = decode_token(
+        new_refresh_token, expected_type="refresh", check_revocation=False
+    )
 
     session.refresh_jti = new_refresh_payload["jti"]
     session.refresh_token_hash = _token_hash(new_refresh_token)
