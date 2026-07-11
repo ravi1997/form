@@ -68,6 +68,8 @@ ENV_LOG_MAX_BYTES = "LOG_MAX_BYTES"
 ENV_LOG_BACKUP_COUNT = "LOG_BACKUP_COUNT"
 ENV_CORS_ALLOW_ORIGINS = "CORS_ALLOW_ORIGINS"
 ENV_ENABLE_COMPRESSION = "ENABLE_COMPRESSION"
+ENV_PUBLIC_BASE_URL = "PUBLIC_BASE_URL"
+ENV_FRONTEND_URL = "FRONTEND_URL"
 
 
 KNOWN_ENV_KEYS = {
@@ -112,6 +114,8 @@ KNOWN_ENV_KEYS = {
     ENV_LOG_BACKUP_COUNT,
     ENV_CORS_ALLOW_ORIGINS,
     ENV_ENABLE_COMPRESSION,
+    ENV_PUBLIC_BASE_URL,
+    ENV_FRONTEND_URL,
 }
 
 
@@ -161,6 +165,8 @@ class BaseConfig:
     LOG_BACKUP_COUNT = 10
     CORS_ALLOW_ORIGINS: list[str] = []
     ENABLE_COMPRESSION = True
+    PUBLIC_BASE_URL = ""
+    FRONTEND_URL = ""
 
     ALLOWED_JWT_ALGORITHMS = {"HS256"}
     ALLOWED_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
@@ -496,6 +502,14 @@ class BaseConfig:
             "ENABLE_COMPRESSION": cls._env_bool(
                 ENV_ENABLE_COMPRESSION,
                 cls.ENABLE_COMPRESSION,
+            ),
+            "PUBLIC_BASE_URL": cls._env_str(
+                ENV_PUBLIC_BASE_URL,
+                cls.PUBLIC_BASE_URL,
+            ),
+            "FRONTEND_URL": cls._env_str(
+                ENV_FRONTEND_URL,
+                cls.FRONTEND_URL,
             ),
             "JWT_ADDITIONAL_KEYS": cls._env_key_map(
                 ENV_JWT_ADDITIONAL_KEYS,

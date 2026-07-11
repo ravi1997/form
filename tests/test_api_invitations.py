@@ -117,3 +117,44 @@ def test_invitation_lifecycle(client, app_context):
         headers=invited_headers
     )
     assert res.status_code == 400
+
+
+def test_invitation_link_uses_public_base_url_when_configured(client, app_context):
+    app_context.config["PUBLIC_BASE_URL"] = "https://public.example.com"
+    superadmin = _create_user("inv-base-0001", "Super Admin", "base-admin@example.com", is_super_admin=True)
+    org = Organization(uuid="org-base-0001", name="Base URL Org")
+    org.admins = [superadmin]
+    org.save()
+    superadmin.organizations = [org]
+    superadmin.roles = {str(org.id): ["admin"]}
+    superadmin.save()
+    headers = _auth_header(client, "base-admin@example.com", "Password123!")
+
+    res = client.post(
+        "/api/v1/organizations/org-base-0001/invitations",
+        data=json.dumps({"email": "invited@example.com", "role": "editor"}),
+        headers=headers,
+        content_type="application/json",
+    )
+    assert res.status_code == 201
+    assert res.get_json()["invitation_link"].startswith("https://public.example.com/")
+
+
+def test_invitation_link_falls_back_to_request_context(client, app_context):
+    superadmin = _create_user("inv-base-0002", "Super Admin", "request-admin@example.com", is_super_admin=True)
+    org = Organization(uuid="org-base-0002", name="Request URL Org")
+    org.admins = [superadmin]
+    org.save()
+    superadmin.organizations = [org]
+    superadmin.roles = {str(org.id): ["admin"]}
+    superadmin.save()
+    headers = _auth_header(client, "request-admin@example.com", "Password123!")
+
+    res = client.post(
+        "/api/v1/organizations/org-base-0002/invitations",
+        data=json.dumps({"email": "invited@example.com", "role": "editor"}),
+        headers=headers,
+        content_type="application/json",
+    )
+    assert res.status_code == 201
+    assert res.get_json()["invitation_link"].startswith("http://localhost")

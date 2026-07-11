@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from flask import g
+from flask import current_app, request
 from mongoengine.errors import NotUniqueError, ValidationError
+from urllib.parse import urljoin
 
 from app.models.user import Organization, User, Invitation
 from app.schemas.mappers import to_json_ready, to_organization_output
@@ -25,6 +27,20 @@ from app.api.resources_context import _resolve_refs, _resolve_user
 from app.api.resources_utils import paginate_queryset_with_predicate
 from app.services.org_keys import resolve_org_role_key, resolve_org_role_keys
 from app.utils import utcnow
+
+
+def _invitation_base_url() -> str:
+    for key in ("FRONTEND_URL", "PUBLIC_BASE_URL"):
+        value = str(current_app.config.get(key) or "").strip()
+        if value:
+            return value.rstrip("/")
+    if request and request.url_root:
+        return request.url_root.rstrip("/")
+    return "http://localhost:8000"
+
+
+def _invitation_link(invitation_uuid: str) -> str:
+    return urljoin(_invitation_base_url() + "/", f"api/v1/invitations/{invitation_uuid}/accept")
 
 
 @resources_api.post(
@@ -282,7 +298,7 @@ def create_organization_invitation(path: UUIDPath, body: InvitationInput):
     )
     invitation.save()
 
-    invitation_link = f"http://localhost:8600/api/v1/invitations/{invitation.uuid}/accept"
+    invitation_link = _invitation_link(invitation.uuid)
 
     output = InvitationOutput(
         uuid=invitation.uuid,
