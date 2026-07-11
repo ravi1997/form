@@ -581,6 +581,7 @@ class Form(db.Document):
     layout_template_uuid = db.StringField()
     layout_revision_uuid = db.StringField()
     ui_overrides = db.DictField(default=dict)
+    is_public = db.BooleanField(default=False)
 
     workflow_state = db.StringField(
         choices=FORM_WORKFLOW_STATE_CHOICES, default="draft"

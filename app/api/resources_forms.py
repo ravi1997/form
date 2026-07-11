@@ -11,7 +11,8 @@ from app.models.form import Condition, Form, Section
 from app.models.ui_template import LayoutTemplate, ThemeTemplate
 from app.models.user import User
 from app.schemas.form import FormCreateInput, FormOutput, FormUpdateInput
-from app.schemas.mappers import to_json_ready, to_form_output, to_version_output
+from app.schemas.form_response import FormResponseCreateInput, FormResponseOutput
+from app.schemas.mappers import to_form_output, to_json_ready, to_version_output
 from app.schemas.ui_template import EffectiveUiConfigOutput
 from app.schemas.version import VersionCreateInput, VersionOutput, VersionUpdateInput
 from app.api.resources_schemas import (
@@ -22,6 +23,7 @@ from app.api.resources_schemas import (
     ListQuery,
     MessageResponse,
     ProjectPath,
+    FormResponseSubmissionPath,
     WorkflowActionRequest,
     WorkflowActionResponse,
 )
@@ -40,8 +42,7 @@ from app.api.resources_utils import (
     deep_merge as _deep_merge,
     paginate_items as _paginate_items,
 )
-
-
+from app.services.form_response_service import create_form_response
 @resources_api.post(
     "/projects/<project_uuid>/forms",
     tags=[resources_tag],
@@ -77,6 +78,7 @@ def create_form(path: ProjectPath, body: FormCreateInput):
             layout_template_uuid=body.layout_template_uuid,
             layout_revision_uuid=body.layout_revision_uuid,
             ui_overrides=body.ui_overrides,
+            is_public=body.is_public,
             status=body.status,
         ).save()
         project.forms = list(project.forms or [])
@@ -238,6 +240,37 @@ def create_form_version(path: FormPath, body: VersionCreateInput):
     except (ValidationError, ValueError) as exc:
         return _error(str(exc))
     return to_json_ready(to_version_output(form.versions[-1])), 201
+
+
+@resources_api.post(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses",
+    tags=[resources_tag],
+    responses={201: FormResponseOutput, 400: ErrorResponse, 404: ErrorResponse},
+)
+def submit_form_response(path: FormResponseSubmissionPath, body: FormResponseCreateInput):
+    return create_form_response(
+        project_uuid=path.project_uuid,
+        form_uuid=path.form_uuid,
+        body=body,
+        submitted_by=getattr(g, "resources_user", None),
+    )
+
+
+@resources_api.post(
+    "/public/projects/<project_uuid>/forms/<form_uuid>/responses",
+    tags=[resources_tag],
+    responses={201: FormResponseOutput, 400: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse},
+)
+def submit_public_form_response(
+    path: FormResponseSubmissionPath, body: FormResponseCreateInput
+):
+    return create_form_response(
+        project_uuid=path.project_uuid,
+        form_uuid=path.form_uuid,
+        body=body,
+        submitted_by=None,
+        public_only=True,
+    )
 
 
 @resources_api.patch(

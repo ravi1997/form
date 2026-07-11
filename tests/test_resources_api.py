@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 
+from mongomock import MongoClient
 from werkzeug.security import generate_password_hash
 
+from app import create_openapi_app
 from app.models.user import User
 
 
@@ -105,6 +107,7 @@ def test_project_and_form_crud_lifecycle(client, app_context):
         "validation_condition_messages": {},
         "child_sections": [],
         "tags": [],
+        "is_public": False,
         "status": "active",
     }
     create_form = client.post(
@@ -195,6 +198,7 @@ def test_section_question_choice_lifecycle_and_anonymous_access(client, app_cont
         "validation_condition_messages": {},
         "child_sections": [],
         "tags": [],
+        "is_public": False,
         "status": "active",
     }
     assert (
@@ -399,3 +403,193 @@ def test_section_question_choice_lifecycle_and_anonymous_access(client, app_cont
         headers=headers,
     )
     assert deleted_choice.status_code == 404
+
+
+def test_form_submission_routes_require_public_flag_for_anonymous_access(
+    client, app_context
+):
+    _create_super_admin_user()
+    headers = _auth_header(client, "resources-admin@example.com", "StrongPass123!")
+
+    project_payload = {
+        "uuid": "project-submit-0001",
+        "name": "Project Submit",
+        "versions": [{"uuid": "project-v1-submit", "major": 1, "minor": 0, "patch": 0}],
+        "admins": [],
+        "members": [],
+        "viewers": [],
+        "forms": [],
+        "organizations": [],
+        "tags": [],
+        "status": "active",
+    }
+    assert (
+        client.post(
+            "/api/v1/projects",
+            data=json.dumps(project_payload),
+            content_type="application/json",
+            headers=headers,
+        ).status_code
+        == 201
+    )
+
+    private_form_payload = {
+        "uuid": "form-submit-private-0001",
+        "versions": [
+            {"uuid": "form-v1-submit-private", "major": 1, "minor": 0, "patch": 0}
+        ],
+        "sections": {"form-v1-submit-private": []},
+        "editors": [],
+        "viewers": [],
+        "reviewers": [],
+        "approvers": [],
+        "submitters": [],
+        "validation_conditions": [],
+        "validation_condition_messages": {},
+        "child_sections": [],
+        "tags": [],
+        "is_public": False,
+        "status": "active",
+    }
+    assert (
+        client.post(
+            "/api/v1/projects/project-submit-0001/forms",
+            data=json.dumps(private_form_payload),
+            content_type="application/json",
+            headers=headers,
+        ).status_code
+        == 201
+    )
+
+    private_submission_payload = {
+        "uuid": "response-private-0001",
+        "form": "form-submit-private-0001",
+        "form_uuid": "form-submit-private-0001",
+        "form_version_uuid": "form-v1-submit-private",
+        "project": "project-submit-0001",
+        "project_uuid": "project-submit-0001",
+        "responses": [],
+        "response_map": {},
+        "metadata": {},
+    }
+    private_public_submit = client.post(
+        "/api/v1/public/projects/project-submit-0001/forms/form-submit-private-0001/responses",
+        data=json.dumps(private_submission_payload),
+        content_type="application/json",
+    )
+    assert private_public_submit.status_code == 403
+
+    public_form_payload = {
+        "uuid": "form-submit-public-0001",
+        "versions": [
+            {"uuid": "form-v1-submit-public", "major": 1, "minor": 0, "patch": 0}
+        ],
+        "sections": {"form-v1-submit-public": []},
+        "editors": [],
+        "viewers": [],
+        "reviewers": [],
+        "approvers": [],
+        "submitters": [],
+        "validation_conditions": [],
+        "validation_condition_messages": {},
+        "child_sections": [],
+        "tags": [],
+        "is_public": True,
+        "status": "active",
+    }
+    assert (
+        client.post(
+            "/api/v1/projects/project-submit-0001/forms",
+            data=json.dumps(public_form_payload),
+            content_type="application/json",
+            headers=headers,
+        ).status_code
+        == 201
+    )
+
+    public_submission_payload = {
+        "uuid": "response-public-0001",
+        "form": "form-submit-public-0001",
+        "form_uuid": "form-submit-public-0001",
+        "form_version_uuid": "form-v1-submit-public",
+        "project": "project-submit-0001",
+        "project_uuid": "project-submit-0001",
+        "responses": [],
+        "response_map": {},
+        "metadata": {},
+    }
+    public_submit = client.post(
+        "/api/v1/public/projects/project-submit-0001/forms/form-submit-public-0001/responses",
+        data=json.dumps(public_submission_payload),
+        content_type="application/json",
+    )
+    assert public_submit.status_code == 201
+    public_payload = public_submit.get_json()
+    assert public_payload["uuid"] == "response-public-0001"
+    assert public_payload["form_uuid"] == "form-submit-public-0001"
+    assert public_payload["project_uuid"] == "project-submit-0001"
+    assert public_payload["status"] == "submitted"
+
+    authenticated_submit = client.post(
+        "/api/v1/projects/project-submit-0001/forms/form-submit-public-0001/responses",
+        data=json.dumps(
+            {**public_submission_payload, "uuid": "response-auth-0001"}
+        ),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert authenticated_submit.status_code == 201
+
+
+def test_openapi_includes_form_submission_routes_and_public_flag():
+    app = create_openapi_app(
+        {
+            "TESTING": True,
+            "MONGODB_SETTINGS": {
+                "db": "test_form_db",
+                "host": "mongodb://localhost/test_form_db",
+                "mongo_client_class": MongoClient,
+                "connect": False,
+                "uuidRepresentation": "standard",
+            },
+            "JWT_SECRET_KEY": "test-secret-key-do-not-use-in-production",
+            "JWT_ALGORITHM": "HS256",
+            "JWT_ACCESS_TOKEN_EXPIRES_MINUTES": 30,
+            "JWT_REFRESH_TOKEN_EXPIRES_DAYS": 7,
+            "AUTH_RATE_LIMIT_LOGIN_MAX": 10,
+            "AUTH_RATE_LIMIT_LOGIN_WINDOW_SECONDS": 60,
+            "AUTH_RATE_LIMIT_REFRESH_MAX": 20,
+            "AUTH_RATE_LIMIT_REFRESH_WINDOW_SECONDS": 60,
+            "AUTH_RATE_LIMIT_LOGOUT_MAX": 20,
+            "AUTH_RATE_LIMIT_LOGOUT_WINDOW_SECONDS": 60,
+            "ENABLE_AUDIT_LOGS": False,
+            "CELERY_TASK_ALWAYS_EAGER": True,
+            "CELERY_TASK_EAGER_PROPAGATES": True,
+            "CELERY_BROKER_URL": "memory://",
+            "CELERY_RESULT_BACKEND": "cache+memory://",
+        }
+    )
+    client = app.test_client()
+
+    spec = client.get("/openapi/openapi.json")
+    assert spec.status_code == 200
+    payload = spec.get_json()
+
+    assert "/api/v1/projects/{project_uuid}/forms/{form_uuid}/responses" in payload[
+        "paths"
+    ]
+    assert "/api/v1/public/projects/{project_uuid}/forms/{form_uuid}/responses" in payload[
+        "paths"
+    ]
+    assert (
+        "is_public"
+        in payload["components"]["schemas"]["FormOutput"]["properties"]
+    )
+    assert (
+        "is_public"
+        in payload["components"]["schemas"]["FormCreateInput"]["properties"]
+    )
+    assert (
+        "is_public"
+        in payload["components"]["schemas"]["FormUpdateInput"]["properties"]
+    )

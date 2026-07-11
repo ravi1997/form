@@ -222,6 +222,7 @@ def _apply_form_update(form: Form, body) -> None:
         "layout_template_uuid",
         "layout_revision_uuid",
         "ui_overrides",
+        "is_public",
         "status",
     ):
         if key in data:

@@ -60,6 +60,8 @@ ENDPOINT_PERMISSION = {
     "resources.delete_form": "project_admin",
     "resources.create_form_version": "project_write",
     "resources.update_form_version": "project_write",
+    "resources.submit_form_response": "project_submit",
+    "resources.submit_public_form_response": "anonymous",
     "resources.create_section": "project_write",
     "resources.list_sections": "project_read",
     "resources.get_section": "project_read",

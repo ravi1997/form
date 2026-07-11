@@ -199,6 +199,11 @@ class WorkflowActionResponse(SchemaModel):
     project_uuid: str
 
 
+class FormResponseSubmissionPath(SchemaModel):
+    project_uuid: str
+    form_uuid: str
+
+
 class ActionExecutionListResponse(SchemaModel):
     items: List[ActionExecutionOutput]
     page: int

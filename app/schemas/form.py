@@ -44,6 +44,7 @@ class FormBase(SchemaModel):
     layout_template_uuid: Optional[str] = None
     layout_revision_uuid: Optional[str] = None
     ui_overrides: Dict[str, Any] = Field(default_factory=dict)
+    is_public: bool = False
     status: DocumentStatus = "active"
 
     @model_validator(mode="after")
@@ -97,6 +98,7 @@ class FormUpdateInput(SchemaModel):
     layout_template_uuid: Optional[str] = None
     layout_revision_uuid: Optional[str] = None
     ui_overrides: Optional[Dict[str, Any]] = None
+    is_public: Optional[bool] = None
     status: Optional[DocumentStatus] = None
 
 
