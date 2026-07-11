@@ -48,7 +48,7 @@ CELERY_RESULT_BACKEND=redis://redis:6379/1
 
 ## Security checklist
 
-- restrict `CORS_ALLOW_ORIGINS`
+- set `CORS_ALLOW_ORIGINS=*` to allow every browser origin, or list explicit origins if you want to narrow access
 - keep MongoDB and Redis private to the application network
 - use TLS termination at the load balancer or ingress
 - rotate JWT keys using `JWT_ADDITIONAL_KEYS`

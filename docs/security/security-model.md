@@ -38,7 +38,7 @@
 - Security and request headers are set by middleware
 - Request IDs are propagated and logged
 - Sensitive values are masked in rotating logs
-- `CORS_ALLOW_ORIGINS` must be restricted in browser-facing deployments
+- `CORS_ALLOW_ORIGINS` controls browser access; use `*` to allow every origin, or list specific origins to restrict access
 - Condition DSL parsing rejects unsafe identifiers and `__` traversal
 
 ## Known security constraints
