@@ -13,6 +13,9 @@ class FakeRedisClient:
     def __init__(self):
         self.store = {}
 
+    def ping(self):
+        return True
+
     def get(self, key):
         return self.store.get(key)
 
@@ -21,6 +24,72 @@ class FakeRedisClient:
 
     def delete(self, key):
         self.store.pop(key, None)
+
+
+def test_rate_limit_uses_redis_backend_when_configured(app_context, monkeypatch):
+    shared_client = FakeRedisClient()
+    monkeypatch.setattr(
+        "app.services.rate_limit.redis.from_url", lambda *_args, **_kwargs: shared_client
+    )
+
+    from app.services.rate_limit import RateLimitService
+
+    service = RateLimitService()
+
+    assert service.backend == "redis"
+    assert service.redis_client is shared_client
+
+
+def test_rate_limit_falls_back_with_clear_warning_when_redis_missing(
+    app_context, monkeypatch
+):
+    from flask import current_app
+
+    current_app.config["REDIS_URL"] = ""
+
+    monkeypatch.setattr(
+        "app.services.rate_limit.redis.from_url",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(redis.RedisError("down")),
+    )
+
+    from app.services.rate_limit import RateLimitService
+
+    service = RateLimitService()
+
+    assert service.backend == "memory"
+    assert service.redis_client is None
+
+
+def test_rate_limit_shared_backend_counts_across_workers(app_context):
+    shared_client = FakeRedisClient()
+
+    service_one = RateLimitService()
+    service_two = RateLimitService()
+    service_one.redis_client = shared_client
+    service_two.redis_client = shared_client
+    service_one.backend = "redis"
+    service_two.backend = "redis"
+
+    key = "rate_limit:global:target:/api/v1/test:GET"
+    ts_key = "rate_limit_ts:global:target:/api/v1/test:GET"
+
+    count_one, exceeded_one = service_one._increment_redis(
+        key,
+        ts_key,
+        timedelta(minutes=1),
+        max_requests=5,
+    )
+    count_two, exceeded_two = service_two._increment_redis(
+        key,
+        ts_key,
+        timedelta(minutes=1),
+        max_requests=5,
+    )
+
+    assert count_one == 1
+    assert exceeded_one is False
+    assert count_two == 2
+    assert exceeded_two is False
 
 
 def test_increment_redis_resets_expired_window(app_context):

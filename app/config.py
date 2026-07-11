@@ -56,6 +56,7 @@ ENV_MONGODB_DB = "MONGODB_DB"
 ENV_MONGODB_CONNECT_TIMEOUT_MS = "MONGODB_CONNECT_TIMEOUT_MS"
 ENV_CELERY_BROKER_URL = "CELERY_BROKER_URL"
 ENV_CELERY_RESULT_BACKEND = "CELERY_RESULT_BACKEND"
+ENV_REDIS_URL = "REDIS_URL"
 ENV_CELERY_TASK_DEFAULT_QUEUE = "CELERY_TASK_DEFAULT_QUEUE"
 ENV_CELERY_TASK_TIME_LIMIT = "CELERY_TASK_TIME_LIMIT"
 ENV_CELERY_TASK_SOFT_TIME_LIMIT = "CELERY_TASK_SOFT_TIME_LIMIT"
@@ -99,6 +100,7 @@ KNOWN_ENV_KEYS = {
     ENV_MONGODB_CONNECT_TIMEOUT_MS,
     ENV_CELERY_BROKER_URL,
     ENV_CELERY_RESULT_BACKEND,
+    ENV_REDIS_URL,
     ENV_CELERY_TASK_DEFAULT_QUEUE,
     ENV_CELERY_TASK_TIME_LIMIT,
     ENV_CELERY_TASK_SOFT_TIME_LIMIT,
@@ -147,6 +149,7 @@ class BaseConfig:
     MONGODB_CONNECT_TIMEOUT_MS = 2000
     CELERY_BROKER_URL = "redis://localhost:6379/0"
     CELERY_RESULT_BACKEND = "redis://localhost:6379/1"
+    REDIS_URL = "redis://localhost:6379/0"
     CELERY_TASK_DEFAULT_QUEUE = "form_tasks"
     CELERY_TASK_TIME_LIMIT = 300
     CELERY_TASK_SOFT_TIME_LIMIT = 240
@@ -455,6 +458,10 @@ class BaseConfig:
                 ENV_CELERY_RESULT_BACKEND,
                 cls.CELERY_RESULT_BACKEND,
             ),
+            "REDIS_URL": cls._env_str(
+                ENV_REDIS_URL,
+                cls._env_str(ENV_CELERY_BROKER_URL, cls.CELERY_BROKER_URL),
+            ),
             "CELERY_TASK_DEFAULT_QUEUE": cls._env_str(
                 ENV_CELERY_TASK_DEFAULT_QUEUE,
                 cls.CELERY_TASK_DEFAULT_QUEUE,
@@ -543,6 +550,11 @@ class BaseConfig:
         api_version = cls.get_str(app.config, "API_VERSION", cls.API_VERSION)
         if not api_version.startswith("v") or not api_version[1:].isdigit():
             raise RuntimeError("API_VERSION must use format v<integer>, for example v1")
+
+        redis_url = cls.get_str(app.config, "REDIS_URL", cls.REDIS_URL)
+        app.config["REDIS_URL"] = redis_url
+        if cls.ENV_NAME == "production" and not redis_url:
+            raise RuntimeError("REDIS_URL is required in production for rate limiting")
 
         active_kid = cls.get_str(app.config, "JWT_ACTIVE_KID", cls.JWT_ACTIVE_KID)
         if not active_kid:
@@ -850,6 +862,7 @@ class RuntimeSettings(BaseModel):
     log_backup_count: int = Field(default=BaseConfig.LOG_BACKUP_COUNT, ge=1)
     mongodb_uri: str = Field(default=BaseConfig.MONGODB_URI)
     mongodb_db: str = Field(default=BaseConfig.MONGODB_DB)
+    redis_url: str = Field(default=BaseConfig.REDIS_URL)
     mongodb_connect_timeout_ms: int = Field(
         default=BaseConfig.MONGODB_CONNECT_TIMEOUT_MS,
         ge=100,
@@ -882,6 +895,7 @@ def build_runtime_settings(config: Mapping[str, Any]) -> RuntimeSettings:
             config, "MONGODB_URI", BaseConfig.MONGODB_URI
         ),
         "mongodb_db": BaseConfig.get_str(config, "MONGODB_DB", BaseConfig.MONGODB_DB),
+        "redis_url": BaseConfig.get_str(config, "REDIS_URL", BaseConfig.REDIS_URL),
         "mongodb_connect_timeout_ms": BaseConfig.get_int(
             config,
             "MONGODB_CONNECT_TIMEOUT_MS",

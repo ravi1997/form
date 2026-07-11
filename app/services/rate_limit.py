@@ -37,22 +37,40 @@ class RateLimitService:
 
     def __init__(self):
         self.redis_client = None
+        self.backend = "memory"
         self._initialize_redis()
 
     def _initialize_redis(self):
         """Initialize Redis connection for distributed rate limiting."""
+        redis_url = current_app.config.get("REDIS_URL")
         try:
-            if current_app.config.get("REDIS_URL"):
-                self.redis_client = redis.from_url(
-                    current_app.config["REDIS_URL"], decode_responses=True
-                )
+            if redis_url:
+                self.redis_client = redis.from_url(redis_url, decode_responses=True)
                 self.redis_client.ping()
+                self.backend = "redis"
                 logger.log_app_event("Redis connection established for rate limiting")
+                logger.log_app_event(
+                    "rate_limit_backend_selected",
+                    context={"backend": "redis"},
+                )
+            else:
+                logger.log_app_event(
+                    "rate_limit_backend_selected",
+                    level="WARNING",
+                    context={
+                        "backend": "memory fallback (unsafe)",
+                        "reason": "missing_redis_url",
+                    },
+                )
         except (redis.RedisError, ValueError, TypeError) as e:
+            self.backend = "memory"
             logger.log_app_event(
-                "Redis not available for rate limiting; using in-memory fallback",
+                "rate_limit_backend_selected",
                 level="WARNING",
-                context={"error": str(e)},
+                context={
+                    "backend": "memory fallback (unsafe)",
+                    "error": str(e),
+                },
             )
             self.redis_client = None
 

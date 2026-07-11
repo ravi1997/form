@@ -54,6 +54,20 @@ def create_openapi_app(config: Optional[Dict[str, Any]] = None):
             "api_version": settings.api_version,
         },
     )
+    if settings.redis_url:
+        logger.log_app_event(
+            "rate_limit_backend_selected",
+            context={"backend": "redis", "redis_url_configured": True},
+        )
+    else:
+        logger.log_app_event(
+            "rate_limit_backend_selected",
+            level="WARNING",
+            context={
+                "backend": "memory fallback (unsafe)",
+                "redis_url_configured": False,
+            },
+        )
 
     if settings.enable_compression:
         from flask_compress import Compress
