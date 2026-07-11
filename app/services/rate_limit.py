@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple, Dict, Any
 import redis
@@ -33,7 +34,8 @@ class RateLimitService:
     RATE_LIMIT_KEY = "rate_limit:{scope}:{target}:{route}:{method}"
     RATE_LIMIT_TIMESTAMP_KEY = "rate_limit_ts:{scope}:{target}:{route}:{method}"
     # Shared in-memory fallback so counters survive repeated service construction.
-    cache: Dict[str, Any] = {}
+    cache: "OrderedDict[str, Any]" = OrderedDict()
+    memory_cache_max_entries = 1000
 
     def __init__(self):
         self.redis_client = None
@@ -215,27 +217,41 @@ class RateLimitService:
         """Fallback in-memory rate limit tracking (not suitable for distributed systems)."""
         current_time = datetime.now(timezone.utc)
 
-        # Check if window is still valid
-        if ts_key in self.cache:
-            window_start = self.cache[ts_key]
-            if current_time > window_start + window_duration:
-                # Window expired
-                if key in self.cache:
-                    del self.cache[key]
-                del self.cache[ts_key]
-                count = 0
-            else:
-                count = self.cache.get(key, 0)
+        self._cleanup_memory_cache(current_time=current_time, window_duration=window_duration)
+
+        window_start = self.cache.get(ts_key)
+        if window_start and current_time <= window_start + window_duration:
+            count = int(self.cache.get(key, 0))
         else:
             count = 0
 
-        # Increment counter
         count += 1
         self.cache[key] = count
         self.cache[ts_key] = current_time
+        self.cache.move_to_end(key)
+        self.cache.move_to_end(ts_key)
+        self._trim_memory_cache()
 
         is_exceeded = count > max_requests
         return count, is_exceeded
+
+    def _cleanup_memory_cache(
+        self, *, current_time: datetime, window_duration: timedelta
+    ) -> None:
+        expired_keys = []
+        for cache_key, value in list(self.cache.items()):
+            if not cache_key.startswith("rate_limit_ts:"):
+                continue
+            if current_time > value + window_duration:
+                expired_keys.append(cache_key)
+                expired_keys.append(cache_key.replace("rate_limit_ts:", "rate_limit:", 1))
+
+        for cache_key in expired_keys:
+            self.cache.pop(cache_key, None)
+
+    def _trim_memory_cache(self) -> None:
+        while len(self.cache) > self.memory_cache_max_entries:
+            self.cache.popitem(last=False)
 
     def check_rate_limit(
         self,

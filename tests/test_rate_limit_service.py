@@ -115,6 +115,44 @@ def test_increment_redis_resets_expired_window(app_context):
     assert service.redis_client.store[key] == 1
 
 
+def test_memory_cache_discards_expired_entries(app_context):
+    service = RateLimitService()
+    service.redis_client = None
+    service.cache.clear()
+
+    key = "rate_limit:global:target:/api/v1/test:GET"
+    ts_key = "rate_limit_ts:global:target:/api/v1/test:GET"
+    expired_start = datetime.now(timezone.utc) - timedelta(minutes=10)
+    service.cache[key] = 99
+    service.cache[ts_key] = expired_start
+
+    count, exceeded = service._increment_memory(
+        key,
+        ts_key,
+        timedelta(minutes=1),
+        max_requests=5,
+    )
+
+    assert count == 1
+    assert exceeded is False
+    assert len(service.cache) == 2
+
+
+def test_memory_cache_is_bounded(app_context):
+    service = RateLimitService()
+    service.redis_client = None
+    service.cache.clear()
+    service.memory_cache_max_entries = 10
+
+    window = timedelta(minutes=1)
+    for idx in range(20):
+        key = f"rate_limit:global:target:/api/v1/test-{idx}:GET"
+        ts_key = f"rate_limit_ts:global:target:/api/v1/test-{idx}:GET"
+        service._increment_memory(key, ts_key, window, max_requests=5)
+
+    assert len(service.cache) <= 10
+
+
 def test_rate_limit_decorator_returns_503_when_redis_down(app_context, monkeypatch):
     app = Flask(__name__)
 
