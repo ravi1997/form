@@ -20,8 +20,10 @@ from app.services.auth import (
     list_active_sessions,
     _token_hash,
     _jwt_keyring,
+    is_access_token_revoked,
+    revoke_access_token,
 )
-from app.models.auth import UserSession
+from app.models.auth import TokenBlocklist, UserSession
 
 
 class TestAuthUtilityFunctions:
@@ -508,6 +510,29 @@ class TestAuthEdgeCases:
 
         payload2 = decode_token(token, "access")
         assert payload2["sub"] == user_uuid
+
+    def test_revoke_access_token_blocks_further_use(self, app_context):
+        user_uuid = "test-user-uuid"
+        email = "test@example.com"
+        session_uuid = "test-session-uuid"
+
+        token = create_access_token(user_uuid, email, session_uuid)
+        assert is_access_token_revoked(token) is False
+
+        revoke_access_token(token, reason="logout")
+
+        assert is_access_token_revoked(token) is True
+        with pytest.raises(AuthError, match="revoked"):
+            decode_token(token, "access")
+
+    def test_access_token_revocation_record_is_persisted(self, app_context):
+        token = create_access_token("test-user-uuid", "test@example.com", "session")
+        revoke_access_token(token, reason="logout")
+
+        entry = TokenBlocklist.objects(token_type="access").first()
+        assert entry is not None
+        assert entry.reason == "logout"
+        assert entry.expires_at is not None
 
     def test_session_refresh_token_hash_stored_not_token(self, app_context):
         """Test that refresh token is hashed before storage."""

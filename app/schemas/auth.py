@@ -29,6 +29,7 @@ class RefreshTokenRequest(SchemaModel):
 
 
 class LogoutRequest(SchemaModel):
+    access_token: str = Field(min_length=1)
     refresh_token: str = Field(min_length=1)
 
 

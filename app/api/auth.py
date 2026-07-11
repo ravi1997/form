@@ -45,6 +45,7 @@ from app.services.auth import (
     access_token_ttl_seconds,
     create_user_session,
     decode_token,
+    revoke_access_token,
     is_refresh_token_revoked,
     list_active_sessions,
     rotate_refresh_token,
@@ -306,8 +307,12 @@ def refresh_token(body: RefreshTokenRequest):
 )
 def logout(body: LogoutRequest):
     try:
+        access_payload = decode_token(body.access_token, expected_type="access")
         payload = decode_token(body.refresh_token, expected_type="refresh")
         get_user_by_uuid(payload["sub"])
+        if access_payload["sub"] != payload["sub"] or access_payload["sid"] != payload["sid"]:
+            raise AuthError("Access token does not match refresh token")
+        revoke_access_token(body.access_token, reason="logout")
         revoke_refresh_token(body.refresh_token, reason="logout")
     except AuthError as exc:
         _security_event(

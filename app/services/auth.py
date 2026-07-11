@@ -252,6 +252,18 @@ def decode_token(token: str, expected_type: str) -> Dict[str, Any]:
         "jwt_decode_successful",
         context={"expected_type": expected_type, "user_uuid": str(subject)},
     )
+    if is_token_revoked(token, expected_type=expected_type, payload=payload):
+        logger.log_app_event(
+            "jwt_token_revoked",
+            level="WARNING",
+            context={
+                "expected_type": expected_type,
+                "user_uuid": str(subject),
+                "session_uuid": str(session_uuid),
+            },
+        )
+        raise AuthError("Token has been revoked")
+
     active_kid = _jwt_active_kid()
     if decoded_kid and decoded_kid != active_kid:
         logger.log_app_event(
@@ -344,8 +356,10 @@ def touch_session(session_uuid: str, user_uuid: str) -> None:
     session.save()
 
 
-def is_refresh_token_revoked(token: str, payload: Dict[str, Any] | None = None) -> bool:
-    resolved_payload = payload or decode_token(token, expected_type="refresh")
+def is_token_revoked(
+    token: str, expected_type: str, payload: Dict[str, Any] | None = None
+) -> bool:
+    resolved_payload = payload or decode_token(token, expected_type=expected_type)
 
     session = get_session(
         session_uuid=resolved_payload["sid"], user_uuid=resolved_payload["sub"]
@@ -363,6 +377,14 @@ def is_refresh_token_revoked(token: str, payload: Dict[str, Any] | None = None) 
         return True
 
     return bool(TokenBlocklist.objects(token_hash=_token_hash(token)).first())
+
+
+def is_refresh_token_revoked(token: str, payload: Dict[str, Any] | None = None) -> bool:
+    return is_token_revoked(token, expected_type="refresh", payload=payload)
+
+
+def is_access_token_revoked(token: str, payload: Dict[str, Any] | None = None) -> bool:
+    return is_token_revoked(token, expected_type="access", payload=payload)
 
 
 def revoke_refresh_token(token: str, reason: str = "logout") -> None:
@@ -388,6 +410,32 @@ def revoke_refresh_token(token: str, reason: str = "logout") -> None:
     revoke_session(session_uuid=payload["sid"], user_uuid=payload["sub"], reason=reason)
     logger.log_app_event(
         "refresh_token_revoked",
+        context={
+            "reason": reason,
+            "user_uuid": payload["sub"],
+            "session_uuid": payload["sid"],
+        },
+    )
+
+
+def revoke_access_token(token: str, reason: str = "logout") -> None:
+    logger.log_debug("revoke_access_token_started", context={"reason": reason})
+    payload = decode_token(token, expected_type="access")
+
+    if is_access_token_revoked(token, payload=payload):
+        return
+
+    expires_at = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+    TokenBlocklist(
+        jti=payload["jti"],
+        token_hash=_token_hash(token),
+        user_uuid=payload["sub"],
+        token_type="access",
+        expires_at=expires_at,
+        reason=reason,
+    ).save()
+    logger.log_app_event(
+        "access_token_revoked",
         context={
             "reason": reason,
             "user_uuid": payload["sub"],

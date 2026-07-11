@@ -94,12 +94,10 @@ class SessionAuditLog(db.Document):
 
 
 class TokenBlocklist(db.Document):
-    # Only refresh tokens are blocklisted today; access-token revocation would
-    # require a separate token family and invalidation path.
     jti = db.StringField(required=True, unique=True)
     token_hash = db.StringField(required=True, unique=True)
     user_uuid = db.StringField(required=True)
-    token_type = db.StringField(choices=("refresh",), default="refresh")
+    token_type = db.StringField(choices=("refresh", "access"), default="refresh")
     revoked_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
     expires_at = db.DateTimeField(required=True)
     reason = db.StringField(default="logout")

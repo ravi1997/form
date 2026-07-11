@@ -460,12 +460,18 @@ class TestAuthAPILogout:
         )
 
         login_data = json.loads(login_response.data)
+        access_token = login_data.get("access_token") or login_data.get(
+            "accessToken"
+        )
         refresh_token = login_data.get("refresh_token") or login_data.get(
             "refreshToken"
         )
 
         # Then logout
-        logout_payload = {"refresh_token": refresh_token}
+        logout_payload = {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+        }
 
         logout_response = client.post(
             "/api/v1/auth/logout",
@@ -489,7 +495,7 @@ class TestAuthAPILogout:
 
     def test_logout_with_invalid_token_fails(self, client):
         """Test logout with invalid token fails."""
-        payload = {"refresh_token": "invalid-token"}
+        payload = {"access_token": "invalid-token", "refresh_token": "invalid-token"}
 
         response = client.post(
             "/api/v1/auth/logout",
@@ -512,17 +518,37 @@ class TestAuthAPILogout:
         )
 
         login_data = json.loads(login_response.data)
+        access_token = login_data.get("access_token") or login_data.get(
+            "accessToken"
+        )
         refresh_token = login_data.get("refresh_token") or login_data.get(
             "refreshToken"
         )
 
+        pre_logout_me = client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert pre_logout_me.status_code == 200
+
         # Logout
         logout_response = client.post(
             "/api/v1/auth/logout",
-            data=json.dumps({"refresh_token": refresh_token}),
+            data=json.dumps(
+                {
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                }
+            ),
             content_type="application/json",
         )
         assert logout_response.status_code == 200
+
+        me_response = client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert me_response.status_code == 401
 
         # Try to use the same refresh token again
         response = client.post(
