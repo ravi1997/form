@@ -44,6 +44,7 @@ def resolve_access_identity_from_header(raw_authorization: str) -> dict:
         raise AuthError("Authorization header must use Bearer token")
     token = raw.replace("Bearer ", "", 1).strip()
     payload = decode_token(token, expected_type="access")
+    get_user_by_uuid(payload["sub"])
     logger.log_debug(
         "authentication_successful",
         context={"user_uuid": payload.get("sub"), "session_uuid": payload.get("sid")},
