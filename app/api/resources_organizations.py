@@ -71,12 +71,31 @@ def list_organizations(query: ListQuery):
     qs = Organization.objects
     if query.status:
         qs = qs(status=query.status)
+    user = getattr(g, "resources_user", None)
+    if user and not user.is_super_admin:
+        visible_org_ids = {
+            str(org.id)
+            for org in (user.organizations or [])
+            if getattr(org, "id", None) is not None
+        }
+        visible_org_uuids = {
+            str(org.uuid)
+            for org in (user.organizations or [])
+            if getattr(org, "uuid", None)
+        }
+
+        def _visible(org: Organization) -> bool:
+            return str(org.id) in visible_org_ids or str(org.uuid) in visible_org_uuids
+
+        predicate = _visible
+    else:
+        predicate = lambda org: True
     try:
         items, page, page_size, total_items, total_pages, next_cursor = (
             paginate_queryset_with_predicate(
                 qs,
                 query,
-                lambda org: True,
+                predicate,
             )
         )
     except ValueError as exc:

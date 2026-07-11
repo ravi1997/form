@@ -93,12 +93,18 @@ def test_organization_crud_lifecycle(client, app_context):
     assert got_org["name"] == "Test Organization"
 
     # 3. List Organizations
-    # Non-authenticated user (anonymous) can list
+    # Non-authenticated user should be rejected
     res = client.get("/api/v1/organizations")
+    assert res.status_code == 401
+
+    regular.organizations = [Organization.objects(uuid="org-test-0001").first()]
+    regular.save()
+
+    res = client.get("/api/v1/organizations", headers=user_headers)
     assert res.status_code == 200
     list_orgs = res.get_json()
-    assert len(list_orgs["items"]) >= 1
-    assert any(item["uuid"] == "org-test-0001" for item in list_orgs["items"])
+    assert len(list_orgs["items"]) == 1
+    assert list_orgs["items"][0]["uuid"] == "org-test-0001"
 
     # 4. Update Organization
     update_payload = {

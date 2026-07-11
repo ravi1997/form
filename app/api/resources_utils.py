@@ -37,7 +37,7 @@ PROJECT_UUID_ENDPOINTS = {
 
 ENDPOINT_PERMISSION = {
     "resources.create_organization": "global_admin",
-    "resources.list_organizations": "anonymous",
+    "resources.list_organizations": "authenticated",
     "resources.get_organization": "global_admin",
     "resources.update_organization": "global_admin",
     "resources.delete_organization": "global_admin",
