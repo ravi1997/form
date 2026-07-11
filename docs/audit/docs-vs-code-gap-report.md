@@ -7,7 +7,7 @@ Scope:
 
 Status:
 - The password-change policy feature is documented.
-- The route catalog is now much closer to code, but this is still not a literal 1:1 copy of the OpenAPI surface.
+- The route catalog is now documented at route granularity against the current code surface.
 
 ## Classified Findings
 
@@ -20,24 +20,16 @@ Status:
 - Celery beat task for password-expiry enforcement
 - `MAX_PASSWORD_EXPIRE_DAYS`
 
-### Documented but coarse
+### Documented at route granularity
 
 - Resources API coverage in [`docs/api/overview.md`](../api/overview.md)
 - Conditions API coverage in [`docs/api/overview.md`](../api/overview.md)
 - Authentication/admin overview in [`docs/api/authentication.md`](../api/authentication.md)
-
-These pages now name the major route families, but they intentionally do not enumerate every nested subroute, path parameter, or response shape.
+- Full route-by-route coverage now lives in [`docs/api/endpoints.md`](../api/endpoints.md).
 
 ### Still undocumented in prose docs
 
-- Route-level request/response details for:
-  - organization invitation acceptance
-  - organization admin management
-  - nested section/question/choice/action routes
-  - form response history and action-execution history
-  - the full condition-management route set
-- Exact auth-admin user lifecycle operations beyond sessions and password flagging
-- Explicit mention of the public form-response submission route in the auth overview
+- None intentionally. Remaining gaps, if any, should be treated as drift bugs rather than deliberate omissions.
 
 ### Docs that could drift later
 
@@ -66,4 +58,4 @@ These should be refreshed if the OpenAPI surface changes materially.
 
 ## Bottom Line
 
-The docs now cover the new password policy feature and the major API families. The remaining gap is mostly granularity, not missing feature families.
+The docs now cover the new password policy feature and the API surface at route granularity. Any future omissions should be treated as regressions against `app/`.
