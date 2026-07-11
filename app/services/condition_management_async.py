@@ -6,6 +6,7 @@ from threading import Event
 from typing import Any, Dict, Optional, Tuple
 
 from celery import current_app as celery_current_app
+from celery.result import AsyncResult
 from celery.exceptions import SoftTimeLimitExceeded, TimeLimitExceeded
 from mongoengine.queryset.visitor import Q
 
@@ -173,7 +174,10 @@ def enqueue_async_evaluation(
     _mark_job_status(job.job_id, "queued")
     from app.celery.tasks import process_condition_async_job
 
-    task_result = process_condition_async_job.apply_async(args=[job.job_id])
+    apply_kwargs = {"args": [job.job_id]}
+    if queue:
+        apply_kwargs["queue"] = queue
+    task_result = process_condition_async_job.apply_async(**apply_kwargs)
     ConditionAsyncJob.objects(job_id=job.job_id).update_one(
         set__celery_task_id=task_result.id,
         set__task_name=process_condition_async_job.name,
@@ -383,21 +387,33 @@ def evaluate_condition_async(
         retries=0,
         fallback_result=False,
     )
-    deadline = _utcnow() + timedelta(milliseconds=timeout_ms)
-    wait_event = Event()
-    while _utcnow() < deadline:
-        payload = get_async_job_status(job.job_id)
-        if payload["status"] in {"success", "failed", "timeout", "cancelled"}:
-            return {
-                "job_id": payload["job_id"],
-                "status": payload["status"],
-                "result": payload["result"],
-                "trace": payload["trace"],
-                "timed_out": payload["status"] == "timeout",
-                "error": payload["error"],
-            }
-        remaining = max(0.0, (deadline - _utcnow()).total_seconds())
-        wait_event.wait(min(0.05, remaining))
+    result = AsyncResult(job.celery_task_id)
+    try:
+        payload = result.get(timeout=timeout_seconds, propagate=False)
+    except Exception:
+        payload = None
+
+    if isinstance(payload, dict):
+        status = str(payload.get("status") or "failed")
+        return {
+            "job_id": payload.get("job_id", job.job_id),
+            "status": status,
+            "result": payload.get("result"),
+            "trace": payload.get("trace", []),
+            "timed_out": status == "timeout",
+            "error": payload.get("error"),
+        }
+
+    payload = get_async_job_status(job.job_id)
+    if payload["status"] in {"success", "failed", "timeout", "cancelled"}:
+        return {
+            "job_id": payload["job_id"],
+            "status": payload["status"],
+            "result": payload["result"],
+            "trace": payload["trace"],
+            "timed_out": payload["status"] == "timeout",
+            "error": payload["error"],
+        }
     return {
         "job_id": job.job_id,
         "status": "timeout",
