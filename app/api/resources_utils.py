@@ -46,7 +46,7 @@ ENDPOINT_PERMISSION = {
     "resources.remove_organization_admin": "global_admin",
     "resources.create_organization_invitation": "authenticated",
     "resources.accept_organization_invitation": "authenticated",
-    "resources.create_project": "global_admin",
+    "resources.create_project": "authenticated",
     "resources.list_projects": "authenticated",
     "resources.get_project": "project_read",
     "resources.update_project": "project_admin",
@@ -276,7 +276,7 @@ def validate_project_membership_role_alignment(project: Project) -> None:
         return
 
     rules = {
-        "admins": {"admin"},
+        "admins": {"admin", "editor"},
         "members": {"admin", "editor"},
         "viewers": {"admin", "editor", "viewer"},
     }

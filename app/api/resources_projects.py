@@ -37,15 +37,39 @@ from app.api.resources_utils import (
 @resources_api.post(
     "/projects",
     tags=[resources_tag],
-    responses={201: ProjectOutput, 400: ErrorResponse},
+    responses={201: ProjectOutput, 400: ErrorResponse, 403: ErrorResponse},
 )
 def create_project(body: ProjectCreateInput):
+    creator = getattr(g, "resources_user", None)
+    if not creator:
+        return _error("Unauthorized", 401)
+
+    # Check permission: creator must be superadmin or have admin/editor role in one of the target organizations
+    if not creator.is_super_admin:
+        has_permission = False
+        for org_uuid in body.organizations:
+            org = Organization.objects(uuid=org_uuid).first()
+            if org:
+                org_id_str = str(org.id)
+                user_roles = (creator.roles or {}).get(org_id_str, [])
+                if "admin" in user_roles or "editor" in user_roles:
+                    has_permission = True
+                    break
+        if not has_permission:
+            return _error("Forbidden: You must be an administrator or editor of the organization to create projects", 403)
+
     try:
+        admins_list = _resolve_refs(User, body.admins, "admin")
+        # Automatically add the creator to project admins list if the project is organization-scoped
+        if body.organizations and not creator.is_super_admin:
+            if creator not in admins_list:
+                admins_list.append(creator)
+
         project = Project(
             uuid=body.uuid,
             name=body.name,
             versions=[_version_from_create(v) for v in body.versions],
-            admins=_resolve_refs(User, body.admins, "admin"),
+            admins=admins_list,
             members=_resolve_refs(User, body.members, "member"),
             viewers=_resolve_refs(User, body.viewers, "viewer"),
             forms=_resolve_refs(Form, body.forms, "form"),
