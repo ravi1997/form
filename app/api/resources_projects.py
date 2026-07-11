@@ -35,6 +35,27 @@ from app.api.resources_utils import (
 )
 
 
+def _creator_can_manage_all_organizations(creator: User, organizations: list[str]) -> bool:
+    if creator.is_super_admin:
+        return True
+    if not organizations:
+        return False
+
+    for org_uuid in organizations:
+        org = Organization.objects(uuid=org_uuid).first()
+        if not org:
+            return False
+        org_role_keys = resolve_org_role_keys(org)
+        has_permission = any(
+            role in {"admin", "editor"}
+            for org_key in org_role_keys
+            for role in (creator.roles or {}).get(org_key, [])
+        )
+        if not has_permission:
+            return False
+    return True
+
+
 @resources_api.post(
     "/projects",
     tags=[resources_tag],
@@ -45,21 +66,11 @@ def create_project(body: ProjectCreateInput):
     if not creator:
         return _error("Unauthorized", 401)
 
-    # Check permission: creator must be superadmin or have admin/editor role in one of the target organizations
-    if not creator.is_super_admin:
-        has_permission = False
-        for org_uuid in body.organizations:
-            org = Organization.objects(uuid=org_uuid).first()
-            if org:
-                for org_id_str in resolve_org_role_keys(org):
-                    user_roles = (creator.roles or {}).get(org_id_str, [])
-                    if "admin" in user_roles or "editor" in user_roles:
-                        has_permission = True
-                        break
-                if has_permission:
-                    break
-        if not has_permission:
-            return _error("Forbidden: You must be an administrator or editor of the organization to create projects", 403)
+    if not _creator_can_manage_all_organizations(creator, list(body.organizations or [])):
+        return _error(
+            "Forbidden: You must be an administrator or editor of every organization on the project",
+            403,
+        )
 
     try:
         admins_list = _resolve_refs(User, body.admins, "admin")

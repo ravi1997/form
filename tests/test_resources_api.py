@@ -8,7 +8,7 @@ from mongomock import MongoClient
 from werkzeug.security import generate_password_hash
 
 from app import create_openapi_app
-from app.models.user import User
+from app.models.user import User, Organization
 
 
 def _auth_header(client, email: str, password: str) -> dict[str, str]:
@@ -47,6 +47,94 @@ def _create_regular_user() -> User:
     )
     user.save()
     return user
+
+
+def _create_organization(uuid: str, name: str, admins: list[User] | None = None) -> Organization:
+    organization = Organization(
+        uuid=uuid,
+        name=name,
+        admins=list(admins or []),
+        status="active",
+    )
+    organization.save()
+    return organization
+
+
+def _create_project_payload(org_uuids: list[str]) -> dict:
+    return {
+        "uuid": "project-crud-0001",
+        "name": "Project CRUD",
+        "versions": [{"uuid": "project-v1", "major": 1, "minor": 0, "patch": 0}],
+        "admins": [],
+        "members": [],
+        "viewers": [],
+        "forms": [],
+        "organizations": org_uuids,
+        "tags": [],
+        "status": "active",
+    }
+
+
+def test_project_creation_requires_access_to_every_organization(client, app_context):
+    admin = _create_super_admin_user()
+    user = _create_regular_user()
+    admin_headers = _auth_header(client, "resources-admin@example.com", "StrongPass123!")
+    user_headers = _auth_header(client, "resources-user@example.com", "StrongPass123!")
+
+    org_a = _create_organization("org-auth-0001", "Org A", admins=[admin])
+    org_b = _create_organization("org-auth-0002", "Org B", admins=[admin])
+
+    admin.roles = {
+        str(org_a.id): ["admin"],
+        str(org_b.id): ["admin"],
+    }
+    admin.organizations = [org_a, org_b]
+    admin.save()
+
+    user.roles = {str(org_a.id): ["admin"]}
+    user.organizations = [org_a]
+    user.save()
+
+    ok_payload = _create_project_payload([org_a.uuid, org_b.uuid])
+    ok_response = client.post(
+        "/api/v1/projects",
+        data=json.dumps(ok_payload),
+        content_type="application/json",
+        headers=admin_headers,
+    )
+    assert ok_response.status_code == 201
+
+    fail_payload = _create_project_payload([org_a.uuid, org_b.uuid])
+    fail_payload["uuid"] = "project-crud-0002"
+    fail_response = client.post(
+        "/api/v1/projects",
+        data=json.dumps(fail_payload),
+        content_type="application/json",
+        headers=user_headers,
+    )
+    assert fail_response.status_code == 403
+
+
+def test_project_creation_rejects_mixed_authorization(client, app_context):
+    _create_super_admin_user()
+    user = _create_regular_user()
+    user_headers = _auth_header(client, "resources-user@example.com", "StrongPass123!")
+
+    org_a = _create_organization("org-auth-1001", "Org A")
+    org_b = _create_organization("org-auth-1002", "Org B")
+    user.roles = {str(org_a.id): ["admin"]}
+    user.organizations = [org_a]
+    user.save()
+
+    mixed_payload = _create_project_payload([org_a.uuid, org_b.uuid])
+    mixed_payload["uuid"] = "project-crud-1001"
+    response = client.post(
+        "/api/v1/projects",
+        data=json.dumps(mixed_payload),
+        content_type="application/json",
+        headers=user_headers,
+    )
+    assert response.status_code == 403
 
 
 def test_project_and_form_crud_lifecycle(client, app_context):
