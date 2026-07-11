@@ -489,8 +489,31 @@ def rotate_refresh_token(token: str) -> Dict[str, Any]:
         )
         raise AuthError("Refresh token does not match active session")
 
+    expires_at = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+    updated = UserSession.objects(
+        session_uuid=payload["sid"],
+        user_uuid=payload["sub"],
+        is_active=True,
+        refresh_jti=payload["jti"],
+        refresh_token_hash=old_hash,
+    ).update_one(
+        set__refresh_jti="__rotating__",
+        set__refresh_token_hash="__rotating__",
+        set__refresh_expires_at=expires_at,
+        set__last_seen_at=_utcnow(),
+    )
+    if not updated:
+        logger.log_app_event(
+            "refresh_token_rotation_failed",
+            level="WARNING",
+            context={
+                "reason": "session_state_changed",
+                "user_uuid": payload.get("sub"),
+            },
+        )
+        raise AuthError("Refresh token has already been rotated")
+
     if not TokenBlocklist.objects(jti=payload["jti"]).first():
-        expires_at = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
         TokenBlocklist(
             jti=payload["jti"],
             token_hash=old_hash,

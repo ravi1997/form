@@ -6,6 +6,7 @@ import pytest
 import jwt
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
+from concurrent.futures import ThreadPoolExecutor
 from app.services.auth import (
     AuthError,
     _utcnow,
@@ -547,3 +548,35 @@ class TestAuthEdgeCases:
         assert session.refresh_token_hash is not None
         # Should be a hash (SHA256), which is 64 hex characters
         assert len(session.refresh_token_hash) == 64
+
+    def test_refresh_token_rotation_rejects_replay(self, app_context):
+        user_uuid = "test-user-uuid"
+        email = "test@example.com"
+        session_data = create_user_session(user_uuid=user_uuid, email=email)
+
+        rotated = rotate_refresh_token(session_data["refresh_token"])
+        assert rotated["session_uuid"] == session_data["session_uuid"]
+
+        with pytest.raises(AuthError, match="already been rotated|revoked"):
+            rotate_refresh_token(session_data["refresh_token"])
+
+    def test_refresh_token_rotation_allows_only_one_concurrent_success(self, app_context):
+        user_uuid = "test-user-uuid"
+        email = "test@example.com"
+        session_data = create_user_session(user_uuid=user_uuid, email=email)
+
+        def _rotate():
+            try:
+                return ("ok", rotate_refresh_token(session_data["refresh_token"]))
+            except Exception as exc:
+                return ("err", str(exc))
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(lambda _: _rotate(), range(2)))
+
+        successes = [result for kind, result in results if kind == "ok"]
+        failures = [result for kind, result in results if kind == "err"]
+
+        assert len(successes) == 1
+        assert len(failures) == 1
+        assert "session_uuid" in successes[0]
