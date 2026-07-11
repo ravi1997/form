@@ -23,6 +23,7 @@ from app.services.auth import (
     _jwt_keyring,
     is_access_token_revoked,
     revoke_access_token,
+    rotate_refresh_token,
 )
 from app.models.auth import TokenBlocklist, UserSession
 
@@ -560,16 +561,18 @@ class TestAuthEdgeCases:
         with pytest.raises(AuthError, match="already been rotated|revoked"):
             rotate_refresh_token(session_data["refresh_token"])
 
-    def test_refresh_token_rotation_allows_only_one_concurrent_success(self, app_context):
+    def test_refresh_token_rotation_allows_only_one_concurrent_success(self, app):
         user_uuid = "test-user-uuid"
         email = "test@example.com"
-        session_data = create_user_session(user_uuid=user_uuid, email=email)
+        with app.app_context():
+            session_data = create_user_session(user_uuid=user_uuid, email=email)
 
         def _rotate():
-            try:
-                return ("ok", rotate_refresh_token(session_data["refresh_token"]))
-            except Exception as exc:
-                return ("err", str(exc))
+            with app.app_context():
+                try:
+                    return ("ok", rotate_refresh_token(session_data["refresh_token"]))
+                except Exception as exc:
+                    return ("err", str(exc))
 
         with ThreadPoolExecutor(max_workers=2) as executor:
             results = list(executor.map(lambda _: _rotate(), range(2)))

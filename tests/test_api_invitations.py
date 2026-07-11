@@ -142,6 +142,8 @@ def test_invitation_link_uses_public_base_url_when_configured(client, app_contex
 
 
 def test_invitation_link_falls_back_to_request_context(client, app_context):
+    app_context.config.pop("PUBLIC_BASE_URL", None)
+    app_context.config.pop("FRONTEND_URL", None)
     superadmin = _create_user("inv-base-0002", "Super Admin", "request-admin@example.com", is_super_admin=True)
     org = Organization(uuid="org-base-0002", name="Request URL Org")
     org.admins = [superadmin]

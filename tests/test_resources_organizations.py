@@ -167,9 +167,8 @@ def test_organization_crud_lifecycle(client, app_context):
     # Check updated user model values
     regular.reload()
     assert regular.is_organisation_admin is True
-    org_id_key = str(Organization.objects(uuid="org-test-0001").first().id)
-    assert org_id_key in regular.roles
-    assert "admin" in regular.roles[org_id_key]
+    assert "org-test-0001" in regular.roles
+    assert "admin" in regular.roles["org-test-0001"]
 
     # Under new rules, even organization admins cannot list admins (only superadmin / global_admin can)
     res = client.get("/api/v1/organizations/org-test-0001/admins", headers=user_headers)

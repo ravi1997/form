@@ -64,7 +64,7 @@ from app.services.rbac import (
 )
 from app.middleware.rate_limit import rate_limit
 from app.api import auth_admin_routes as _auth_admin_routes  # noqa: F401
-from app.utils import client_ip, utcnow
+from app.utils import client_ip, to_utc_datetime, utcnow
 
 
 def _encode_composite_cursor(*, timestamp, tie_breaker: str) -> str:
@@ -80,8 +80,10 @@ def _decode_composite_cursor(cursor: str) -> tuple[datetime, str | None]:
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError:
-        return datetime.fromisoformat(raw), None
-    return datetime.fromisoformat(payload["timestamp"]), payload.get("tie_breaker")
+        decoded = to_utc_datetime(datetime.fromisoformat(raw))
+        return decoded if decoded is not None else datetime.fromisoformat(raw), None
+    decoded = to_utc_datetime(datetime.fromisoformat(payload["timestamp"]))
+    return decoded if decoded is not None else datetime.fromisoformat(payload["timestamp"]), payload.get("tie_breaker")
 
 
 @auth_api.post(
@@ -415,14 +417,17 @@ def sessions(header: AuthorizationHeader, query: SessionListQuery):
         cursor_created_at_raw, cursor_session_uuid = _decode_composite_cursor(
             query.cursor
         )
+        cursor_created_at_raw = to_utc_datetime(cursor_created_at_raw) or cursor_created_at_raw
         filtered = [
             s
             for s in all_items
             if (
-                s.last_seen_at < cursor_created_at_raw
+                (to_utc_datetime(s.last_seen_at) or s.last_seen_at)
+                < cursor_created_at_raw
                 or (
                     cursor_session_uuid is not None
-                    and s.last_seen_at == cursor_created_at_raw
+                    and (to_utc_datetime(s.last_seen_at) or s.last_seen_at)
+                    == cursor_created_at_raw
                     and s.session_uuid < cursor_session_uuid
                 )
             )

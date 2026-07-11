@@ -13,8 +13,6 @@ from app.config import BaseConfig
 from app.api.auth_support import (
     _audit_log,
     _bad_request,
-    _decode_audit_cursor,
-    _encode_audit_cursor,
     _require_admin,
     _require_admin_for_user,
     _security_event,
@@ -56,6 +54,7 @@ from app.services.auth import (
 )
 from app.services.org_keys import resolve_org_role_key
 from app.services.rbac import admin_org_ids_for_user, can_admin_access_user
+from app.utils import to_utc_datetime
 
 
 def _encode_composite_cursor(*, timestamp: datetime, tie_breaker: str) -> str:
@@ -71,8 +70,10 @@ def _decode_composite_cursor(cursor: str) -> tuple[datetime, str | None]:
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError:
-        return datetime.fromisoformat(raw), None
-    return datetime.fromisoformat(payload["timestamp"]), payload.get("tie_breaker")
+        decoded = to_utc_datetime(datetime.fromisoformat(raw))
+        return decoded if decoded is not None else datetime.fromisoformat(raw), None
+    decoded = to_utc_datetime(datetime.fromisoformat(payload["timestamp"]))
+    return decoded if decoded is not None else datetime.fromisoformat(payload["timestamp"]), payload.get("tie_breaker")
 
 
 def _build_session_list_response(
@@ -88,14 +89,15 @@ def _build_session_list_response(
 
     if cursor:
         cursor_created_at, cursor_session_uuid = _decode_composite_cursor(cursor)
+        cursor_created_at = to_utc_datetime(cursor_created_at) or cursor_created_at
         filtered = [
             s
             for s in all_items
             if (
-                s.last_seen_at < cursor_created_at
+                (to_utc_datetime(s.last_seen_at) or s.last_seen_at) < cursor_created_at
                 or (
                     cursor_session_uuid is not None
-                    and s.last_seen_at == cursor_created_at
+                    and (to_utc_datetime(s.last_seen_at) or s.last_seen_at) == cursor_created_at
                     and s.session_uuid < cursor_session_uuid
                 )
             )
@@ -147,13 +149,24 @@ def _fetch_session_page(
     cursor: Optional[str],
 ):
     queryset = UserSession.objects(user_uuid=user_uuid, is_active=True).order_by(
-        "-last_seen_at"
+        "-last_seen_at", "-session_uuid"
     )
     if cursor:
-        cursor_created_at = _decode_audit_cursor(cursor)
-        entries = list(
-            queryset.filter(last_seen_at__lt=cursor_created_at).limit(page_size + 1)
-        )
+        cursor_created_at, cursor_session_uuid = _decode_composite_cursor(cursor)
+        if cursor_session_uuid is None:
+            entries = list(
+                queryset.filter(last_seen_at__lt=cursor_created_at).limit(page_size + 1)
+            )
+        else:
+            entries = list(
+                queryset.filter(
+                    Q(last_seen_at__lt=cursor_created_at)
+                    | Q(
+                        last_seen_at=cursor_created_at,
+                        session_uuid__lt=cursor_session_uuid,
+                    )
+                ).limit(page_size + 1)
+            )
         total_items = None
         total_pages = None
     else:
@@ -189,7 +202,10 @@ def _build_audit_log_response(
 
     next_cursor = None
     if len(entries) > page_size and page_entries:
-        next_cursor = _encode_audit_cursor(page_entries[-1].created_at)
+        next_cursor = _encode_composite_cursor(
+            timestamp=page_entries[-1].created_at,
+            tie_breaker=page_entries[-1].session_uuid,
+        )
 
     return AdminAuditLogListResponse(
         items=items,
