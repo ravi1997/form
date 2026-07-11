@@ -244,6 +244,43 @@ def test_project_and_form_crud_lifecycle(client, app_context):
     assert delete_project.get_json()["message"] == "project_deleted"
 
 
+def test_deleted_project_lifecycle_rejects_reads_and_writes(client, app_context):
+    _create_super_admin_user()
+    headers = _auth_header(client, "resources-admin@example.com", "StrongPass123!")
+
+    project_payload = _create_project_payload([])
+    project_payload["uuid"] = "project-deleted-0001"
+    create_response = client.post(
+        "/api/v1/projects",
+        data=json.dumps(project_payload),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert create_response.status_code == 201
+
+    delete_response = client.delete("/api/v1/projects/project-deleted-0001", headers=headers)
+    assert delete_response.status_code == 200
+
+    read_response = client.get("/api/v1/projects/project-deleted-0001", headers=headers)
+    assert read_response.status_code == 404
+
+    update_response = client.patch(
+        "/api/v1/projects/project-deleted-0001",
+        data=json.dumps({"name": "should fail"}),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert update_response.status_code == 404
+
+    version_response = client.post(
+        "/api/v1/projects/project-deleted-0001/versions",
+        data=json.dumps({"uuid": "project-deleted-v2", "major": 2, "minor": 0, "patch": 0}),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert version_response.status_code == 404
+
+
 def test_section_question_choice_lifecycle_and_anonymous_access(client, app_context):
     _create_super_admin_user()
     headers = _auth_header(client, "resources-admin@example.com", "StrongPass123!")

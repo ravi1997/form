@@ -56,6 +56,12 @@ def _creator_can_manage_all_organizations(creator: User, organizations: list[str
     return True
 
 
+def ensure_project_active(project: Project):
+    if getattr(project, "status", None) == "deleted":
+        return _error("Project not found", 404)
+    return None
+
+
 @resources_api.post(
     "/projects",
     tags=[resources_tag],
@@ -143,6 +149,9 @@ def get_project(path: UUIDPath):
     item = Project.objects(uuid=path.uuid).first()
     if not item:
         return _error("Project not found", 404)
+    inactive_err = ensure_project_active(item)
+    if inactive_err:
+        return inactive_err
     return to_json_ready(to_project_output(item))
 
 
@@ -155,6 +164,9 @@ def update_project(path: UUIDPath, body: ProjectUpdateInput):
     item = Project.objects(uuid=path.uuid).first()
     if not item:
         return _error("Project not found", 404)
+    inactive_err = ensure_project_active(item)
+    if inactive_err:
+        return inactive_err
     try:
         _apply_project_update(item, body)
         _validate_project_membership_role_alignment(item)
@@ -173,6 +185,9 @@ def delete_project(path: UUIDPath):
     item = Project.objects(uuid=path.uuid).first()
     if not item:
         return _error("Project not found", 404)
+    inactive_err = ensure_project_active(item)
+    if inactive_err:
+        return inactive_err
     item.status = "deleted"
     item.save()
     return to_json_ready(MessageResponse(message="project_deleted"))
@@ -187,6 +202,9 @@ def create_project_version(path: UUIDPath, body: VersionCreateInput):
     item = Project.objects(uuid=path.uuid).first()
     if not item:
         return _error("Project not found", 404)
+    inactive_err = ensure_project_active(item)
+    if inactive_err:
+        return inactive_err
     try:
         _append_version(item, body)
         item.save()
@@ -204,6 +222,9 @@ def update_project_version(path: VersionPath, body: VersionUpdateInput):
     item = Project.objects(uuid=path.uuid).first()
     if not item:
         return _error("Project not found", 404)
+    inactive_err = ensure_project_active(item)
+    if inactive_err:
+        return inactive_err
     try:
         updated = _update_version(item, path.version_uuid, body)
         item.save()
