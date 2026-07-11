@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from uuid import uuid4
+from datetime import datetime
 
 from flask import request
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -62,6 +65,20 @@ from app.services.rbac import (
 from app.middleware.rate_limit import rate_limit
 from app.api import auth_admin_routes as _auth_admin_routes  # noqa: F401
 from app.utils import client_ip, utcnow
+
+
+def _encode_composite_cursor(*, timestamp, tie_breaker: str) -> str:
+    payload = json.dumps(
+        {"timestamp": timestamp.isoformat(), "tie_breaker": tie_breaker},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return urlsafe_b64encode(payload).decode("utf-8")
+
+
+def _decode_composite_cursor(cursor: str) -> tuple:
+    raw = urlsafe_b64decode(cursor.encode("utf-8")).decode("utf-8")
+    payload = json.loads(raw)
+    return payload["timestamp"], payload["tie_breaker"]
 
 
 @auth_api.post(
@@ -383,12 +400,30 @@ def sessions(header: AuthorizationHeader, query: SessionListQuery):
     touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
 
     all_items = list_active_sessions(user_uuid=payload["sub"])
+    all_items = sorted(
+        all_items,
+        key=lambda session: (session.last_seen_at, session.session_uuid),
+        reverse=True,
+    )
     page_size = query.page_size
     page = query.page
 
     if query.cursor:
-        cursor_created_at = _decode_audit_cursor(query.cursor)
-        filtered = [s for s in all_items if s.last_seen_at < cursor_created_at]
+        cursor_created_at_raw, cursor_session_uuid = _decode_composite_cursor(
+            query.cursor
+        )
+        cursor_created_at = datetime.fromisoformat(cursor_created_at_raw)
+        filtered = [
+            s
+            for s in all_items
+            if (
+                s.last_seen_at < cursor_created_at
+                or (
+                    s.last_seen_at == cursor_created_at
+                    and s.session_uuid < cursor_session_uuid
+                )
+            )
+        ]
         selected = filtered[:page_size]
         total_items = None
         total_pages = None
@@ -414,7 +449,10 @@ def sessions(header: AuthorizationHeader, query: SessionListQuery):
 
     next_cursor = None
     if len(selected) == page_size:
-        next_cursor = _encode_audit_cursor(selected[-1].last_seen_at)
+        next_cursor = _encode_composite_cursor(
+            timestamp=selected[-1].last_seen_at,
+            tie_breaker=selected[-1].session_uuid,
+        )
 
     return to_json_ready(
         SessionListResponse(

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from typing import Optional
+from datetime import datetime
 
 from flask import current_app, request
 from mongoengine.queryset.visitor import Q
@@ -55,6 +58,20 @@ from app.services.org_keys import resolve_org_role_key
 from app.services.rbac import admin_org_ids_for_user, can_admin_access_user
 
 
+def _encode_composite_cursor(*, timestamp: datetime, tie_breaker: str) -> str:
+    payload = json.dumps(
+        {"timestamp": timestamp.isoformat(), "tie_breaker": tie_breaker},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return urlsafe_b64encode(payload).decode("utf-8")
+
+
+def _decode_composite_cursor(cursor: str) -> tuple[datetime, str]:
+    raw = urlsafe_b64decode(cursor.encode("utf-8")).decode("utf-8")
+    payload = json.loads(raw)
+    return datetime.fromisoformat(payload["timestamp"]), payload["tie_breaker"]
+
+
 def _build_session_list_response(
     all_items: list,
     page: int,
@@ -67,8 +84,18 @@ def _build_session_list_response(
     next_cursor: Optional[str] = None
 
     if cursor:
-        cursor_created_at = _decode_audit_cursor(cursor)
-        filtered = [s for s in all_items if s.last_seen_at < cursor_created_at]
+        cursor_created_at, cursor_session_uuid = _decode_composite_cursor(cursor)
+        filtered = [
+            s
+            for s in all_items
+            if (
+                s.last_seen_at < cursor_created_at
+                or (
+                    s.last_seen_at == cursor_created_at
+                    and s.session_uuid < cursor_session_uuid
+                )
+            )
+        ]
         selected = filtered[:page_size]
     else:
         total_items = len(all_items) if total_items is None else total_items
@@ -94,7 +121,10 @@ def _build_session_list_response(
     ]
 
     if len(selected) == page_size:
-        next_cursor = _encode_audit_cursor(selected[-1].last_seen_at)
+        next_cursor = _encode_composite_cursor(
+            timestamp=selected[-1].last_seen_at,
+            tie_breaker=selected[-1].session_uuid,
+        )
 
     return SessionListResponse(
         sessions=items,
@@ -464,12 +494,16 @@ def admin_audit_logs(header: AuthorizationHeader, query: AdminAuditLogQuery):
     total_items: Optional[int] = None
     total_pages: Optional[int] = None
     if query.cursor:
-        cursor_created_at = _decode_audit_cursor(query.cursor)
-        filters["created_at__lt"] = cursor_created_at
-        queryset = SessionAuditLog.objects(**filters).order_by("-created_at")
+        cursor_created_at, cursor_session_uuid = _decode_composite_cursor(query.cursor)
+        filters["created_at__lte"] = cursor_created_at
+        queryset = SessionAuditLog.objects(**filters).order_by("-created_at", "-session_uuid")
+        queryset = queryset.filter(
+            Q(created_at__lt=cursor_created_at)
+            | Q(created_at=cursor_created_at, session_uuid__lt=cursor_session_uuid)
+        )
         entries = list(queryset.limit(query.page_size + 1))
     else:
-        queryset = SessionAuditLog.objects(**filters).order_by("-created_at")
+        queryset = SessionAuditLog.objects(**filters).order_by("-created_at", "-session_uuid")
         total_items = queryset.count()
         total_pages = (
             (total_items + query.page_size - 1) // query.page_size if total_items else 0
@@ -529,12 +563,17 @@ def admin_audit_logs_search(
     total_items: Optional[int] = None
     total_pages: Optional[int] = None
     if query.cursor:
-        cursor_created_at = _decode_audit_cursor(query.cursor)
-        base_filter &= Q(created_at__lt=cursor_created_at)
-        queryset = SessionAuditLog.objects(base_filter).order_by("-created_at")
+        cursor_created_at, cursor_session_uuid = _decode_composite_cursor(query.cursor)
+        queryset = SessionAuditLog.objects(
+            base_filter
+            & (
+                Q(created_at__lt=cursor_created_at)
+                | Q(created_at=cursor_created_at, session_uuid__lt=cursor_session_uuid)
+            )
+        ).order_by("-created_at", "-session_uuid")
         entries = list(queryset.limit(query.page_size + 1))
     else:
-        queryset = SessionAuditLog.objects(base_filter).order_by("-created_at")
+        queryset = SessionAuditLog.objects(base_filter).order_by("-created_at", "-session_uuid")
         total_items = queryset.count()
         total_pages = (
             (total_items + query.page_size - 1) // query.page_size if total_items else 0
