@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 from werkzeug.security import generate_password_hash
 from app.models.user import User, Organization, Invitation
@@ -158,3 +159,63 @@ def test_invitation_link_falls_back_to_request_context(client, app_context):
     )
     assert res.status_code == 201
     assert res.get_json()["invitation_link"].startswith("http://localhost")
+
+
+def test_invitation_acceptance_normalizes_expiry_timezones(client, app_context):
+    superadmin = _create_user("inv-expiry-0001", "Super Admin", "expiry-admin@example.com", is_super_admin=True)
+    org = Organization(uuid="org-expiry-0001", name="Expiry Org")
+    org.admins = [superadmin]
+    org.save()
+    superadmin.organizations = [org]
+    superadmin.roles = {str(org.id): ["admin"]}
+    superadmin.save()
+    headers = _auth_header(client, "expiry-admin@example.com", "Password123!")
+
+    now = datetime.now(timezone.utc)
+    invitation = Invitation(
+        uuid=str(uuid4()),
+        organization=org,
+        email="expiry-user@example.com",
+        role="editor",
+        status="pending",
+        created_by=superadmin,
+        created_at=now,
+        expires_at=(now + timedelta(days=1)).replace(tzinfo=None),
+    )
+    invitation.save()
+
+    invited = _create_user("inv-expiry-user-0001", "Expiry User", "expiry-user@example.com")
+    invited_headers = _auth_header(client, "expiry-user@example.com", "Password123!")
+
+    res = client.post(f"/api/v1/invitations/{invitation.uuid}/accept", headers=invited_headers)
+    assert res.status_code == 200
+
+
+def test_expired_invitation_is_rejected_with_timezone_aware_value(client, app_context):
+    superadmin = _create_user("inv-expiry-0002", "Super Admin", "expiry-admin2@example.com", is_super_admin=True)
+    org = Organization(uuid="org-expiry-0002", name="Expiry Org 2")
+    org.admins = [superadmin]
+    org.save()
+    superadmin.organizations = [org]
+    superadmin.roles = {str(org.id): ["admin"]}
+    superadmin.save()
+
+    now = datetime.now(timezone.utc)
+    invitation = Invitation(
+        uuid=str(uuid4()),
+        organization=org,
+        email="expired-user@example.com",
+        role="editor",
+        status="pending",
+        created_by=superadmin,
+        created_at=now,
+        expires_at=now - timedelta(seconds=1),
+    )
+    invitation.save()
+
+    expired_user = _create_user("inv-expiry-user-0002", "Expired User", "expired-user@example.com")
+    expired_headers = _auth_header(client, "expired-user@example.com", "Password123!")
+
+    res = client.post(f"/api/v1/invitations/{invitation.uuid}/accept", headers=expired_headers)
+    assert res.status_code == 400
+    assert res.get_json()["message"] == "Invitation has expired"

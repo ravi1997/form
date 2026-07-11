@@ -26,7 +26,7 @@ from app.api.resources_support import _error, resources_api, resources_tag
 from app.api.resources_context import _resolve_refs, _resolve_user
 from app.api.resources_utils import paginate_queryset_with_predicate
 from app.services.org_keys import resolve_org_role_key, resolve_org_role_keys
-from app.utils import utcnow
+from app.utils import to_utc_datetime, utcnow
 
 
 def _invitation_base_url() -> str:
@@ -328,7 +328,8 @@ def accept_organization_invitation(path: UUIDPath):
     if invitation.status != "pending":
         return _error(f"Invitation is already {invitation.status}", 400)
 
-    if invitation.expires_at < utcnow().replace(tzinfo=None):
+    invitation_expires_at = to_utc_datetime(invitation.expires_at)
+    if invitation_expires_at is not None and invitation_expires_at < utcnow():
         invitation.status = "expired"
         invitation.save()
         return _error("Invitation has expired", 400)
