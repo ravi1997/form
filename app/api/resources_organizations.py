@@ -5,7 +5,7 @@ from __future__ import annotations
 from flask import g
 from mongoengine.errors import NotUniqueError, ValidationError
 
-from app.models.user import Organization, User
+from app.models.user import Organization, User, Invitation
 from app.schemas.mappers import to_json_ready, to_organization_output
 from app.schemas.organization import OrganizationCreateInput, OrganizationOutput, OrganizationUpdateInput
 from app.api.resources_schemas import (
@@ -17,6 +17,8 @@ from app.api.resources_schemas import (
     OrganizationAdminsResponse,
     OrganizationListResponse,
     UUIDPath,
+    InvitationInput,
+    InvitationOutput,
 )
 from app.api.resources_support import _error, resources_api, resources_tag
 from app.api.resources_context import _resolve_refs, _resolve_user
@@ -226,3 +228,133 @@ def remove_organization_admin(path: AdminPath):
     from app.schemas.mappers import to_user_output
     admins_output = [to_user_output(admin) for admin in organization.admins or []]
     return to_json_ready(OrganizationAdminsResponse(admins=admins_output))
+
+
+from uuid import uuid4
+from datetime import timedelta
+
+@resources_api.post(
+    "/organizations/<uuid>/invitations",
+    tags=[resources_tag],
+    responses={201: InvitationOutput, 400: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse},
+)
+def create_organization_invitation(path: UUIDPath, body: InvitationInput):
+    org = Organization.objects(uuid=path.uuid).first()
+    if not org:
+        return _error("Organization not found", 404)
+
+    user = getattr(g, "resources_user", None)
+    if not user:
+        return _error("Unauthorized", 401)
+
+    # Check permission: creator must be either superadmin or admin of this organization
+    is_admin = False
+    if user.is_super_admin:
+        is_admin = True
+    elif user in org.admins:
+        is_admin = True
+    else:
+        org_id_str = str(org.id)
+        if org_id_str in user.roles and "admin" in user.roles[org_id_str]:
+            is_admin = True
+        elif org.uuid in user.roles and "admin" in user.roles[org.uuid]:
+            is_admin = True
+
+    if not is_admin:
+        return _error("Forbidden: You must be an administrator of this organization to send invitations", 403)
+
+    # Enforce: only superadmin can invite someone as organization admin
+    if body.role == "admin" and not user.is_super_admin:
+        return _error("Forbidden: Only superadmins can invite organization administrators", 403)
+
+    # Create Invitation
+    now = utcnow()
+    invitation = Invitation(
+        uuid=str(uuid4()),
+        organization=org,
+        email=body.email.strip().lower(),
+        phone=body.phone,
+        role=body.role,
+        status="pending",
+        created_by=user,
+        created_at=now,
+        expires_at=now + timedelta(days=7),
+    )
+    invitation.save()
+
+    invitation_link = f"http://localhost:8600/api/v1/invitations/{invitation.uuid}/accept"
+
+    output = InvitationOutput(
+        uuid=invitation.uuid,
+        organization_uuid=org.uuid,
+        email=invitation.email,
+        phone=invitation.phone,
+        role=invitation.role,
+        status=invitation.status,
+        created_by_uuid=user.uuid,
+        created_at=invitation.created_at,
+        expires_at=invitation.expires_at,
+        invitation_link=invitation_link,
+    )
+    return to_json_ready(output), 201
+
+
+@resources_api.post(
+    "/invitations/<uuid>/accept",
+    tags=[resources_tag],
+    responses={200: MessageResponse, 400: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse},
+)
+def accept_organization_invitation(path: UUIDPath):
+    invitation = Invitation.objects(uuid=path.uuid).first()
+    if not invitation:
+        return _error("Invitation not found", 404)
+
+    if invitation.status != "pending":
+        return _error(f"Invitation is already {invitation.status}", 400)
+
+    if invitation.expires_at < utcnow().replace(tzinfo=None):
+        invitation.status = "expired"
+        invitation.save()
+        return _error("Invitation has expired", 400)
+
+    user = getattr(g, "resources_user", None)
+    if not user:
+        return _error("Unauthorized", 401)
+
+    # Check if the logged-in user matches the invitation's email (or phone if provided)
+    email_matches = user.email.strip().lower() == invitation.email.strip().lower()
+    phone_matches = False
+    if invitation.phone and user.phone:
+        phone_matches = user.phone.strip() == invitation.phone.strip()
+
+    if not (email_matches or phone_matches):
+        return _error("Forbidden: Your account does not match the invited email or phone number", 403)
+
+    # Add user to organization
+    org = invitation.organization
+    if org not in user.organizations:
+        user.organizations.append(org)
+
+    # Assign role
+    org_id_str = str(org.id)
+    if not user.roles:
+        user.roles = {}
+    
+    current_roles = user.roles.get(org_id_str) or []
+    if invitation.role not in current_roles:
+        current_roles.append(invitation.role)
+        user.roles[org_id_str] = current_roles
+
+    # If the role is admin, handle flags
+    if invitation.role == "admin":
+        user.is_organisation_admin = True
+        if user not in org.admins:
+            org.admins.append(user)
+            org.save()
+
+    user.save()
+
+    invitation.status = "accepted"
+    invitation.save()
+
+    return to_json_ready(MessageResponse(message="invitation_accepted"))

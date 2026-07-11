@@ -44,6 +44,8 @@ ENDPOINT_PERMISSION = {
     "resources.get_organization_admins": "global_admin",
     "resources.add_organization_admin": "global_admin",
     "resources.remove_organization_admin": "global_admin",
+    "resources.create_organization_invitation": "authenticated",
+    "resources.accept_organization_invitation": "authenticated",
     "resources.create_project": "global_admin",
     "resources.list_projects": "authenticated",
     "resources.get_project": "project_read",

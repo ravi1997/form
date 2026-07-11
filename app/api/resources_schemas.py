@@ -236,3 +236,25 @@ class UserListResponse(SchemaModel):
     page_size: int
     total_items: Optional[int] = None
     total_pages: Optional[int] = None
+
+
+from datetime import datetime
+from pydantic import EmailStr
+
+class InvitationInput(SchemaModel):
+    email: EmailStr
+    phone: Optional[str] = None
+    role: str = "viewer"
+
+
+class InvitationOutput(SchemaModel):
+    uuid: str
+    organization_uuid: str
+    email: str
+    phone: Optional[str] = None
+    role: str
+    status: str
+    created_by_uuid: str
+    created_at: datetime
+    expires_at: datetime
+    invitation_link: str

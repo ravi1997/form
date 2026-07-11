@@ -161,3 +161,28 @@ class User(db.Document):
     def save(self, *args, **kwargs):
         self.updated_at = utcnow()
         return super().save(*args, **kwargs)
+
+
+INVITATION_STATUS_CHOICES = (
+    "pending",
+    "accepted",
+    "expired",
+    "declined",
+)
+
+
+class Invitation(db.Document):
+    uuid = db.StringField(required=True, unique=True)
+    organization = db.ReferenceField(Organization, required=True)
+    email = db.StringField(required=True)
+    phone = db.StringField()
+    role = db.StringField(required=True, default="viewer")
+    status = db.StringField(choices=INVITATION_STATUS_CHOICES, default="pending")
+    created_by = db.ReferenceField(User, required=True)
+    created_at = db.DateTimeField(default=utcnow)
+    expires_at = db.DateTimeField(required=True)
+
+    meta = {
+        "collection": "invitations",
+        "indexes": ["uuid", "email", "status"],
+    }
