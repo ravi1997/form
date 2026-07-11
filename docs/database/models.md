@@ -13,7 +13,7 @@ Users store:
 
 - UUID, name, email, phone, designation
 - auth provider and password hash
-- flags such as `is_super_admin` and `is_organisation_admin`
+- flags such as `is_super_admin`, `is_organisation_admin`, and `must_change_password`
 - per-organization role mappings
 - organization references and last-login timestamps
 

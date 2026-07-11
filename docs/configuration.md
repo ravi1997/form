@@ -66,6 +66,10 @@
 - `AUDIT_LOG_RETENTION_DAYS`
 - `MONITORING_STATS_RETENTION_DAYS`
 
+### Password policy
+
+- `MAX_PASSWORD_EXPIRE_DAYS` controls how long a password can remain valid before the periodic policy task marks the user as requiring a reset
+
 ## Defaults by environment
 
 ### Development
@@ -89,6 +93,7 @@
 - Unknown env keys beginning with `JWT_` or `AUTH_RATE_LIMIT_` are warned about in development and rejected in production
 - Integer settings are range-checked
 - `CELERY_TASK_SOFT_TIME_LIMIT` must be lower than `CELERY_TASK_TIME_LIMIT`
+- `MAX_PASSWORD_EXPIRE_DAYS` must be a positive integer
 - `API_VERSION` must match `v<number>`
 - `JWT_ADDITIONAL_KEYS` must be a mapping
 - `LOG_LEVEL` must be one of `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`

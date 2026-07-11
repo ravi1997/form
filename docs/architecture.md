@@ -8,6 +8,7 @@
 4. Route handlers perform validation and request shaping, then delegate to `app/services/`.
 5. MongoEngine documents in `app/models/` persist the system of record.
 6. Celery workers consume async jobs via Redis and operate inside the Flask app context.
+7. Celery beat runs periodic maintenance tasks such as password-expiry enforcement.
 
 ## Layering
 
@@ -28,6 +29,7 @@
 
 - `app/services/auth.py` owns JWT creation, decoding, token rotation, revocation, and session handling
 - `app/services/rbac.py` performs identity and permission checks
+- `app/services/password_policy.py` enforces password-age policy and sets `must_change_password`
 - `app/services/security.py` handles auth rate-limit counters and session audit logs
 - `app/services/rate_limit.py` resolves and applies general rate-limit rules
 - `app/services/condition_evaluator.py` evaluates condition trees and DSL expressions
@@ -83,6 +85,7 @@
 - `create_openapi_app()` initializes MongoEngine, Celery, request metrics, and logging
 - It attempts to ensure the monitoring stats TTL index exists
 - `app.celery.app` is configured from the Flask config or environment defaults
+- `app.celery.tasks.enforce_password_expiry_task` is scheduled by beat to refresh password-expiry state
 
 ## Operational data paths
 

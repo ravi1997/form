@@ -45,6 +45,7 @@ names are used whether you run the app directly or inside containers.
 | `WORKFLOW_STRICT_REVIEW_BEFORE_APPROVE` | Enforce review before approval in form workflow |
 | `ENABLE_AUDIT_LOGS` | Enable or disable security/audit event logging |
 | `RATE_LIMIT_FAIL_OPEN` | Fail open when the Redis rate limiter is unavailable |
+| `MAX_PASSWORD_EXPIRE_DAYS` | Maximum password age before users are marked for reset |
 
 ## Ops and retention
 
@@ -54,6 +55,8 @@ names are used whether you run the app directly or inside containers.
 | `MONITORING_STATS_RETENTION_DAYS` | Condition monitoring TTL window |
 | `CELERY_TASK_TIME_LIMIT` | Hard async task timeout |
 | `CELERY_TASK_SOFT_TIME_LIMIT` | Soft async task timeout |
+| `CELERY_TASK_ALWAYS_EAGER` | Run Celery tasks synchronously in-process |
+| `CELERY_TASK_EAGER_PROPAGATES` | Propagate Celery task exceptions eagerly |
 | `ENABLE_COMPRESSION` | Enables response compression |
 | `REQUEST_ID_HEADER` | Request ID header name |
 | `API_VERSION` | Exposed API version string |

@@ -32,9 +32,20 @@
 `POST /api/v1/auth/login`
 
 - checks the user record and password hash
+- rejects users whose `must_change_password` flag is set
 - updates `last_login_at`
 - creates a new session
 - is rate limited
+
+### Change password
+
+`POST /api/v1/auth/change-password`
+
+- requires a valid access token
+- verifies the current password
+- updates the password hash
+- clears `must_change_password`
+- refreshes `last_password_change_at`
 
 ### Refresh
 
@@ -77,8 +88,18 @@
 - list another user’s sessions
 - revoke one session
 - revoke all sessions
+- update another user, including `must_change_password`
+- bulk-set `must_change_password` for multiple users
 - inspect audit logs
 - check config health
+
+### Password expiry policy
+
+`app/services/password_policy.py` and the Celery task `app.celery.tasks.enforce_password_expiry_task` enforce the configured password age policy.
+
+- `MAX_PASSWORD_EXPIRE_DAYS` controls the maximum age in days
+- users whose password age exceeds the policy are marked with `must_change_password=true`
+- the periodic Celery beat schedule runs the enforcement task every 6 hours
 
 ## Security properties
 

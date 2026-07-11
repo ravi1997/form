@@ -16,6 +16,7 @@
 - `make docker-health` checks the app readiness endpoint
 - `make docker-log-app`, `make docker-log-worker`, `make docker-log-mongo`, and `make docker-log-redis` stream service-specific logs
 - `make docker-shell-app`, `make docker-shell-worker`, and `make docker-shell-beat` open shells inside the running containers
+- `make beat` runs the Celery beat scheduler locally, including periodic password-expiry enforcement
 
 ## Workflow
 
@@ -84,6 +85,8 @@ Notes:
 - Check `/api/v1/readiness` when MongoDB connectivity is in question
 - If Celery shows `localhost` in its transport URL, verify that the compose
   override is in effect and that the container was restarted after the update.
+- If user accounts are unexpectedly blocked, check whether `must_change_password`
+  was set manually or by the password-expiry beat task.
 - If MongoDB authentication fails after changing credentials, remove the Mongo
   volume with `make docker-clean-volumes` or `make docker-clean-all` and
   recreate the stack.

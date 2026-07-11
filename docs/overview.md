@@ -6,6 +6,7 @@ Form Service API is a Flask/OpenAPI backend for form management, JWT session aut
 
 - OpenAPI-backed routes under `/api/v1`
 - JWT access and refresh tokens with session tracking
+- Password-change enforcement for flagged users and password-expiry policy automation
 - RBAC-enforced resource APIs for projects, forms, sections, questions, choices, and actions
 - Condition testing, versioning, presets, approval transitions, and async evaluation
 - UI template storage for layout/theme configuration and revision publishing
@@ -20,6 +21,7 @@ Form Service API is a Flask/OpenAPI backend for form management, JWT session aut
 
 - registration
 - login
+- change-password
 - refresh
 - logout
 - current-user lookup
@@ -27,6 +29,8 @@ Form Service API is a Flask/OpenAPI backend for form management, JWT session aut
 - session revoke
 - logout-all
 - admin session inspection and revocation for other users
+- admin single-user updates, including `must_change_password`
+- admin bulk password-change flagging
 - audit-log browsing for authorized admin users
 
 ### Resources
@@ -66,6 +70,7 @@ The resources API is protected by JWT auth, route-level rate limiting, and RBAC 
 - `app.wsgi:app` is the WSGI entry point
 - `app.openapi:create_openapi_app()` builds the Flask/OpenAPI application
 - `app.celery.worker` provides the Celery worker app
+- `app.celery.tasks` includes periodic password-expiry enforcement
 - `docker-compose.yml` runs API, MongoDB, Redis, worker, and optional beat
 
 ## Source-of-truth files

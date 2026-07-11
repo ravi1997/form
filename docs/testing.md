@@ -39,6 +39,7 @@ make type-check
 
 - worker bootstrap
 - task registration
+- periodic password-expiry beat scheduling
 - async condition job behavior
 
 ## Regression focus
@@ -49,6 +50,7 @@ make type-check
 - condition evaluation and caching
 - logging and observability behavior
 - Celery worker behavior
+- password-change enforcement and password-expiry policy behavior
 
 ## How to choose a test command
 

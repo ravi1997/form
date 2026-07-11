@@ -22,6 +22,8 @@
 - `has_global_admin_privileges()` and related helpers distinguish global, org, and scoped admin access
 - Resource route permissions are enforced in `app/api/resources_utils.py`
 - Auth admin routes require elevated admin access
+- Users marked with `must_change_password=true` are denied access to authenticated routes until they complete `POST /api/v1/auth/change-password`
+- Admin users can set the flag per-user or in bulk through auth admin routes
 
 ## Rate limiting
 
@@ -43,3 +45,4 @@
 - Access tokens are not individually blocklisted; short TTLs are the main access-token revocation control
 - In-memory rate-limit fallback is not distributed
 - Publishing UI templates requires appropriate admin scope
+- Password-expiry enforcement is periodic; it is only as fresh as the Celery beat schedule or manual task execution

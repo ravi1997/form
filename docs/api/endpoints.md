@@ -16,12 +16,14 @@
 - `POST /api/v1/auth/refresh`
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/auth/me`
+- `POST /api/v1/auth/change-password`
 - `GET /api/v1/auth/sessions`
 - `POST /api/v1/auth/sessions/revoke`
 - `POST /api/v1/auth/logout-all`
 - `GET /api/v1/auth/admin/users/<user_uuid>/sessions`
 - `POST /api/v1/auth/admin/users/<user_uuid>/sessions/revoke`
 - `POST /api/v1/auth/admin/users/<user_uuid>/sessions/revoke-all`
+- `POST /api/v1/auth/admin/users/bulk/must-change-password`
 - `GET /api/v1/auth/admin/audit-logs`
 - `GET /api/v1/auth/admin/config-health`
 
