@@ -3,6 +3,7 @@ from typing import Optional, Tuple, Dict, Any
 import redis
 from flask import current_app
 from mongoengine.errors import OperationError, ValidationError
+from mongoengine.queryset.visitor import Q
 from pymongo.errors import PyMongoError
 
 from app.models.rate_limit import RateLimitConfig, RateLimitLog
@@ -72,51 +73,27 @@ class RateLimitService:
         3. Route-specific limit
         4. Global limit (lowest)
         """
-        limits = []
-
-        # User-specific limit
+        query = RateLimitConfig.objects(is_active=True)
+        method_filter = http_method or ""
+        scope_filter = Q(scope="global") | Q(scope="route")
         if user_uuid:
-            user_limit = RateLimitConfig.objects(
-                scope="user",
-                target_id=user_uuid,
-                route_pattern=route_pattern,
-                http_method=http_method or "",
-                is_active=True,
-            ).first()
-            if user_limit:
-                limits.append((user_limit.priority + 4, user_limit))
-
-        # Organization-specific limit
+            scope_filter |= Q(scope="user", target_id=user_uuid)
         if organization_uuid:
-            org_limit = RateLimitConfig.objects(
-                scope="organization",
-                target_id=organization_uuid,
-                route_pattern=route_pattern,
-                http_method=http_method or "",
-                is_active=True,
-            ).first()
-            if org_limit:
-                limits.append((org_limit.priority + 3, org_limit))
+            scope_filter |= Q(scope="organization", target_id=organization_uuid)
 
-        # Route-specific limit
-        route_limit = RateLimitConfig.objects(
-            scope="route",
+        limits = []
+        for rule in query.filter(
+            scope_filter,
             route_pattern=route_pattern,
-            http_method=http_method or "",
-            is_active=True,
-        ).first()
-        if route_limit:
-            limits.append((route_limit.priority + 2, route_limit))
-
-        # Global limit (no target_id)
-        global_limit = RateLimitConfig.objects(
-            scope="global",
-            route_pattern=route_pattern,
-            http_method=http_method or "",
-            is_active=True,
-        ).first()
-        if global_limit:
-            limits.append((global_limit.priority + 1, global_limit))
+            http_method=method_filter,
+        ):
+            priority_bias = {
+                "user": 4,
+                "organization": 3,
+                "route": 2,
+                "global": 1,
+            }.get(rule.scope, 0)
+            limits.append((rule.priority + priority_bias, rule))
 
         if not limits:
             return None
@@ -431,24 +408,17 @@ class RateLimitService:
         """Get current rate limit status for a user/org/route."""
         try:
             query = RateLimitConfig.objects(is_active=True)
-
+            filters = Q()
             if user_uuid:
-                query = query.filter(
-                    (RateLimitConfig.scope == "user")
-                    | (RateLimitConfig.target_id == user_uuid)
-                )
-
+                filters |= Q(scope="user", target_id=user_uuid)
             if organization_uuid:
-                query = query.filter(
-                    (RateLimitConfig.scope == "organization")
-                    | (RateLimitConfig.target_id == organization_uuid)
-                )
-
+                filters |= Q(scope="organization", target_id=organization_uuid)
             if route_pattern:
-                query = query.filter(
-                    (RateLimitConfig.route_pattern == route_pattern)
-                    | (RateLimitConfig.route_pattern == None)  # noqa: E711
-                )
+                filters |= Q(scope="route", route_pattern=route_pattern)
+            filters |= Q(scope="global")
+            query = query.filter(filters)
+            if route_pattern:
+                query = query.filter(route_pattern=route_pattern)
 
             limits = query.order_by("-priority")
             return {
