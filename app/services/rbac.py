@@ -19,6 +19,14 @@ from app.services.password_policy import should_force_password_change
 
 logger = get_rotating_logger()
 
+_DISABLED_ACCOUNT_STATUSES = {
+    "inactive",
+    "suspended",
+    "locked",
+    "deleted",
+    "unverified",
+}
+
 
 def resolve_access_identity_from_header(raw_authorization: str) -> dict:
     logger.log_debug(
@@ -42,7 +50,14 @@ def resolve_access_identity_from_header(raw_authorization: str) -> dict:
     return payload
 
 
+def validate_account_status(user: User) -> None:
+    status = getattr(user, "status", None)
+    if status in _DISABLED_ACCOUNT_STATUSES:
+        raise AuthError(f"User account is {status}")
+
+
 def enforce_must_change_password(user: User, allow_access: bool = False) -> None:
+    validate_account_status(user)
     if should_force_password_change(user):
         user.must_change_password = True
         user.save()

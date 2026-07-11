@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from werkzeug.security import generate_password_hash
 from app.models.user import User, Organization
 from app.models.auth import SessionAuditLog, UserSession
+from app.services.auth import create_user_session
 
 
 @pytest.fixture
@@ -30,6 +31,16 @@ def test_organization(app_context):
     org = Organization(uuid="01-01-24-test-org", name="Test Organization")
     org.save()
     return org
+
+
+def _create_session_tokens(user):
+    return create_user_session(
+        user_uuid=user.uuid,
+        email=user.email,
+        user_agent="pytest",
+        ip_address="127.0.0.1",
+        device_name="pytest-device",
+    )
 
 
 class TestAuthAPIHealthEndpoint:
@@ -260,6 +271,24 @@ class TestAuthAPILogin:
 
         assert response.status_code in [200, 201]
 
+    @pytest.mark.parametrize(
+        "status",
+        ["inactive", "suspended", "locked", "deleted", "unverified"],
+    )
+    def test_login_rejects_disabled_accounts(self, client, test_user, status):
+        test_user.status = status
+        test_user.save()
+
+        response = client.post(
+            "/api/v1/auth/login",
+            data=json.dumps(
+                {"email": "test@example.com", "password": "test_password_123"}
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 401
+
     def test_login_blocked_when_password_change_required(self, client, test_user):
         test_user.must_change_password = True
         test_user.save()
@@ -334,22 +363,8 @@ class TestAuthAPIRefresh:
 
     def test_refresh_token_success(self, client, test_user):
         """Test successful token refresh."""
-        # First login
-        login_payload = {"email": "test@example.com", "password": "test_password_123"}
-
-        login_response = client.post(
-            "/api/v1/auth/login",
-            data=json.dumps(login_payload),
-            content_type="application/json",
-        )
-
-        login_data = json.loads(login_response.data)
-        refresh_token = login_data.get("refresh_token") or login_data.get(
-            "refreshToken"
-        )
-
-        # Then refresh
-        refresh_payload = {"refresh_token": refresh_token}
+        session = _create_session_tokens(test_user)
+        refresh_payload = {"refresh_token": session["refresh_token"]}
 
         refresh_response = client.post(
             "/api/v1/auth/refresh",
@@ -360,6 +375,25 @@ class TestAuthAPIRefresh:
         assert refresh_response.status_code in [200, 201]
         refresh_data = json.loads(refresh_response.data)
         assert "access_token" in refresh_data or "accessToken" in refresh_data
+
+    @pytest.mark.parametrize(
+        "status",
+        ["inactive", "suspended", "locked", "deleted", "unverified"],
+    )
+    def test_refresh_rejects_disabled_accounts(self, client, test_user, status):
+        test_user.status = status
+        test_user.save()
+        session = _create_session_tokens(test_user)
+
+        response = client.post(
+            "/api/v1/auth/refresh",
+            data=json.dumps({"refresh_token": session["refresh_token"]}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 401
+        payload = response.get_json()
+        assert status in payload["message"]
 
     def test_refresh_invalid_token_fails(self, client):
         """Test that invalid refresh token fails."""

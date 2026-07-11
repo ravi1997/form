@@ -56,6 +56,7 @@ from app.services.auth import (
 from app.services.rbac import (
     enforce_must_change_password,
     get_user_by_uuid,
+    validate_account_status,
 )
 from app.middleware.rate_limit import rate_limit
 from app.api import auth_admin_routes as _auth_admin_routes  # noqa: F401
@@ -139,28 +140,6 @@ def login(body: LoginRequest):
         )
         return _unauthorized("Invalid email or password")
 
-    if user.status == "unverified":
-        _security_event(
-            event="login",
-            outcome="failed",
-            endpoint="/api/v1/auth/login",
-            actor_user_uuid=user.uuid,
-            reason="user_unverified",
-            details={"email": email},
-        )
-        return _unauthorized("User is unverified. Please contact an organization administrator.")
-
-    if user.status in ("inactive", "suspended", "locked", "deleted"):
-        _security_event(
-            event="login",
-            outcome="failed",
-            endpoint="/api/v1/auth/login",
-            actor_user_uuid=user.uuid,
-            reason="user_disabled",
-            details={"email": email, "status": user.status},
-        )
-        return _unauthorized("User account is inactive or disabled")
-
     if not check_password_hash(user.password_hash, body.password):
         _security_event(
             event="login",
@@ -173,17 +152,18 @@ def login(body: LoginRequest):
         return _unauthorized("Invalid email or password")
 
     try:
+        validate_account_status(user)
         enforce_must_change_password(user)
-    except AuthError:
+    except AuthError as exc:
         _security_event(
             event="login",
             outcome="failed",
             endpoint="/api/v1/auth/login",
             actor_user_uuid=user.uuid,
-            reason="password_change_required",
+            reason=str(exc),
             details={"email": email},
         )
-        return _unauthorized("Password change required")
+        return _unauthorized(str(exc))
 
     user.last_login_at = utcnow()
     user.save()
