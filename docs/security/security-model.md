@@ -7,6 +7,7 @@
 - Refresh tokens are tied to MongoDB session records
 - Refresh token rotation is supported
 - Refresh token revocation writes to `token_blocklist` and deactivates the session
+- Access-token revocation is enforced on logout by storing access-token identifiers in `token_blocklist`
 
 ## Session security
 
@@ -43,6 +44,7 @@
 ## Known security constraints
 
 - Access tokens are not individually blocklisted; short TTLs are the main access-token revocation control
-- In-memory rate-limit fallback is not distributed
+- Registration creates an unverified account and does not issue a usable session
+- In-memory rate-limit fallback is not distributed and should be treated as unsafe
 - Publishing UI templates requires appropriate admin scope
 - Password-expiry enforcement is periodic; it is only as fresh as the Celery beat schedule or manual task execution

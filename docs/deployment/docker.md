@@ -26,7 +26,7 @@ docker compose up --build
 
 Compose reads `.env` from the project root. That file is the source of truth for
 container configuration values such as JWT secrets, MongoDB credentials, log
-levels, and Celery broker URLs.
+levels, Redis URLs, and Celery broker URLs.
 
 Use `.env.example` as the template and keep the real `.env` file out of version
 control.
@@ -94,7 +94,7 @@ This will:
 - `redis`
   - uses `redis:7-alpine`
   - persists append-only file data in `redis_data`
-  - provides Celery broker and result-backend storage
+  - provides Celery broker, result-backend storage, and the distributed rate-limit backend
 
 ## Local override behavior
 
@@ -104,7 +104,7 @@ the parts that should differ in day-to-day work:
 - it mounts the repo into `/app`
 - it sets development environment values
 - it points MongoDB at the development database
-- it forces Celery to use `redis://redis:6379/0` and `redis://redis:6379/1`
+- it forces Celery and rate limiting to use `redis://redis:6379/0` and `redis://redis:6379/1`
 
 The override still consumes the same `.env` file, so the secrets and tunables
 stay centralized.

@@ -22,7 +22,11 @@ After copying `.env.example`, set at least:
 - `MONGO_INITDB_ROOT_PASSWORD`
 
 For a pure local Python run, `MONGODB_URI` can point to a local MongoDB
-instance and `CELERY_BROKER_URL` can point to a local Redis service.
+instance and `CELERY_BROKER_URL` and `REDIS_URL` can point to a local Redis service.
+
+Registration creates an unverified account only. Users become active after the
+verification workflow or an explicit admin verification step, after which login
+and session creation are allowed.
 
 ## Run locally
 

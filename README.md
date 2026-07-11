@@ -1,6 +1,6 @@
 # Form Service API
 
-Form Service API is a Flask + OpenAPI backend for form/resource management, JWT session auth, hierarchical form editing, condition evaluation, rate limiting, password-expiry enforcement, and Celery-backed async work. It uses MongoDB through MongoEngine and Redis for Celery and distributed rate limiting.
+Form Service API is a Flask + OpenAPI backend for form/resource management, JWT session auth, hierarchical form editing, condition evaluation, rate limiting, password-expiry enforcement, and Celery-backed async work. It uses MongoDB through MongoEngine and Redis for Celery and distributed rate limiting. New registrations create unverified accounts only; usable sessions are issued after verification or a successful login.
 
 ## Documentation
 
