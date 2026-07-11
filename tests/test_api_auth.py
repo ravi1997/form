@@ -4,8 +4,10 @@ Comprehensive tests for auth API endpoints.
 
 import pytest
 import json
+from datetime import datetime, timedelta, timezone
 from werkzeug.security import generate_password_hash
 from app.models.user import User, Organization
+from app.models.auth import SessionAuditLog, UserSession
 
 
 @pytest.fixture
@@ -526,6 +528,105 @@ class TestAuthAPISessions:
         )
 
         assert response.status_code == 200
+
+    def test_admin_session_pagination_uses_cursor_and_page_size(
+        self, client, test_user
+    ):
+        admin = User(
+            uuid="admin-pagination-0001",
+            name="Admin Pagination",
+            email="admin-pagination@example.com",
+            password_hash=generate_password_hash("test_password_123"),
+            auth_provider="local",
+            is_super_admin=True,
+        )
+        admin.save()
+
+        base = datetime.now(timezone.utc)
+        for idx in range(3):
+            UserSession(
+                session_uuid=f"session-pagination-{idx}",
+                user_uuid=test_user.uuid,
+                email=test_user.email,
+                refresh_jti=f"jti-{idx}",
+                refresh_token_hash=f"hash-{idx}",
+                refresh_expires_at=base + timedelta(days=7),
+                created_at=base - timedelta(minutes=idx),
+                last_seen_at=base - timedelta(minutes=idx),
+                is_active=True,
+            ).save()
+
+        login_response = client.post(
+            "/api/v1/auth/login",
+            data=json.dumps({"email": admin.email, "password": "test_password_123"}),
+            content_type="application/json",
+        )
+        login_data = json.loads(login_response.data)
+        access_token = login_data.get("access_token") or login_data.get("accessToken")
+
+        first_page = client.get(
+            f"/api/v1/auth/admin/users/{test_user.uuid}/sessions?page=1&page_size=2",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert first_page.status_code == 200
+        first_payload = first_page.get_json()
+        assert len(first_payload["sessions"]) == 2
+        assert first_payload["total_items"] == 3
+        assert first_payload["next_cursor"]
+
+        second_page = client.get(
+            f"/api/v1/auth/admin/users/{test_user.uuid}/sessions?page=1&page_size=2&cursor={first_payload['next_cursor']}",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert second_page.status_code == 200
+        assert len(second_page.get_json()["sessions"]) == 1
+
+    def test_admin_audit_log_pagination_uses_cursor(self, client, test_user):
+        admin = User(
+            uuid="admin-audit-0001",
+            name="Admin Audit",
+            email="admin-audit@example.com",
+            password_hash=generate_password_hash("test_password_123"),
+            auth_provider="local",
+            is_super_admin=True,
+        )
+        admin.save()
+
+        base = datetime.now(timezone.utc)
+        for idx in range(3):
+            SessionAuditLog(
+                actor_user_uuid=admin.uuid,
+                target_user_uuid=test_user.uuid,
+                session_uuid=f"session-audit-{idx}",
+                action="admin_session_revoke",
+                reason="test",
+                created_at=base - timedelta(minutes=idx),
+                expires_at=base + timedelta(days=180),
+            ).save()
+
+        login_response = client.post(
+            "/api/v1/auth/login",
+            data=json.dumps({"email": admin.email, "password": "test_password_123"}),
+            content_type="application/json",
+        )
+        login_data = json.loads(login_response.data)
+        access_token = login_data.get("access_token") or login_data.get("accessToken")
+
+        first_page = client.get(
+            "/api/v1/auth/admin/audit-logs?page=1&page_size=2",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert first_page.status_code == 200
+        first_payload = first_page.get_json()
+        assert len(first_payload["items"]) == 2
+        assert first_payload["next_cursor"]
+
+        cursor_page = client.get(
+            f"/api/v1/auth/admin/audit-logs?page=1&page_size=2&cursor={first_payload['next_cursor']}",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert cursor_page.status_code == 200
+        assert len(cursor_page.get_json()["items"]) == 1
 
 
 class TestAuthAPIEdgeCases:

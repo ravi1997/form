@@ -5,7 +5,7 @@ from typing import Optional
 from flask import current_app, request
 from mongoengine.queryset.visitor import Q
 
-from app.models.auth import SessionAuditLog
+from app.models.auth import SessionAuditLog, UserSession
 from app.config import BaseConfig
 from app.api.auth_support import (
     _audit_log,
@@ -47,11 +47,11 @@ from app.schemas.auth import (
 from app.schemas.mappers import to_json_ready
 from app.services.auth import (
     AuthError,
-    list_active_sessions,
     revoke_all_sessions,
     revoke_session,
     touch_session,
 )
+from app.services.rbac import admin_org_ids_for_user, can_admin_access_user
 
 
 def _build_session_list_response(
@@ -60,9 +60,9 @@ def _build_session_list_response(
     page_size: int,
     cursor: Optional[str],
     current_session_uuid: Optional[str],
+    total_items: Optional[int] = None,
+    total_pages: Optional[int] = None,
 ) -> SessionListResponse:
-    total_items: Optional[int] = None
-    total_pages: Optional[int] = None
     next_cursor: Optional[str] = None
 
     if cursor:
@@ -70,8 +70,10 @@ def _build_session_list_response(
         filtered = [s for s in all_items if s.last_seen_at < cursor_created_at]
         selected = filtered[:page_size]
     else:
-        total_items = len(all_items)
-        total_pages = (total_items + page_size - 1) // page_size if total_items else 0
+        total_items = len(all_items) if total_items is None else total_items
+        total_pages = (
+            (total_items + page_size - 1) // page_size if total_pages is None and total_items else total_pages
+        )
         start = (page - 1) * page_size
         selected = all_items[start : start + page_size]
 
@@ -101,6 +103,30 @@ def _build_session_list_response(
         total_pages=total_pages,
         next_cursor=next_cursor,
     )
+
+
+def _fetch_session_page(
+    user_uuid: str,
+    page: int,
+    page_size: int,
+    cursor: Optional[str],
+):
+    queryset = UserSession.objects(user_uuid=user_uuid, is_active=True).order_by(
+        "-last_seen_at"
+    )
+    if cursor:
+        cursor_created_at = _decode_audit_cursor(cursor)
+        entries = list(
+            queryset.filter(last_seen_at__lt=cursor_created_at).limit(page_size + 1)
+        )
+        total_items = None
+        total_pages = None
+    else:
+        total_items = queryset.count()
+        total_pages = (total_items + page_size - 1) // page_size if total_items else 0
+        skip = (page - 1) * page_size
+        entries = list(queryset.skip(skip).limit(page_size + 1))
+    return entries, total_items, total_pages
 
 
 def _build_audit_log_response(
@@ -140,6 +166,20 @@ def _build_audit_log_response(
     )
 
 
+def _resolve_users_by_uuid(user_uuids: list[str]) -> dict[str, User]:
+    requested = [user_uuid for user_uuid in user_uuids if user_uuid]
+    if not requested:
+        return {}
+    return {user.uuid: user for user in User.objects(uuid__in=requested)}
+
+
+def _resolve_orgs_by_uuid(org_uuids: list[str]) -> dict[str, Organization]:
+    requested = [org_uuid for org_uuid in org_uuids if org_uuid]
+    if not requested:
+        return {}
+    return {org.uuid: org for org in Organization.objects(uuid__in=requested)}
+
+
 @auth_api.get(
     "/admin/users/<user_uuid>/sessions",
     tags=[auth_tag],
@@ -158,13 +198,20 @@ def admin_list_user_sessions(
         return _unauthorized(str(exc))
 
     touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
-    all_items = list_active_sessions(user_uuid=path.user_uuid)
-    response = _build_session_list_response(
-        all_items=all_items,
+    entries, total_items, total_pages = _fetch_session_page(
+        user_uuid=path.user_uuid,
         page=query.page,
         page_size=query.page_size,
         cursor=query.cursor,
-        current_session_uuid=None,
+    )
+    response = _build_session_list_response(
+        all_items=entries,
+        page=query.page,
+        page_size=query.page_size,
+        cursor=query.cursor,
+        current_session_uuid=payload["sid"],
+        total_items=total_items,
+        total_pages=total_pages,
     )
     return to_json_ready(response)
 
@@ -542,9 +589,9 @@ def admin_list_users(header: AuthorizationHeader, query: SessionListQuery):
         qs = User.objects
     else:
         # Organization admin can see only users of organizations they manage
-        admin_org_ids = [str(org.id) for org in admin_user.organizations or [] if "admin" in (admin_user.roles or {}).get(str(org.id), [])]
+        admin_org_ids = admin_org_ids_for_user(admin_user)
         # Resolve to database Organization references to filter
-        resolved_orgs = Organization.objects(id__in=admin_org_ids)
+        resolved_orgs = list(Organization.objects(id__in=admin_org_ids))
         qs = User.objects(organizations__in=list(resolved_orgs))
 
     total_items = qs.count()
@@ -577,9 +624,10 @@ def admin_create_user(header: AuthorizationHeader, body: UserCreateInput):
     touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
 
     if not admin_user.is_super_admin:
-        admin_org_ids = [str(org.id) for org in admin_user.organizations or [] if "admin" in (admin_user.roles or {}).get(str(org.id), [])]
+        admin_org_ids = admin_org_ids_for_user(admin_user)
+        org_lookup = _resolve_orgs_by_uuid(body.organizations)
         for org_uuid in body.organizations:
-            org = Organization.objects(uuid=org_uuid).first()
+            org = org_lookup.get(org_uuid)
             if not org or str(org.id) not in admin_org_ids:
                 return _unauthorized(f"You cannot create users in organization: {org_uuid}")
 
@@ -591,16 +639,18 @@ def admin_create_user(header: AuthorizationHeader, body: UserCreateInput):
         is_email_verified = True
 
     try:
+        org_lookup = _resolve_orgs_by_uuid(body.organizations or [])
         resolved_orgs = []
-        for org_uuid in body.organizations:
-            org = Organization.objects(uuid=org_uuid).first()
+        for org_uuid in body.organizations or []:
+            org = org_lookup.get(org_uuid)
             if not org:
                 return _bad_request(f"Organization not found: {org_uuid}")
             resolved_orgs.append(org)
 
         mapped_roles = {}
+        role_org_lookup = _resolve_orgs_by_uuid(list(body.roles.keys()))
         for k, v in body.roles.items():
-            org = Organization.objects(uuid=k).first() or Organization.objects(id=k).first()
+            org = role_org_lookup.get(k) or Organization.objects(id=k).first()
             if org:
                 mapped_roles[str(org.id)] = v
             else:
@@ -645,20 +695,11 @@ def admin_get_user(header: AuthorizationHeader, path: AdminUserPath):
 
     touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
 
-    target_user = User.objects(uuid=path.user_uuid).first()
+    target_user = _resolve_users_by_uuid([path.user_uuid]).get(path.user_uuid)
     if not target_user:
         return _bad_request("User not found")
 
-    is_authorized = False
-    if admin_user.is_super_admin:
-        is_authorized = True
-    else:
-        admin_org_ids = [str(org.id) for org in admin_user.organizations or [] if "admin" in (admin_user.roles or {}).get(str(org.id), [])]
-        target_org_ids = [str(org.id) for org in target_user.organizations or []]
-        if set(admin_org_ids) & set(target_org_ids):
-            is_authorized = True
-
-    if not is_authorized:
+    if not can_admin_access_user(admin_user, target_user):
         return _unauthorized("You are not authorized to view this user")
 
     from app.schemas.mappers import to_user_output
@@ -678,20 +719,11 @@ def admin_update_user(header: AuthorizationHeader, path: AdminUserPath, body: Us
 
     touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
 
-    target_user = User.objects(uuid=path.user_uuid).first()
+    target_user = _resolve_users_by_uuid([path.user_uuid]).get(path.user_uuid)
     if not target_user:
         return _bad_request("User not found")
 
-    is_authorized = False
-    if admin_user.is_super_admin:
-        is_authorized = True
-    else:
-        admin_org_ids = [str(org.id) for org in admin_user.organizations or [] if "admin" in (admin_user.roles or {}).get(str(org.id), [])]
-        target_org_ids = [str(org.id) for org in target_user.organizations or []]
-        if set(admin_org_ids) & set(target_org_ids):
-            is_authorized = True
-
-    if not is_authorized:
+    if not can_admin_access_user(admin_user, target_user):
         return _unauthorized("You are not authorized to update this user")
 
     try:
@@ -777,18 +809,12 @@ def admin_bulk_set_must_change_password(
         return _bad_request("This bulk route only supports enabling must_change_password")
 
     updated_count = 0
-    admin_org_ids = [
-        str(org.id)
-        for org in admin_user.organizations or []
-        if "admin" in (admin_user.roles or {}).get(str(org.id), [])
-    ]
     for user_uuid in body.user_uuids:
-        target_user = User.objects(uuid=user_uuid).first()
+        target_user = _resolve_users_by_uuid([user_uuid]).get(user_uuid)
         if not target_user:
             return _bad_request(f"User not found: {user_uuid}")
         if not admin_user.is_super_admin:
-            target_org_ids = [str(org.id) for org in target_user.organizations or []]
-            if not set(admin_org_ids) & set(target_org_ids):
+            if not can_admin_access_user(admin_user, target_user):
                 return _unauthorized(
                     f"You are not authorized to update this user: {user_uuid}"
                 )
@@ -815,20 +841,11 @@ def admin_delete_user(header: AuthorizationHeader, path: AdminUserPath):
 
     touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
 
-    target_user = User.objects(uuid=path.user_uuid).first()
+    target_user = _resolve_users_by_uuid([path.user_uuid]).get(path.user_uuid)
     if not target_user:
         return _bad_request("User not found")
 
-    is_authorized = False
-    if admin_user.is_super_admin:
-        is_authorized = True
-    else:
-        admin_org_ids = [str(org.id) for org in admin_user.organizations or [] if "admin" in (admin_user.roles or {}).get(str(org.id), [])]
-        target_org_ids = [str(org.id) for org in target_user.organizations or []]
-        if set(admin_org_ids) & set(target_org_ids):
-            is_authorized = True
-
-    if not is_authorized:
+    if not can_admin_access_user(admin_user, target_user):
         return _unauthorized("You are not authorized to delete this user")
 
     target_user.status = "deleted"
@@ -852,7 +869,7 @@ def admin_verify_user(header: AuthorizationHeader, path: AdminUserPath, body: Ve
 
     touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
 
-    target_user = User.objects(uuid=path.user_uuid).first()
+    target_user = _resolve_users_by_uuid([path.user_uuid]).get(path.user_uuid)
     if not target_user:
         return _bad_request("User not found")
 
@@ -862,15 +879,7 @@ def admin_verify_user(header: AuthorizationHeader, path: AdminUserPath, body: Ve
         return _bad_request("Organization not found")
 
     # Check permission: caller must be superadmin or admin of the target organization
-    is_authorized = False
-    if admin_user.is_super_admin:
-        is_authorized = True
-    else:
-        admin_org_ids = [str(o.id) for o in admin_user.organizations or [] if "admin" in (admin_user.roles or {}).get(str(o.id), [])]
-        if str(org.id) in admin_org_ids:
-            is_authorized = True
-
-    if not is_authorized:
+    if not admin_user.is_super_admin and str(org.id) not in admin_org_ids_for_user(admin_user):
         return _unauthorized("You are not authorized to verify users for this organization")
 
     # Enforce: only superadmins can assign "admin" role

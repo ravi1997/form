@@ -109,6 +109,28 @@ def admin_org_scope_keys(user: User) -> Set[str]:
     return keys
 
 
+def admin_org_ids_for_user(user: User) -> Set[str]:
+    return {
+        str(org.id)
+        for org in user.organizations or []
+        if "admin" in (user.roles or {}).get(str(org.id), [])
+    }
+
+
+def shares_org_scope(admin_user: User, target_user: User) -> bool:
+    if bool(admin_user.is_super_admin):
+        return True
+    admin_org_ids = admin_org_ids_for_user(admin_user)
+    target_org_ids = user_org_scope_keys(target_user)
+    return bool(admin_org_ids and target_org_ids and admin_org_ids & target_org_ids)
+
+
+def can_admin_access_user(admin_user: User, target_user: User) -> bool:
+    if bool(admin_user.is_super_admin):
+        return True
+    return shares_org_scope(admin_user, target_user)
+
+
 def require_admin_by_payload(payload: dict) -> Tuple[dict, User]:
     logger.log_debug(
         "authorization_check_started",
