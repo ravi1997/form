@@ -83,6 +83,25 @@ LayoutTemplateUpdateInput = UiTemplateUpdateInput
 LayoutTemplateOutput = UiTemplateOutput
 
 
+class ThemeTemplateListResponse(SchemaModel):
+    items: List[ThemeTemplateOutput]
+    page: int
+    page_size: int
+    total_items: Optional[int] = None
+    total_pages: Optional[int] = None
+    next_cursor: Optional[str] = None
+
+
+class LayoutTemplateListResponse(SchemaModel):
+    items: List[LayoutTemplateOutput]
+    page: int
+    page_size: int
+    total_items: Optional[int] = None
+    total_pages: Optional[int] = None
+    next_cursor: Optional[str] = None
+
+
+
 class TemplateBindInput(SchemaModel):
     template_uuid: str
     revision_uuid: Optional[str] = None

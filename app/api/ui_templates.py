@@ -6,6 +6,14 @@ from app.models.form import Project
 from app.models.ui_template import LayoutTemplate, TemplateRevision, ThemeTemplate
 from app.models.user import User
 from app.schemas.common import SchemaModel
+from app.schemas.mappers import to_json_ready
+from app.schemas.ui_template import (
+    ThemeTemplateListResponse,
+    LayoutTemplateListResponse,
+    ThemeTemplateOutput,
+    LayoutTemplateOutput,
+)
+from app.api.resources_schemas import ListQuery, ErrorResponse
 from app.services.auth import AuthError
 from app.services.rbac import (
     admin_org_scope_keys,
@@ -13,6 +21,7 @@ from app.services.rbac import (
     resolve_access_identity_from_header,
     user_org_scope_keys,
 )
+
 
 try:
     from flask_openapi3 import APIBlueprint, Tag
@@ -27,6 +36,11 @@ ui_api = APIBlueprint("ui_templates", __name__, url_prefix="/api/v1/ui")
 class TemplateRevisionPath(SchemaModel):
     template_uuid: str
     revision_uuid: str
+
+
+class TemplatePath(SchemaModel):
+    template_uuid: str
+
 
 
 def _resolve_user_from_auth() -> User | None:
@@ -251,6 +265,76 @@ def _publish_template(model, template_uuid: str, revision_uuid: str):
     return _serialize_template(template)
 
 
+def _list_templates(model, query: ListQuery):
+    actor = _resolve_authorized_actor()
+    if not actor:
+        return {"message": "Unauthorized"}, 401
+
+    if actor.is_super_admin:
+        qs = model.objects()
+    else:
+        from mongoengine import Q
+        org_keys = user_org_scope_keys(actor)
+        qs = model.objects(
+            Q(visibility="public") |
+            Q(admins=actor) |
+            Q(editors=actor) |
+            Q(viewers=actor) |
+            (Q(scope_type="organization") & Q(scope_uuid__in=list(org_keys)))
+        )
+
+    if query.status:
+        qs = qs(status=query.status)
+
+    from app.api.resources_utils import paginate_items
+    try:
+        items, page, page_size, total_items, total_pages, next_cursor = paginate_items(
+            list(qs), query
+        )
+    except ValueError as exc:
+        return {"message": str(exc)}, 400
+
+    return {
+        "items": [_serialize_template(item) for item in items],
+        "page": page,
+        "page_size": page_size,
+        "total_items": total_items,
+        "total_pages": total_pages,
+        "next_cursor": next_cursor,
+    }
+
+
+def _get_template(model, template_uuid: str):
+    template = model.objects(uuid=template_uuid).first()
+    if not template:
+        return {"message": "Template not found"}, 404
+
+    actor = _resolve_authorized_actor()
+    if not actor:
+        return {"message": "Unauthorized"}, 401
+
+    can_read = False
+    if actor.is_super_admin:
+        can_read = True
+    elif template.visibility == "public":
+        can_read = True
+    elif (
+        actor.uuid in {user.uuid for user in template.admins or []}
+        or actor.uuid in {user.uuid for user in template.editors or []}
+        or actor.uuid in {user.uuid for user in template.viewers or []}
+    ):
+        can_read = True
+    elif template.scope_type == "organization" and template.scope_uuid in user_org_scope_keys(actor):
+        can_read = True
+    elif template.scope_type == "project" and template.scope_uuid and bool(_project_admin_keys(actor, template.scope_uuid)):
+        can_read = True
+
+    if not can_read:
+        return {"message": "Forbidden"}, 403
+
+    return _serialize_template(template)
+
+
 @ui_api.post("/theme-templates", tags=[ui_tag])
 def create_theme_template():
     return _create_template(ThemeTemplate)
@@ -263,6 +347,39 @@ def publish_theme_revision(path: TemplateRevisionPath):
     return _publish_template(ThemeTemplate, path.template_uuid, path.revision_uuid)
 
 
+@ui_api.get(
+    "/theme-templates",
+    tags=[ui_tag],
+    responses={
+        200: ThemeTemplateListResponse,
+        401: ErrorResponse,
+        400: ErrorResponse,
+    },
+)
+def list_theme_templates(query: ListQuery):
+    res = _list_templates(ThemeTemplate, query)
+    if isinstance(res, tuple):
+        return to_json_ready(res[0]), res[1]
+    return to_json_ready(res)
+
+
+@ui_api.get(
+    "/theme-templates/<template_uuid>",
+    tags=[ui_tag],
+    responses={
+        200: ThemeTemplateOutput,
+        401: ErrorResponse,
+        403: ErrorResponse,
+        404: ErrorResponse,
+    },
+)
+def get_theme_template(path: TemplatePath):
+    res = _get_template(ThemeTemplate, path.template_uuid)
+    if isinstance(res, tuple):
+        return to_json_ready(res[0]), res[1]
+    return to_json_ready(res)
+
+
 @ui_api.post("/layout-templates", tags=[ui_tag])
 def create_layout_template():
     return _create_template(LayoutTemplate)
@@ -273,3 +390,37 @@ def create_layout_template():
 )
 def publish_layout_revision(path: TemplateRevisionPath):
     return _publish_template(LayoutTemplate, path.template_uuid, path.revision_uuid)
+
+
+@ui_api.get(
+    "/layout-templates",
+    tags=[ui_tag],
+    responses={
+        200: LayoutTemplateListResponse,
+        401: ErrorResponse,
+        400: ErrorResponse,
+    },
+)
+def list_layout_templates(query: ListQuery):
+    res = _list_templates(LayoutTemplate, query)
+    if isinstance(res, tuple):
+        return to_json_ready(res[0]), res[1]
+    return to_json_ready(res)
+
+
+@ui_api.get(
+    "/layout-templates/<template_uuid>",
+    tags=[ui_tag],
+    responses={
+        200: LayoutTemplateOutput,
+        401: ErrorResponse,
+        403: ErrorResponse,
+        404: ErrorResponse,
+    },
+)
+def get_layout_template(path: TemplatePath):
+    res = _get_template(LayoutTemplate, path.template_uuid)
+    if isinstance(res, tuple):
+        return to_json_ready(res[0]), res[1]
+    return to_json_ready(res)
+

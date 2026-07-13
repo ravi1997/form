@@ -200,6 +200,11 @@ def setup_rotating_logger_middleware(
     @app.errorhandler(Exception)
     def handle_error(error: Exception) -> Tuple[dict, int]:
         """Log unhandled exceptions."""
+        from werkzeug.exceptions import HTTPException
+
+        if isinstance(error, HTTPException):
+            return {"error": error.description}, error.code
+
         logger_service.log_error(
             message=f"Unhandled exception in {request.method} {request.path}",
             exception=error,
