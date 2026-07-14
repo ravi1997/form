@@ -16,7 +16,10 @@ ProductionConfig = CONFIG_MODULE.ProductionConfig
 get_config_class = CONFIG_MODULE.get_config_class
 
 SEED_SPEC = importlib.util.spec_from_file_location(
-    "seed_superadmin", pathlib.Path(__file__).resolve().parents[1] / "scripts" / "seed_superadmin.py"
+    "seed_backend_accounts",
+    pathlib.Path(__file__).resolve().parents[1]
+    / "scripts"
+    / "seed_backend_accounts.py",
 )
 SEED_MODULE = importlib.util.module_from_spec(SEED_SPEC)
 assert SEED_SPEC and SEED_SPEC.loader

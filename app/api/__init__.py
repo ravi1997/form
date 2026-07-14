@@ -11,60 +11,9 @@ from app.api.ui_templates import ui_api
 
 API_BLUEPRINTS = [health_api, auth_api, resources_api, conditions_api, ui_api]
 
-legacy_api_compat = Blueprint("legacy_api_compat", __name__)
-
-
-def _redirect_compat(target_path: str):
-    query = request.query_string.decode("utf-8")
-    if query:
-        target_path = f"{target_path}?{query}"
-    return redirect(target_path, code=308)
-
-
-@legacy_api_compat.route("/api/health", methods=["GET"])
-def _legacy_health():
-    return _redirect_compat("/api/v1/health")
-
-
-@legacy_api_compat.route("/api/schemas/echo-form", methods=["POST"])
-def _legacy_echo_form():
-    return _redirect_compat("/api/v1/schemas/echo-form")
-
-
-@legacy_api_compat.route(
-    "/api/auth",
-    defaults={"subpath": ""},
-    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-)
-@legacy_api_compat.route(
-    "/api/auth/<path:subpath>",
-    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-)
-def _legacy_auth(subpath: str):
-    target = "/api/v1/auth"
-    if subpath:
-        target = f"{target}/{subpath}"
-    return _redirect_compat(target)
-
-
-@legacy_api_compat.route(
-    "/api/projects",
-    defaults={"subpath": ""},
-    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-)
-@legacy_api_compat.route(
-    "/api/projects/<path:subpath>",
-    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-)
-def _legacy_projects(subpath: str):
-    target = "/api/v1/projects"
-    if subpath:
-        target = f"{target}/{subpath}"
-    return _redirect_compat(target)
 
 
 def register_api_routes(app):
-    app.register_blueprint(legacy_api_compat)
     blueprints = [*API_BLUEPRINTS, create_rate_limit_api(app)]
     for blueprint in blueprints:
         if hasattr(app, "register_api"):

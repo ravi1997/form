@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import os
 from typing import Any, Dict, Optional
 
 from app.api import register_api_routes
@@ -95,15 +96,16 @@ def create_openapi_app(config: Optional[Dict[str, Any]] = None):
             "monitoring_stats_retention_index_setup_failed: %s", exc
         )
 
-    # Seed default superadmin if configured (skip during testing to prevent conflicts)
-    if not app.config.get("TESTING") and app.config.get(
-        "ENABLE_SUPERADMIN_BOOTSTRAP"
-    ):
+    # Seed default backend accounts if configured (skip during testing to prevent conflicts)
+    bootstrap_enabled = os.getenv("ENABLE_SUPERADMIN_BOOTSTRAP", "").strip().lower()
+    if not app.config.get("TESTING") and bootstrap_enabled in {"1", "true", "yes", "on"}:
         try:
-            from scripts.seed_superadmin import seed_superadmin
-            seed_superadmin(app)
+            from scripts.seed_backend_accounts import seed_backend_accounts
+
+            with app.app_context():
+                seed_backend_accounts()
         except Exception as exc:
-            app.logger.warning("superadmin_seeding_failed: %s", exc)
+            app.logger.warning("backend_account_seeding_failed: %s", exc)
 
     register_api_routes(app)
 
