@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
+
+from pydantic import EmailStr, Field
 
 from app.schemas.action import ActionExecutionOutput
 from app.schemas.choice import ChoiceOutput
@@ -243,9 +246,6 @@ class UserListResponse(SchemaModel):
     total_pages: Optional[int] = None
 
 
-from datetime import datetime
-from pydantic import EmailStr
-
 class InvitationInput(SchemaModel):
     email: EmailStr
     phone: Optional[str] = None
@@ -263,3 +263,24 @@ class InvitationOutput(SchemaModel):
     created_at: datetime
     expires_at: datetime
     invitation_link: str
+
+
+class GlobalSearchQuery(SchemaModel):
+    q: str
+    limit: int = 20
+
+
+class GlobalSearchResult(SchemaModel):
+    kind: str
+    uuid: str
+    title: str
+    subtitle: Optional[str] = None
+    organization_uuid: Optional[str] = None
+    project_uuid: Optional[str] = None
+    form_uuid: Optional[str] = None
+    route: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class GlobalSearchResponse(SchemaModel):
+    items: List[GlobalSearchResult]

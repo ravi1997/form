@@ -27,6 +27,7 @@ from app.api import (  # noqa: F401
     resources_questions,
     resources_choices,
     resources_actions,
+    resources_search,
 )
 
 __all__ = ["resources_api"]
