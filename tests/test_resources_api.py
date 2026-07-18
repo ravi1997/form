@@ -49,7 +49,9 @@ def _create_regular_user() -> User:
     return user
 
 
-def _create_organization(uuid: str, name: str, admins: list[User] | None = None) -> Organization:
+def _create_organization(
+    uuid: str, name: str, admins: list[User] | None = None
+) -> Organization:
     organization = Organization(
         uuid=uuid,
         name=name,
@@ -78,7 +80,9 @@ def _create_project_payload(org_uuids: list[str]) -> dict:
 def test_project_creation_requires_access_to_every_organization(client, app_context):
     admin = _create_super_admin_user()
     user = _create_regular_user()
-    admin_headers = _auth_header(client, "resources-admin@example.com", "StrongPass123!")
+    admin_headers = _auth_header(
+        client, "resources-admin@example.com", "StrongPass123!"
+    )
     user_headers = _auth_header(client, "resources-user@example.com", "StrongPass123!")
 
     org_a = _create_organization("org-auth-0001", "Org A", admins=[admin])
@@ -258,7 +262,9 @@ def test_deleted_project_lifecycle_rejects_reads_and_writes(client, app_context)
     )
     assert create_response.status_code == 201
 
-    delete_response = client.delete("/api/v1/projects/project-deleted-0001", headers=headers)
+    delete_response = client.delete(
+        "/api/v1/projects/project-deleted-0001", headers=headers
+    )
     assert delete_response.status_code == 200
 
     read_response = client.get("/api/v1/projects/project-deleted-0001", headers=headers)
@@ -274,7 +280,9 @@ def test_deleted_project_lifecycle_rejects_reads_and_writes(client, app_context)
 
     version_response = client.post(
         "/api/v1/projects/project-deleted-0001/versions",
-        data=json.dumps({"uuid": "project-deleted-v2", "major": 2, "minor": 0, "patch": 0}),
+        data=json.dumps(
+            {"uuid": "project-deleted-v2", "major": 2, "minor": 0, "patch": 0}
+        ),
         content_type="application/json",
         headers=headers,
     )
@@ -657,13 +665,187 @@ def test_form_submission_routes_require_public_flag_for_anonymous_access(
 
     authenticated_submit = client.post(
         "/api/v1/projects/project-submit-0001/forms/form-submit-public-0001/responses",
-        data=json.dumps(
-            {**public_submission_payload, "uuid": "response-auth-0001"}
-        ),
+        data=json.dumps({**public_submission_payload, "uuid": "response-auth-0001"}),
         content_type="application/json",
         headers=headers,
     )
     assert authenticated_submit.status_code == 201
+
+
+def test_form_response_management_endpoints(client, app_context):
+    admin = _create_super_admin_user()
+    headers = _auth_header(client, "resources-admin@example.com", "StrongPass123!")
+
+    org = _create_organization("org-mgmt-0001", "Org Mgmt", admins=[admin])
+    admin.roles = {str(org.id): ["admin"]}
+    admin.organizations = [org]
+    admin.save()
+
+    project_payload = _create_project_payload([str(org.uuid)])
+    project_payload["uuid"] = "project-mgmt-0001"
+    assert (
+        client.post(
+            "/api/v1/projects",
+            data=json.dumps(project_payload),
+            content_type="application/json",
+            headers=headers,
+        ).status_code
+        == 201
+    )
+
+    form_payload = {
+        "uuid": "form-mgmt-0001",
+        "versions": [{"uuid": "form-v1-mgmt", "major": 1, "minor": 0, "patch": 0}],
+        "sections": {"form-v1-mgmt": []},
+        "editors": [],
+        "viewers": [],
+        "reviewers": [],
+        "approvers": [],
+        "submitters": [],
+        "validation_conditions": [],
+        "validation_condition_messages": {},
+        "child_sections": [],
+        "tags": [],
+        "is_public": True,
+        "status": "active",
+    }
+    assert (
+        client.post(
+            "/api/v1/projects/project-mgmt-0001/forms",
+            data=json.dumps(form_payload),
+            content_type="application/json",
+            headers=headers,
+        ).status_code
+        == 201
+    )
+
+    submission_payload = {
+        "uuid": "response-mgmt-0001",
+        "form": "form-mgmt-0001",
+        "form_uuid": "form-mgmt-0001",
+        "form_version_uuid": "form-v1-mgmt",
+        "project": "project-mgmt-0001",
+        "project_uuid": "project-mgmt-0001",
+        "responses": [],
+        "response_map": {},
+        "metadata": {"source": "test"},
+    }
+    assert (
+        client.post(
+            "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses",
+            data=json.dumps(submission_payload),
+            content_type="application/json",
+            headers=headers,
+        ).status_code
+        == 201
+    )
+
+    list_res = client.get(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses",
+        headers=headers,
+    )
+    assert list_res.status_code == 200
+    list_data = list_res.get_json()
+    assert len(list_data["items"]) >= 1
+    assert list_data["items"][0]["uuid"] == "response-mgmt-0001"
+
+    get_res = client.get(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses/response-mgmt-0001",
+        headers=headers,
+    )
+    assert get_res.status_code == 200
+    assert get_res.get_json()["metadata"]["source"] == "test"
+
+    patch_res = client.patch(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses/response-mgmt-0001",
+        data=json.dumps({"metadata": {"source": "patched"}}),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert patch_res.status_code == 200
+    assert patch_res.get_json()["metadata"]["source"] == "patched"
+
+    # Review response (transitions to in_review, so we can assign reviewers)
+    review_res = client.post(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses/response-mgmt-0001/review",
+        data=json.dumps({"note": "looks good"}),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert review_res.status_code == 200
+    assert review_res.get_json()["status"] == "in_review"
+
+    # Assign reviewers
+    assign_rev = client.put(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses/response-mgmt-0001/reviewers",
+        data=json.dumps({"reviewer_uuids": ["resources-admin-0001"]}),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert assign_rev.status_code == 200
+    assert "resources-admin-0001" in assign_rev.get_json()["reviewed_by"]
+
+    # Approve response (transitions to approved, so we can assign approvers)
+    approve_res = client.post(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses/response-mgmt-0001/approve",
+        data=json.dumps({"note": "fully approved"}),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert approve_res.status_code == 200
+    assert approve_res.get_json()["status"] == "approved"
+
+    # Assign approvers
+    assign_app = client.put(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses/response-mgmt-0001/approvers",
+        data=json.dumps({"approver_uuids": ["resources-admin-0001"]}),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert assign_app.status_code == 200
+    assert "resources-admin-0001" in assign_app.get_json()["approved_by"]
+
+    # Reject response
+    reject_res = client.post(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses/response-mgmt-0001/reject",
+        data=json.dumps({"note": "rejected"}),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert reject_res.status_code == 200
+    assert reject_res.get_json()["status"] == "rejected"
+
+    # Export responses
+    export_res = client.get(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses/export",
+        headers=headers,
+    )
+    assert export_res.status_code == 200
+    assert "response_uuid" in export_res.get_data(as_text=True)
+
+    # Analytics responses
+    analytics_res = client.get(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses/analytics",
+        headers=headers,
+    )
+    assert analytics_res.status_code == 200
+    analytics_data = analytics_res.get_json()
+    assert analytics_data["total_responses"] >= 1
+    assert "status_distribution" in analytics_data
+
+    # Delete response
+    del_res = client.delete(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses/response-mgmt-0001",
+        headers=headers,
+    )
+    assert del_res.status_code == 200
+
+    list_res2 = client.get(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses",
+        headers=headers,
+    )
+    assert list_res2.status_code == 200
+    assert len(list_res2.get_json()["items"]) == 0
 
 
 def test_openapi_includes_form_submission_routes_and_public_flag():
@@ -700,21 +882,18 @@ def test_openapi_includes_form_submission_routes_and_public_flag():
     assert spec.status_code == 200
     payload = spec.get_json()
 
-    assert "/api/v1/projects/{project_uuid}/forms/{form_uuid}/responses" in payload[
-        "paths"
-    ]
-    assert "/api/v1/public/projects/{project_uuid}/forms/{form_uuid}/responses" in payload[
-        "paths"
-    ]
     assert (
-        "is_public"
-        in payload["components"]["schemas"]["FormOutput"]["properties"]
+        "/api/v1/projects/{project_uuid}/forms/{form_uuid}/responses"
+        in payload["paths"]
     )
     assert (
-        "is_public"
-        in payload["components"]["schemas"]["FormCreateInput"]["properties"]
+        "/api/v1/public/projects/{project_uuid}/forms/{form_uuid}/responses"
+        in payload["paths"]
+    )
+    assert "is_public" in payload["components"]["schemas"]["FormOutput"]["properties"]
+    assert (
+        "is_public" in payload["components"]["schemas"]["FormCreateInput"]["properties"]
     )
     assert (
-        "is_public"
-        in payload["components"]["schemas"]["FormUpdateInput"]["properties"]
+        "is_public" in payload["components"]["schemas"]["FormUpdateInput"]["properties"]
     )
