@@ -9,6 +9,7 @@ from app.schemas.action import ActionExecutionOutput
 from app.schemas.choice import ChoiceOutput
 from app.schemas.common import SchemaModel
 from app.schemas.form import FormOutput
+from app.schemas.form_response import FormResponseOutput
 from app.schemas.organization import OrganizationOutput
 from app.schemas.project import ProjectOutput
 from app.schemas.user import UserOutput
@@ -284,3 +285,20 @@ class GlobalSearchResult(SchemaModel):
 
 class GlobalSearchResponse(SchemaModel):
     items: List[GlobalSearchResult]
+
+
+class FormResponseListResponse(SchemaModel):
+    items: List[FormResponseOutput]
+    page: int
+    page_size: int
+    total_items: Optional[int] = None
+    total_pages: Optional[int] = None
+    next_cursor: Optional[str] = None
+
+
+class AssignReviewersRequest(SchemaModel):
+    reviewer_uuids: List[str]
+
+
+class AssignApproversRequest(SchemaModel):
+    approver_uuids: List[str]
