@@ -833,12 +833,97 @@ def test_form_response_management_endpoints(client, app_context):
     assert analytics_data["total_responses"] >= 1
     assert "status_distribution" in analytics_data
 
+    # Create form webhook
+    webhook_res = client.post(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/webhooks",
+        data=json.dumps(
+            {"url": "http://example.com/webhook", "events": ["submitted", "approved"]}
+        ),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert webhook_res.status_code == 201
+    webhook_uuid = webhook_res.get_json()["uuid"]
+
+    # List form webhooks
+    webhooks_list_res = client.get(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/webhooks",
+        headers=headers,
+    )
+    assert webhooks_list_res.status_code == 200
+    assert len(webhooks_list_res.get_json()["items"]) >= 1
+
+    # Create response comment
+    comment_res = client.post(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses/response-mgmt-0001/comments",
+        data=json.dumps({"note": "This response looks highly valid."}),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert comment_res.status_code == 201
+    comment_uuid = comment_res.get_json()["uuid"]
+
+    # List response comments
+    comments_list_res = client.get(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses/response-mgmt-0001/comments",
+        headers=headers,
+    )
+    assert comments_list_res.status_code == 200
+    assert len(comments_list_res.get_json()["items"]) >= 1
+
+    # Save draft response
+    draft_res = client.post(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses/response-mgmt-draft/draft",
+        data=json.dumps(
+            {"responses": [], "response_map": {}, "metadata": {"status": "in_progress"}}
+        ),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert draft_res.status_code == 200
+    assert draft_res.get_json()["status"] == "draft"
+
+    # Get draft response
+    get_draft_res = client.get(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses/draft",
+        headers=headers,
+    )
+    assert get_draft_res.status_code == 200
+    assert get_draft_res.get_json()["uuid"] == "response-mgmt-draft"
+
+    # Get response audit diff history
+    diff_res = client.get(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses/response-mgmt-0001/audit-diff",
+        headers=headers,
+    )
+    assert diff_res.status_code == 200
+    assert len(diff_res.get_json()) >= 1
+
+    # Clean up webhook and comment
+    del_webhook = client.delete(
+        f"/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/webhooks/{webhook_uuid}",
+        headers=headers,
+    )
+    assert del_webhook.status_code == 200
+
+    del_comment = client.delete(
+        f"/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses/response-mgmt-0001/comments/{comment_uuid}",
+        headers=headers,
+    )
+    assert del_comment.status_code == 200
+
     # Delete response
     del_res = client.delete(
         "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses/response-mgmt-0001",
         headers=headers,
     )
     assert del_res.status_code == 200
+
+    del_draft = client.delete(
+        "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses/response-mgmt-draft",
+        headers=headers,
+    )
+    assert del_draft.status_code == 200
 
     list_res2 = client.get(
         "/api/v1/projects/project-mgmt-0001/forms/form-mgmt-0001/responses",
