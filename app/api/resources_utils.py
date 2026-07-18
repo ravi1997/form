@@ -95,6 +95,15 @@ ENDPOINT_PERMISSION = {
     "resources.assign_form_response_approvers": "project_write",
     "resources.export_form_responses": "project_read",
     "resources.get_form_responses_analytics": "project_read",
+    "resources.create_form_webhook": "project_admin",
+    "resources.list_form_webhooks": "project_read",
+    "resources.delete_form_webhook": "project_admin",
+    "resources.create_response_comment": "project_read",
+    "resources.list_response_comments": "project_read",
+    "resources.delete_response_comment": "project_read",
+    "resources.save_form_response_draft": "project_submit",
+    "resources.get_form_response_draft": "project_submit",
+    "resources.get_form_response_audit_diff": "project_read",
 }
 
 

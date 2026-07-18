@@ -10,6 +10,7 @@ from app.schemas.choice import ChoiceOutput
 from app.schemas.common import SchemaModel
 from app.schemas.form import FormOutput
 from app.schemas.form_response import FormResponseOutput
+from app.schemas.response_item import ResponseItemCreateInput
 from app.schemas.organization import OrganizationOutput
 from app.schemas.project import ProjectOutput
 from app.schemas.user import UserOutput
@@ -302,3 +303,80 @@ class AssignReviewersRequest(SchemaModel):
 
 class AssignApproversRequest(SchemaModel):
     approver_uuids: List[str]
+
+
+class WebhookCreateInput(SchemaModel):
+    url: str
+    events: List[str] = Field(default_factory=list)
+    headers: Dict[str, str] = Field(default_factory=dict)
+
+
+class WebhookOutput(SchemaModel):
+    uuid: str
+    form_uuid: str
+    url: str
+    events: List[str]
+    headers: Dict[str, str]
+    created_at: datetime
+
+
+class WebhookListResponse(SchemaModel):
+    items: List[WebhookOutput]
+    page: int
+    page_size: int
+    total_items: Optional[int] = None
+    total_pages: Optional[int] = None
+    next_cursor: Optional[str] = None
+
+
+class CommentCreateInput(SchemaModel):
+    note: str
+
+
+class CommentOutput(SchemaModel):
+    uuid: str
+    response_uuid: str
+    author_user_uuid: str
+    author_name: Optional[str] = None
+    note: str
+    created_at: datetime
+
+
+class CommentListResponse(SchemaModel):
+    items: List[CommentOutput]
+    page: int
+    page_size: int
+    total_items: Optional[int] = None
+    total_pages: Optional[int] = None
+    next_cursor: Optional[str] = None
+
+
+class DraftSaveInput(SchemaModel):
+    responses: List[ResponseItemCreateInput] = Field(default_factory=list)
+    response_map: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AuditDiffOutput(SchemaModel):
+    response_uuid: str
+    action: str
+    actor_user_uuid: Optional[str] = None
+    timestamp: datetime
+    changes: Dict[str, Any]
+
+
+class AuditDiffListResponse(SchemaModel):
+    items: List[AuditDiffOutput]
+
+
+class FormWebhookPath(SchemaModel):
+    project_uuid: str
+    form_uuid: str
+    webhook_uuid: str
+
+
+class ResponseCommentPath(SchemaModel):
+    project_uuid: str
+    form_uuid: str
+    response_uuid: str
+    comment_uuid: str
