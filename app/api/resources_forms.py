@@ -46,6 +46,17 @@ from app.api.resources_schemas import (
     AssignReviewersRequest,
     AssignApproversRequest,
     ResponseActionExecutionPath,
+    WebhookCreateInput,
+    WebhookOutput,
+    WebhookListResponse,
+    CommentCreateInput,
+    CommentOutput,
+    CommentListResponse,
+    DraftSaveInput,
+    AuditDiffOutput,
+    AuditDiffListResponse,
+    FormWebhookPath,
+    ResponseCommentPath,
 )
 from app.api.resources_support import _error, resources_api, resources_tag, version_tag
 from app.api.resources_context import (
@@ -893,3 +904,290 @@ def get_form_responses_analytics(path: FormResponseSubmissionPath):
 
     analytics = get_response_analytics(form.uuid)
     return to_json_ready(analytics)
+
+
+@resources_api.post(
+    "/projects/<project_uuid>/forms/<form_uuid>/webhooks",
+    tags=[resources_tag],
+    responses={201: WebhookOutput, 400: ErrorResponse, 404: ErrorResponse},
+)
+def create_form_webhook(path: FormResponseSubmissionPath, body: WebhookCreateInput):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+
+    from app.services.response_management import create_form_webhook as _create_webhook
+
+    webhook = _create_webhook(form.uuid, body.url, body.events, body.headers)
+    return to_json_ready(
+        WebhookOutput(
+            uuid=webhook.uuid,
+            form_uuid=webhook.form_uuid,
+            url=webhook.url,
+            events=webhook.events,
+            headers=webhook.headers,
+            created_at=webhook.created_at,
+        )
+    ), 201
+
+
+@resources_api.get(
+    "/projects/<project_uuid>/forms/<form_uuid>/webhooks",
+    tags=[resources_tag],
+    responses={200: WebhookListResponse, 404: ErrorResponse},
+)
+def list_form_webhooks(path: FormResponseSubmissionPath, query: ListQuery):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+
+    from app.services.response_management import list_form_webhooks as _list_webhooks
+
+    webhooks = _list_webhooks(form.uuid)
+    items = [
+        WebhookOutput(
+            uuid=w.uuid,
+            form_uuid=w.form_uuid,
+            url=w.url,
+            events=w.events,
+            headers=w.headers,
+            created_at=w.created_at,
+        )
+        for w in webhooks
+    ]
+    return to_json_ready(
+        WebhookListResponse(
+            items=items,
+            page=1,
+            page_size=len(items) or 10,
+            total_items=len(items),
+            total_pages=1,
+        )
+    )
+
+
+@resources_api.delete(
+    "/projects/<project_uuid>/forms/<form_uuid>/webhooks/<webhook_uuid>",
+    tags=[resources_tag],
+    responses={200: MessageResponse, 404: ErrorResponse},
+)
+def delete_form_webhook(path: FormWebhookPath):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+
+    from app.services.response_management import delete_form_webhook as _delete_webhook
+
+    if not _delete_webhook(form.uuid, path.webhook_uuid):
+        return _error("Webhook not found", 404)
+    return to_json_ready(MessageResponse(message="Webhook deleted successfully"))
+
+
+@resources_api.post(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses/<response_uuid>/comments",
+    tags=[resources_tag],
+    responses={201: CommentOutput, 400: ErrorResponse, 404: ErrorResponse},
+)
+def create_response_comment(
+    path: ResponseActionExecutionPath, body: CommentCreateInput
+):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+    response = FormResponse.objects(
+        uuid=path.response_uuid, form_uuid=form.uuid, status__ne="deleted"
+    ).first()
+    if not response:
+        return _error("Form response not found", 404)
+
+    user = getattr(g, "resources_user", None)
+    actor_uuid = str(getattr(user, "uuid", "unknown"))
+    actor_name = str(getattr(user, "name", "Anonymous"))
+
+    from app.services.response_management import (
+        create_response_comment as _create_comment,
+    )
+
+    comment = _create_comment(response.uuid, actor_uuid, actor_name, body.note)
+    return to_json_ready(
+        CommentOutput(
+            uuid=comment.uuid,
+            response_uuid=comment.response_uuid,
+            author_user_uuid=comment.author_user_uuid,
+            author_name=comment.author_name,
+            note=comment.note,
+            created_at=comment.created_at,
+        )
+    ), 201
+
+
+@resources_api.get(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses/<response_uuid>/comments",
+    tags=[resources_tag],
+    responses={200: CommentListResponse, 404: ErrorResponse},
+)
+def list_response_comments(path: ResponseActionExecutionPath, query: ListQuery):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+    response = FormResponse.objects(
+        uuid=path.response_uuid, form_uuid=form.uuid, status__ne="deleted"
+    ).first()
+    if not response:
+        return _error("Form response not found", 404)
+
+    from app.services.response_management import (
+        list_response_comments as _list_comments,
+    )
+
+    comments = _list_comments(response.uuid)
+    items = [
+        CommentOutput(
+            uuid=c.uuid,
+            response_uuid=c.response_uuid,
+            author_user_uuid=c.author_user_uuid,
+            author_name=c.author_name,
+            note=c.note,
+            created_at=c.created_at,
+        )
+        for c in comments
+    ]
+    return to_json_ready(
+        CommentListResponse(
+            items=items,
+            page=1,
+            page_size=len(items) or 10,
+            total_items=len(items),
+            total_pages=1,
+        )
+    )
+
+
+@resources_api.delete(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses/<response_uuid>/comments/<comment_uuid>",
+    tags=[resources_tag],
+    responses={200: MessageResponse, 403: ErrorResponse, 404: ErrorResponse},
+)
+def delete_response_comment(path: ResponseCommentPath):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+    response = FormResponse.objects(
+        uuid=path.response_uuid, form_uuid=form.uuid, status__ne="deleted"
+    ).first()
+    if not response:
+        return _error("Form response not found", 404)
+
+    user = getattr(g, "resources_user", None)
+    actor_uuid = str(getattr(user, "uuid", "unknown"))
+    is_super_admin = bool(getattr(user, "is_super_admin", False))
+
+    from app.services.response_management import (
+        delete_response_comment as _delete_comment,
+    )
+
+    if not _delete_comment(path.comment_uuid, actor_uuid, is_super_admin):
+        return _error("Comment not found or permission denied", 403)
+    return to_json_ready(MessageResponse(message="Comment deleted successfully"))
+
+
+@resources_api.post(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses/<response_uuid>/draft",
+    tags=[resources_tag],
+    responses={200: FormResponseOutput, 400: ErrorResponse, 404: ErrorResponse},
+)
+def save_form_response_draft(path: ResponseActionExecutionPath, body: DraftSaveInput):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+
+    user = getattr(g, "resources_user", None)
+    from app.services.response_management import save_form_response_draft as _save_draft
+
+    try:
+        response = _save_draft(project.uuid, form.uuid, path.response_uuid, body, user)
+    except (ValidationError, ValueError) as exc:
+        return _error(str(exc), 400)
+    return to_json_ready(to_form_response_output(response))
+
+
+@resources_api.get(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses/draft",
+    tags=[resources_tag],
+    responses={200: FormResponseOutput, 404: ErrorResponse},
+)
+def get_form_response_draft(path: FormResponseSubmissionPath):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+
+    user = getattr(g, "resources_user", None)
+    if not user:
+        return _error("Authentication required to get drafts", 401)
+
+    from app.services.response_management import get_form_response_draft as _get_draft
+
+    draft = _get_draft(form.uuid, user.uuid)
+    if not draft:
+        return _error("No active draft found", 404)
+    return to_json_ready(to_form_response_output(draft))
+
+
+@resources_api.get(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses/<response_uuid>/audit-diff",
+    tags=[resources_tag],
+    responses={200: AuditDiffListResponse, 404: ErrorResponse},
+)
+def get_form_response_audit_diff(path: ResponseActionExecutionPath):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+    response = FormResponse.objects(
+        uuid=path.response_uuid, form_uuid=form.uuid, status__ne="deleted"
+    ).first()
+    if not response:
+        return _error("Form response not found", 404)
+
+    from app.services.response_management import (
+        get_form_response_audit_diff as _get_diff,
+    )
+
+    diffs = _get_diff(response.uuid)
+    items = [
+        AuditDiffOutput(
+            response_uuid=d.response_uuid,
+            action=d.action,
+            actor_user_uuid=d.actor_user_uuid,
+            timestamp=d.timestamp,
+            changes=d.changes,
+        )
+        for d in diffs
+    ]
+    return to_json_ready(AuditDiffListResponse(items=items))
