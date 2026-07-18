@@ -38,6 +38,29 @@ def create_form_response(
         return _error("form_version_uuid does not match a known form version", 400)
 
     try:
+        from app.services.response_management import (
+            check_field_level_permission,
+            validate_response_conditions,
+            write_response_audit_log,
+            trigger_async_actions,
+        )
+
+        # 1. Field-level permission check
+        for item in body.responses:
+            if not check_field_level_permission(
+                submitted_by, item.question_uuid, "write"
+            ):
+                return _error(
+                    f"Unauthorized to write to field {item.question_uuid}", 403
+                )
+
+        # 2. Backend condition validation
+        val_errors = validate_response_conditions(
+            form, body.responses, body.response_map or {}
+        )
+        if val_errors:
+            return _error(f"Validation failed: {', '.join(val_errors)}", 400)
+
         response_items = [ResponseItem(**item.model_dump()) for item in body.responses]
         response = FormResponse(
             uuid=body.uuid,
@@ -58,7 +81,24 @@ def create_form_response(
             approved_by=[],
             metadata=body.metadata,
         ).save()
+
+        # 3. Create Audit Trail Entry
+        write_response_audit_log(
+            response_uuid=response.uuid,
+            actor_user_uuid=getattr(submitted_by, "uuid", None),
+            action="create",
+            changes={
+                "status": {"old": None, "new": "submitted"},
+                "responses_count": len(response_items),
+            },
+        )
+
+        # 4. Trigger Celery Webhook/Alerts Task
+        trigger_async_actions(response.uuid, "submitted")
+
     except (ValidationError, ValueError) as exc:
         return _error(str(exc))
+    except Exception as exc:
+        return _error(f"Internal error: {str(exc)}", 500)
 
     return to_json_ready(to_form_response_output(response)), 201
