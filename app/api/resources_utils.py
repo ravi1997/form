@@ -84,7 +84,19 @@ ENDPOINT_PERMISSION = {
     "resources.submit_form_workflow": "project_submit",
     "resources.review_form_workflow": "project_review",
     "resources.approve_form_workflow": "project_approve",
+    "resources.list_form_responses": "project_read",
+    "resources.get_form_response": "project_read",
+    "resources.update_form_response": "project_write",
+    "resources.delete_form_response": "project_admin",
+    "resources.review_form_response": "project_review",
+    "resources.approve_form_response": "project_approve",
+    "resources.reject_form_response": "project_review",
+    "resources.assign_form_response_reviewers": "project_write",
+    "resources.assign_form_response_approvers": "project_write",
+    "resources.export_form_responses": "project_read",
+    "resources.get_form_responses_analytics": "project_read",
 }
+
 
 def security_event(
     *,

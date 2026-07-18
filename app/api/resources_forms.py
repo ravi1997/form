@@ -7,12 +7,28 @@ from typing import Any, Dict
 from flask import g
 from mongoengine.errors import NotUniqueError, ValidationError
 
-from app.models.form import Condition, Form, Section
+from app.models.form import (
+    Condition,
+    Form,
+    Section,
+    FormResponse,
+    FormResponseStatusEvent,
+    ResponseItem,
+)
 from app.models.ui_template import LayoutTemplate, ThemeTemplate
 from app.models.user import User
 from app.schemas.form import FormCreateInput, FormOutput, FormUpdateInput
-from app.schemas.form_response import FormResponseCreateInput, FormResponseOutput
-from app.schemas.mappers import to_form_output, to_json_ready, to_version_output
+from app.schemas.form_response import (
+    FormResponseCreateInput,
+    FormResponseOutput,
+    FormResponseUpdateInput,
+)
+from app.schemas.mappers import (
+    to_form_output,
+    to_json_ready,
+    to_version_output,
+    to_form_response_output,
+)
 from app.schemas.ui_template import EffectiveUiConfigOutput
 from app.schemas.version import VersionCreateInput, VersionOutput, VersionUpdateInput
 from app.api.resources_schemas import (
@@ -26,6 +42,10 @@ from app.api.resources_schemas import (
     FormResponseSubmissionPath,
     WorkflowActionRequest,
     WorkflowActionResponse,
+    FormResponseListResponse,
+    AssignReviewersRequest,
+    AssignApproversRequest,
+    ResponseActionExecutionPath,
 )
 from app.api.resources_support import _error, resources_api, resources_tag, version_tag
 from app.api.resources_context import (
@@ -41,8 +61,11 @@ from app.api.resources_utils import (
     apply_form_workflow_action as _apply_form_workflow_action,
     deep_merge as _deep_merge,
     paginate_items as _paginate_items,
+    paginate_queryset as _paginate_queryset,
 )
 from app.services.form_response_service import create_form_response
+
+
 @resources_api.post(
     "/projects/<project_uuid>/forms",
     tags=[resources_tag],
@@ -247,7 +270,9 @@ def create_form_version(path: FormPath, body: VersionCreateInput):
     tags=[resources_tag],
     responses={201: FormResponseOutput, 400: ErrorResponse, 404: ErrorResponse},
 )
-def submit_form_response(path: FormResponseSubmissionPath, body: FormResponseCreateInput):
+def submit_form_response(
+    path: FormResponseSubmissionPath, body: FormResponseCreateInput
+):
     return create_form_response(
         project_uuid=path.project_uuid,
         form_uuid=path.form_uuid,
@@ -259,7 +284,12 @@ def submit_form_response(path: FormResponseSubmissionPath, body: FormResponseCre
 @resources_api.post(
     "/public/projects/<project_uuid>/forms/<form_uuid>/responses",
     tags=[resources_tag],
-    responses={201: FormResponseOutput, 400: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse},
+    responses={
+        201: FormResponseOutput,
+        400: ErrorResponse,
+        403: ErrorResponse,
+        404: ErrorResponse,
+    },
 )
 def submit_public_form_response(
     path: FormResponseSubmissionPath, body: FormResponseCreateInput
@@ -382,3 +412,484 @@ def review_form_workflow(path: FormPath, body: WorkflowActionRequest):
 )
 def approve_form_workflow(path: FormPath, body: WorkflowActionRequest):
     return _workflow_action(path, body, "approve")
+
+
+@resources_api.get(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses",
+    tags=[resources_tag],
+    responses={200: FormResponseListResponse, 404: ErrorResponse},
+)
+def list_form_responses(path: FormResponseSubmissionPath, query: ListQuery):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+    responses = FormResponse.objects(form_uuid=form.uuid, status__ne="deleted")
+    items, page, page_size, total_items, total_pages, next_cursor = _paginate_queryset(
+        responses, query
+    )
+    return to_json_ready(
+        FormResponseListResponse(
+            items=[to_form_response_output(item) for item in items],
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+            next_cursor=next_cursor,
+        )
+    )
+
+
+@resources_api.get(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses/<response_uuid>",
+    tags=[resources_tag],
+    responses={200: FormResponseOutput, 404: ErrorResponse},
+)
+def get_form_response(path: ResponseActionExecutionPath):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+    response = FormResponse.objects(
+        uuid=path.response_uuid, form_uuid=form.uuid, status__ne="deleted"
+    ).first()
+    if not response:
+        return _error("Form response not found", 404)
+    return to_json_ready(to_form_response_output(response))
+
+
+@resources_api.delete(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses/<response_uuid>",
+    tags=[resources_tag],
+    responses={200: MessageResponse, 404: ErrorResponse},
+)
+def delete_form_response(path: ResponseActionExecutionPath):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+    response = FormResponse.objects(
+        uuid=path.response_uuid, form_uuid=form.uuid, status__ne="deleted"
+    ).first()
+    if not response:
+        return _error("Form response not found", 404)
+
+    from datetime import datetime, timezone
+    from app.services.response_management import (
+        write_response_audit_log,
+        trigger_async_actions,
+    )
+
+    actor_uuid = getattr(g.resources_user, "uuid", None)
+    old_status = response.status
+
+    response.status = "deleted"
+    response.deleted_at = datetime.now(timezone.utc)
+    response.deleted_by = getattr(g, "resources_user", None)
+
+    event = FormResponseStatusEvent(
+        transition_from=old_status,
+        transition_to="deleted",
+        changed_at=response.deleted_at,
+        reason="deleted_by_user",
+    )
+    response.status_history = list(response.status_history or [])
+    response.status_history.append(event)
+    response.save()
+
+    # Log Audit
+    write_response_audit_log(
+        response_uuid=response.uuid,
+        actor_user_uuid=actor_uuid,
+        action="delete",
+        changes={"status": {"old": old_status, "new": "deleted"}},
+    )
+
+    # Trigger Async Tasks
+    trigger_async_actions(response.uuid, "deleted")
+
+    return to_json_ready(MessageResponse(message="Response deleted successfully"))
+
+
+@resources_api.patch(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses/<response_uuid>",
+    tags=[resources_tag],
+    responses={200: FormResponseOutput, 400: ErrorResponse, 404: ErrorResponse},
+)
+def update_form_response(
+    path: ResponseActionExecutionPath, body: FormResponseUpdateInput
+):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+    response = FormResponse.objects(
+        uuid=path.response_uuid, form_uuid=form.uuid, status__ne="deleted"
+    ).first()
+    if not response:
+        return _error("Form response not found", 404)
+
+    from app.services.response_management import (
+        check_field_level_permission,
+        validate_response_conditions,
+        write_response_audit_log,
+        trigger_async_actions,
+    )
+
+    user = getattr(g, "resources_user", None)
+    actor_uuid = getattr(user, "uuid", None)
+
+    # 1. Field-level role constraint check
+    if body.responses is not None:
+        for item in body.responses:
+            if not check_field_level_permission(user, item.question_uuid, "write"):
+                return _error(f"Unauthorized to update field {item.question_uuid}", 403)
+
+    # 2. Backend condition validation
+    if body.responses is not None:
+        val_errors = validate_response_conditions(
+            form, body.responses, body.response_map or response.response_map or {}
+        )
+        if val_errors:
+            return _error(f"Validation failed: {', '.join(val_errors)}", 400)
+
+    try:
+        old_status = response.status
+        changes = {}
+
+        if body.responses is not None:
+            response.responses = [
+                ResponseItem(**item.model_dump()) for item in body.responses
+            ]
+            changes["responses"] = "updated"
+        if body.response_map is not None:
+            response.response_map = body.response_map
+        if body.score is not None:
+            response.score = body.score
+        if body.validation_errors is not None:
+            response.validation_errors = body.validation_errors
+        if body.metadata is not None:
+            merged = dict(response.metadata or {})
+            merged.update(body.metadata)
+            response.metadata = merged
+            changes["metadata"] = body.metadata
+        if body.status is not None and body.status != response.status:
+            from datetime import datetime, timezone
+
+            response.status = body.status
+            event = FormResponseStatusEvent(
+                transition_from=old_status,
+                transition_to=body.status,
+                changed_at=datetime.now(timezone.utc),
+                reason="updated_by_user",
+            )
+            response.status_history = list(response.status_history or [])
+            response.status_history.append(event)
+            changes["status"] = {"old": old_status, "new": body.status}
+
+        response.save()
+
+        # 3. Log Audit
+        write_response_audit_log(
+            response_uuid=response.uuid,
+            actor_user_uuid=actor_uuid,
+            action="update",
+            changes=changes,
+        )
+
+        # 4. Trigger Async Tasks
+        trigger_async_actions(response.uuid, "updated")
+
+    except (ValidationError, ValueError) as exc:
+        return _error(str(exc), 400)
+
+    return to_json_ready(to_form_response_output(response))
+
+
+@resources_api.post(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses/<response_uuid>/review",
+    tags=[resources_tag],
+    responses={200: FormResponseOutput, 400: ErrorResponse, 404: ErrorResponse},
+)
+def review_form_response(
+    path: ResponseActionExecutionPath, body: WorkflowActionRequest
+):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+    response = FormResponse.objects(
+        uuid=path.response_uuid, form_uuid=form.uuid, status__ne="deleted"
+    ).first()
+    if not response:
+        return _error("Form response not found", 404)
+
+    from datetime import datetime, timezone
+    from app.services.response_management import (
+        write_response_audit_log,
+        trigger_async_actions,
+    )
+
+    user = getattr(g, "resources_user", None)
+    actor_uuid = getattr(user, "uuid", None)
+    old_status = response.status
+
+    response.status = "in_review"
+    response.reviewed_at = datetime.now(timezone.utc)
+    if user and user not in response.reviewed_by:
+        response.reviewed_by = list(response.reviewed_by or [])
+        response.reviewed_by.append(user)
+
+    event = FormResponseStatusEvent(
+        transition_from=old_status,
+        transition_to="in_review",
+        changed_at=response.reviewed_at,
+        reason=body.note or "reviewed_by_user",
+    )
+    response.status_history = list(response.status_history or [])
+    response.status_history.append(event)
+    response.save()
+
+    # Log Audit
+    write_response_audit_log(
+        response_uuid=response.uuid,
+        actor_user_uuid=actor_uuid,
+        action="review",
+        changes={"status": {"old": old_status, "new": "in_review"}, "note": body.note},
+    )
+
+    # Trigger Async Tasks
+    trigger_async_actions(response.uuid, "reviewed")
+
+    return to_json_ready(to_form_response_output(response))
+
+
+@resources_api.post(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses/<response_uuid>/approve",
+    tags=[resources_tag],
+    responses={200: FormResponseOutput, 400: ErrorResponse, 404: ErrorResponse},
+)
+def approve_form_response(
+    path: ResponseActionExecutionPath, body: WorkflowActionRequest
+):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+    response = FormResponse.objects(
+        uuid=path.response_uuid, form_uuid=form.uuid, status__ne="deleted"
+    ).first()
+    if not response:
+        return _error("Form response not found", 404)
+
+    from datetime import datetime, timezone
+    from app.services.response_management import (
+        write_response_audit_log,
+        trigger_async_actions,
+    )
+
+    user = getattr(g, "resources_user", None)
+    actor_uuid = getattr(user, "uuid", None)
+    old_status = response.status
+
+    response.status = "approved"
+    response.approved_at = datetime.now(timezone.utc)
+    if user and user not in response.approved_by:
+        response.approved_by = list(response.approved_by or [])
+        response.approved_by.append(user)
+
+    event = FormResponseStatusEvent(
+        transition_from=old_status,
+        transition_to="approved",
+        changed_at=response.approved_at,
+        reason=body.note or "approved_by_user",
+    )
+    response.status_history = list(response.status_history or [])
+    response.status_history.append(event)
+    response.save()
+
+    # Log Audit
+    write_response_audit_log(
+        response_uuid=response.uuid,
+        actor_user_uuid=actor_uuid,
+        action="approve",
+        changes={"status": {"old": old_status, "new": "approved"}, "note": body.note},
+    )
+
+    # Trigger Async Tasks
+    trigger_async_actions(response.uuid, "approved")
+
+    return to_json_ready(to_form_response_output(response))
+
+
+@resources_api.post(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses/<response_uuid>/reject",
+    tags=[resources_tag],
+    responses={200: FormResponseOutput, 400: ErrorResponse, 404: ErrorResponse},
+)
+def reject_form_response(
+    path: ResponseActionExecutionPath, body: WorkflowActionRequest
+):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+    response = FormResponse.objects(
+        uuid=path.response_uuid, form_uuid=form.uuid, status__ne="deleted"
+    ).first()
+    if not response:
+        return _error("Form response not found", 404)
+
+    from datetime import datetime, timezone
+    from app.services.response_management import (
+        write_response_audit_log,
+        trigger_async_actions,
+    )
+
+    actor_uuid = getattr(g.resources_user, "uuid", None)
+    old_status = response.status
+
+    response.status = "rejected"
+    event = FormResponseStatusEvent(
+        transition_from=old_status,
+        transition_to="rejected",
+        changed_at=datetime.now(timezone.utc),
+        reason=body.note or "rejected_by_user",
+    )
+    response.status_history = list(response.status_history or [])
+    response.status_history.append(event)
+    response.save()
+
+    # Log Audit
+    write_response_audit_log(
+        response_uuid=response.uuid,
+        actor_user_uuid=actor_uuid,
+        action="reject",
+        changes={"status": {"old": old_status, "new": "rejected"}, "note": body.note},
+    )
+
+    # Trigger Async Tasks
+    trigger_async_actions(response.uuid, "rejected")
+
+    return to_json_ready(to_form_response_output(response))
+
+
+@resources_api.put(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses/<response_uuid>/reviewers",
+    tags=[resources_tag],
+    responses={200: FormResponseOutput, 400: ErrorResponse, 404: ErrorResponse},
+)
+def assign_form_response_reviewers(
+    path: ResponseActionExecutionPath, body: AssignReviewersRequest
+):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+    response = FormResponse.objects(
+        uuid=path.response_uuid, form_uuid=form.uuid, status__ne="deleted"
+    ).first()
+    if not response:
+        return _error("Form response not found", 404)
+
+    users = []
+    for uuid in body.reviewer_uuids:
+        user = User.objects(uuid=uuid).first()
+        if not user:
+            return _error(f"User with UUID {uuid} not found", 404)
+        users.append(user)
+
+    response.reviewed_by = users
+    response.save()
+    return to_json_ready(to_form_response_output(response))
+
+
+@resources_api.put(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses/<response_uuid>/approvers",
+    tags=[resources_tag],
+    responses={200: FormResponseOutput, 400: ErrorResponse, 404: ErrorResponse},
+)
+def assign_form_response_approvers(
+    path: ResponseActionExecutionPath, body: AssignApproversRequest
+):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+    response = FormResponse.objects(
+        uuid=path.response_uuid, form_uuid=form.uuid, status__ne="deleted"
+    ).first()
+    if not response:
+        return _error("Form response not found", 404)
+
+    users = []
+    for uuid in body.approver_uuids:
+        user = User.objects(uuid=uuid).first()
+        if not user:
+            return _error(f"User with UUID {uuid} not found", 404)
+        users.append(user)
+
+    response.approved_by = users
+    response.save()
+    return to_json_ready(to_form_response_output(response))
+
+
+@resources_api.get(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses/export",
+    tags=[resources_tag],
+)
+def export_form_responses(path: FormResponseSubmissionPath):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+
+    from flask import Response
+    from app.services.response_management import export_responses_to_csv
+
+    csv_data = export_responses_to_csv(form.uuid)
+    return Response(
+        csv_data,
+        mimetype="text/csv",
+        headers={
+            "Content-disposition": f"attachment; filename=responses-{form.uuid}.csv"
+        },
+    )
+
+
+@resources_api.get(
+    "/projects/<project_uuid>/forms/<form_uuid>/responses/analytics",
+    tags=[resources_tag],
+)
+def get_form_responses_analytics(path: FormResponseSubmissionPath):
+    project, project_err = _get_project_or_error(path.project_uuid)
+    if project_err:
+        return project_err
+    form, form_err = _get_form_for_project(project, path.form_uuid)
+    if form_err:
+        return form_err
+
+    from app.services.response_management import get_response_analytics
+
+    analytics = get_response_analytics(form.uuid)
+    return to_json_ready(analytics)
