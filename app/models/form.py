@@ -983,3 +983,31 @@ class ResponseAuditLog(db.Document):
             "timestamp",
         ],
     }
+
+
+class FormWebhookConfig(db.Document):
+    uuid = db.StringField(required=True, unique=True)
+    form_uuid = db.StringField(required=True)
+    url = db.StringField(required=True)
+    events = db.ListField(db.StringField(), default=list)
+    headers = db.MapField(db.StringField(), default=dict)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
+
+    meta = {
+        "collection": "form_webhook_configs",
+        "indexes": ["uuid", "form_uuid"],
+    }
+
+
+class ResponseComment(db.Document):
+    uuid = db.StringField(required=True, unique=True)
+    response_uuid = db.StringField(required=True)
+    author_user_uuid = db.StringField(required=True)
+    author_name = db.StringField()
+    note = db.StringField(required=True)
+    created_at = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
+
+    meta = {
+        "collection": "response_comments",
+        "indexes": ["uuid", "response_uuid", "created_at"],
+    }
