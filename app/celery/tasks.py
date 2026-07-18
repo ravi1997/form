@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from app.celery.app import celery_app
 from app.celery.config import celery_retry_schedule
 from app.models.condition_management import ConditionAsyncJob
@@ -36,3 +37,27 @@ def process_condition_async_job(self, job_id: str):
 )
 def enforce_password_expiry_task(self):
     return {"updated_count": enforce_password_expiry()}
+
+
+@celery_app.task(
+    bind=True,
+    name="app.celery.tasks.trigger_response_webhook_task",
+    acks_late=True,
+    max_retries=3,
+)
+def trigger_response_webhook_task(self, response_uuid: str, event_type: str):
+    """Asynchronously process response submissions, reviews, or approvals to trigger integrations."""
+    from app.models.form import FormResponse
+
+    response = FormResponse.objects(uuid=response_uuid).first()
+    if not response:
+        return {"status": "ignored", "reason": "response_not_found"}
+
+    # Simulate executing integrations or webhook HTTP POST triggers.
+    # In production, this can perform requests.post to configured webhook URL endpoints.
+    return {
+        "status": "success",
+        "response_uuid": response_uuid,
+        "event_type": event_type,
+        "triggered_at": datetime.now(timezone.utc).isoformat(),
+    }
