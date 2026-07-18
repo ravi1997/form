@@ -17,15 +17,15 @@ help:                     ## Show this help message
 
 install:                  ## Install runtime and test/dev dependencies
 	$(PIP) install --upgrade pip
-	$(PIP) install -r requirements.txt -r requirements-test.txt
+	$(PIP) install -r requirements-dev.txt
 	$(PIP) install ruff mypy pip-audit
 
 install-runtime:          ## Install only runtime dependencies
 	$(PIP) install --upgrade pip
 	$(PIP) install -r requirements.txt
 
-install-test:             ## Install only test/dev dependencies
-	$(PIP) install -r requirements-test.txt
+install-test:             ## Install test/dev dependencies
+	$(PIP) install -r requirements-dev.txt
 	$(PIP) install ruff mypy pip-audit
 
 # -----------------------------------------------------------------------------
