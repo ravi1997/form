@@ -101,7 +101,6 @@ class LayoutTemplateListResponse(SchemaModel):
     next_cursor: Optional[str] = None
 
 
-
 class TemplateBindInput(SchemaModel):
     template_uuid: str
     revision_uuid: Optional[str] = None

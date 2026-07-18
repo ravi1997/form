@@ -56,7 +56,7 @@ def test_organization_crud_lifecycle(client, app_context):
         "uuid": "org-test-0001",
         "name": "Test Organization",
         "admins": [regular.uuid],
-        "status": "active"
+        "status": "active",
     }
 
     # Non-admin should not be allowed to create
@@ -64,7 +64,7 @@ def test_organization_crud_lifecycle(client, app_context):
         "/api/v1/organizations",
         data=json.dumps(org_payload),
         headers=user_headers,
-        content_type="application/json"
+        content_type="application/json",
     )
     assert res.status_code == 403
 
@@ -73,7 +73,7 @@ def test_organization_crud_lifecycle(client, app_context):
         "/api/v1/organizations",
         data=json.dumps(org_payload),
         headers=admin_headers,
-        content_type="application/json"
+        content_type="application/json",
     )
     assert res.status_code == 201
     created_org = res.get_json()
@@ -107,17 +107,14 @@ def test_organization_crud_lifecycle(client, app_context):
     assert list_orgs["items"][0]["uuid"] == "org-test-0001"
 
     # 4. Update Organization
-    update_payload = {
-        "name": "Updated Organization Name",
-        "admins": []
-    }
+    update_payload = {"name": "Updated Organization Name", "admins": []}
 
     # Non-admin should not be allowed to update
     res = client.patch(
         "/api/v1/organizations/org-test-0001",
         data=json.dumps(update_payload),
         headers=user_headers,
-        content_type="application/json"
+        content_type="application/json",
     )
     assert res.status_code == 403
 
@@ -126,7 +123,7 @@ def test_organization_crud_lifecycle(client, app_context):
         "/api/v1/organizations/org-test-0001",
         data=json.dumps(update_payload),
         headers=admin_headers,
-        content_type="application/json"
+        content_type="application/json",
     )
     assert res.status_code == 200
     updated_org = res.get_json()
@@ -139,7 +136,9 @@ def test_organization_crud_lifecycle(client, app_context):
     assert res.status_code == 403
 
     # But allowed for superadmin
-    res = client.get("/api/v1/organizations/org-test-0001/admins", headers=admin_headers)
+    res = client.get(
+        "/api/v1/organizations/org-test-0001/admins", headers=admin_headers
+    )
     assert res.status_code == 200
     assert len(res.get_json()["admins"]) == 0
 
@@ -149,7 +148,7 @@ def test_organization_crud_lifecycle(client, app_context):
         "/api/v1/organizations/org-test-0001/admins",
         data=json.dumps({"user_uuid": regular.uuid}),
         headers=user_headers,
-        content_type="application/json"
+        content_type="application/json",
     )
     assert res.status_code == 403
 
@@ -158,7 +157,7 @@ def test_organization_crud_lifecycle(client, app_context):
         "/api/v1/organizations/org-test-0001/admins",
         data=json.dumps({"user_uuid": regular.uuid}),
         headers=admin_headers,
-        content_type="application/json"
+        content_type="application/json",
     )
     assert res.status_code == 200
     assert len(res.get_json()["admins"]) == 1
@@ -178,14 +177,14 @@ def test_organization_crud_lifecycle(client, app_context):
     # Non-admin should not be allowed
     res = client.delete(
         f"/api/v1/organizations/org-test-0001/admins/{regular.uuid}",
-        headers=user_headers
+        headers=user_headers,
     )
     assert res.status_code == 403
 
     # Admin should be allowed
     res = client.delete(
         f"/api/v1/organizations/org-test-0001/admins/{regular.uuid}",
-        headers=admin_headers
+        headers=admin_headers,
     )
     assert res.status_code == 200
     assert len(res.get_json()["admins"]) == 0

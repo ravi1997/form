@@ -34,7 +34,7 @@ def _create_super_admin_user() -> User:
 
 
 def test_user_verification_lifecycle(client, app_context):
-    app_context.config['PROPAGATE_EXCEPTIONS'] = True
+    app_context.config["PROPAGATE_EXCEPTIONS"] = True
     admin = _create_super_admin_user()
     admin_headers = _auth_header(client, "usrmgr-admin@example.com", "StrongPass123!")
 
@@ -47,31 +47,28 @@ def test_user_verification_lifecycle(client, app_context):
     res = client.post(
         "/api/v1/auth/register",
         data=json.dumps(reg_payload),
-        content_type="application/json"
+        content_type="application/json",
     )
     assert res.status_code == 201
-    
+
     # 2. Verify self-registered user has status "unverified"
     user_db = User.objects(email="selfuser@example.com").first()
     assert user_db is not None
     assert user_db.status == "unverified"
 
     # 3. Attempting to log in as unverified user should fail
-    login_payload = {
-        "email": "selfuser@example.com",
-        "password": "SecurePass123!"
-    }
+    login_payload = {"email": "selfuser@example.com", "password": "SecurePass123!"}
     res = client.post(
         "/api/v1/auth/login",
         data=json.dumps(login_payload),
-        content_type="application/json"
+        content_type="application/json",
     )
     assert res.status_code == 401
     assert "unverified" in res.get_json()["message"]
 
     # 4. Superadmin creates an organization admin - verified by default
     org = Organization(uuid="org-usrmgr-0001", name="Usrmgr Org").save()
-    
+
     new_org_admin_payload = {
         "uuid": "new-org-admin-0001",
         "name": "New Org Admin",
@@ -80,13 +77,13 @@ def test_user_verification_lifecycle(client, app_context):
         "organizations": [org.uuid],
         "roles": {org.uuid: ["admin"]},
         "is_organisation_admin": True,
-        "auth_provider": "local"
+        "auth_provider": "local",
     }
     res = client.post(
         "/api/v1/auth/admin/users",
         data=json.dumps(new_org_admin_payload),
         headers=admin_headers,
-        content_type="application/json"
+        content_type="application/json",
     )
     assert res.status_code == 201
     created_org_admin = res.get_json()
@@ -110,15 +107,12 @@ def test_user_verification_lifecycle(client, app_context):
     assert any(u["email"] == "selfuser@example.com" for u in user_list["items"])
 
     # Org admin verifies the user and assigns roles
-    verify_payload = {
-        "organization_uuid": org.uuid,
-        "roles": ["editor"]
-    }
+    verify_payload = {"organization_uuid": org.uuid, "roles": ["editor"]}
     res = client.post(
         f"/api/v1/auth/admin/users/{user_db.uuid}/verify",
         data=json.dumps(verify_payload),
         headers=org_admin_headers,
-        content_type="application/json"
+        content_type="application/json",
     )
     assert res.status_code == 200
     res_data = res.get_json()
@@ -129,7 +123,7 @@ def test_user_verification_lifecycle(client, app_context):
     res = client.post(
         "/api/v1/auth/login",
         data=json.dumps(login_payload),
-        content_type="application/json"
+        content_type="application/json",
     )
     assert res.status_code == 200
     assert "access_token" in res.get_json()

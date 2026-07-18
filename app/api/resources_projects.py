@@ -35,7 +35,9 @@ from app.api.resources_utils import (
 )
 
 
-def _creator_can_manage_all_organizations(creator: User, organizations: list[str]) -> bool:
+def _creator_can_manage_all_organizations(
+    creator: User, organizations: list[str]
+) -> bool:
     if creator.is_super_admin:
         return True
     if not organizations:
@@ -72,7 +74,9 @@ def create_project(body: ProjectCreateInput):
     if not creator:
         return _error("Unauthorized", 401)
 
-    if not _creator_can_manage_all_organizations(creator, list(body.organizations or [])):
+    if not _creator_can_manage_all_organizations(
+        creator, list(body.organizations or [])
+    ):
         return _error(
             "Forbidden: You must be an administrator or editor of every organization on the project",
             403,

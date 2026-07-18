@@ -293,9 +293,7 @@ def test_template_creation_requires_auth_and_scope_permission(client, app_contex
     assert allowed.status_code == 201
 
 
-def test_template_creation_rejects_arbitrary_permission_assignment(
-    client, app_context
-):
+def test_template_creation_rejects_arbitrary_permission_assignment(client, app_context):
     _create_super_admin_user()
     _create_regular_user()
     headers = _auth_header(client, "ui-template-user@example.com", "StrongPass123!")

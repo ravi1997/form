@@ -24,7 +24,12 @@ from app.api.auth_support import (
 from werkzeug.security import generate_password_hash
 from app.models.user import User, Organization
 from app.utils import utcnow
-from app.schemas.user import UserCreateInput, UserUpdateInput, UserOutput, VerifyUserInput
+from app.schemas.user import (
+    UserCreateInput,
+    UserUpdateInput,
+    UserOutput,
+    VerifyUserInput,
+)
 from app.api.resources_schemas import UserListResponse, MessageResponse
 from app.utils import client_ip
 from app.schemas.auth import (
@@ -73,7 +78,9 @@ def _decode_composite_cursor(cursor: str) -> tuple[datetime, str | None]:
         decoded = to_utc_datetime(datetime.fromisoformat(raw))
         return decoded if decoded is not None else datetime.fromisoformat(raw), None
     decoded = to_utc_datetime(datetime.fromisoformat(payload["timestamp"]))
-    return decoded if decoded is not None else datetime.fromisoformat(payload["timestamp"]), payload.get("tie_breaker")
+    return decoded if decoded is not None else datetime.fromisoformat(
+        payload["timestamp"]
+    ), payload.get("tie_breaker")
 
 
 def _build_session_list_response(
@@ -97,7 +104,8 @@ def _build_session_list_response(
                 (to_utc_datetime(s.last_seen_at) or s.last_seen_at) < cursor_created_at
                 or (
                     cursor_session_uuid is not None
-                    and (to_utc_datetime(s.last_seen_at) or s.last_seen_at) == cursor_created_at
+                    and (to_utc_datetime(s.last_seen_at) or s.last_seen_at)
+                    == cursor_created_at
                     and s.session_uuid < cursor_session_uuid
                 )
             )
@@ -106,7 +114,9 @@ def _build_session_list_response(
     else:
         total_items = len(all_items) if total_items is None else total_items
         total_pages = (
-            (total_items + page_size - 1) // page_size if total_pages is None and total_items else total_pages
+            (total_items + page_size - 1) // page_size
+            if total_pages is None and total_items
+            else total_pages
         )
         start = (page - 1) * page_size
         selected = all_items[start : start + page_size]
@@ -515,7 +525,9 @@ def admin_audit_logs(header: AuthorizationHeader, query: AdminAuditLogQuery):
     total_pages: Optional[int] = None
     if query.cursor:
         cursor_created_at, cursor_session_uuid = _decode_composite_cursor(query.cursor)
-        queryset = SessionAuditLog.objects(**filters).order_by("-created_at", "-session_uuid")
+        queryset = SessionAuditLog.objects(**filters).order_by(
+            "-created_at", "-session_uuid"
+        )
         if cursor_session_uuid is None:
             queryset = queryset.filter(created_at__lt=cursor_created_at)
         else:
@@ -525,7 +537,9 @@ def admin_audit_logs(header: AuthorizationHeader, query: AdminAuditLogQuery):
             )
         entries = list(queryset.limit(query.page_size + 1))
     else:
-        queryset = SessionAuditLog.objects(**filters).order_by("-created_at", "-session_uuid")
+        queryset = SessionAuditLog.objects(**filters).order_by(
+            "-created_at", "-session_uuid"
+        )
         total_items = queryset.count()
         total_pages = (
             (total_items + query.page_size - 1) // query.page_size if total_items else 0
@@ -595,12 +609,17 @@ def admin_audit_logs_search(
                 base_filter
                 & (
                     Q(created_at__lt=cursor_created_at)
-                    | Q(created_at=cursor_created_at, session_uuid__lt=cursor_session_uuid)
+                    | Q(
+                        created_at=cursor_created_at,
+                        session_uuid__lt=cursor_session_uuid,
+                    )
                 )
             ).order_by("-created_at", "-session_uuid")
         entries = list(queryset.limit(query.page_size + 1))
     else:
-        queryset = SessionAuditLog.objects(base_filter).order_by("-created_at", "-session_uuid")
+        queryset = SessionAuditLog.objects(base_filter).order_by(
+            "-created_at", "-session_uuid"
+        )
         total_items = queryset.count()
         total_pages = (
             (total_items + query.page_size - 1) // query.page_size if total_items else 0
@@ -635,6 +654,7 @@ def admin_audit_logs_search(
 
 def _resolve_and_require_elevated_admin(header: AuthorizationHeader):
     from app.services.rbac import require_admin_by_payload
+
     payload = _resolve_access_identity(header)
     return require_admin_by_payload(payload)
 
@@ -661,11 +681,14 @@ def admin_list_users(header: AuthorizationHeader, query: SessionListQuery):
         qs = User.objects(organizations__in=list(resolved_orgs))
 
     total_items = qs.count()
-    total_pages = (total_items + query.page_size - 1) // query.page_size if total_items else 0
+    total_pages = (
+        (total_items + query.page_size - 1) // query.page_size if total_items else 0
+    )
     skip = (query.page - 1) * query.page_size
     items = list(qs.skip(skip).limit(query.page_size))
 
     from app.schemas.mappers import to_user_output
+
     response = UserListResponse(
         items=[to_user_output(item) for item in items],
         page=query.page,
@@ -679,7 +702,12 @@ def admin_list_users(header: AuthorizationHeader, query: SessionListQuery):
 @auth_api.post(
     "/admin/users",
     tags=[auth_tag],
-    responses={201: UserOutput, 400: ErrorResponse, 401: ErrorResponse, 403: ErrorResponse},
+    responses={
+        201: UserOutput,
+        400: ErrorResponse,
+        401: ErrorResponse,
+        403: ErrorResponse,
+    },
 )
 def admin_create_user(header: AuthorizationHeader, body: UserCreateInput):
     try:
@@ -695,12 +723,17 @@ def admin_create_user(header: AuthorizationHeader, body: UserCreateInput):
         for org_uuid in body.organizations:
             org = org_lookup.get(org_uuid)
             if not org or resolve_org_role_key(org) not in admin_org_ids:
-                return _unauthorized(f"You cannot create users in organization: {org_uuid}")
+                return _unauthorized(
+                    f"You cannot create users in organization: {org_uuid}"
+                )
 
     # Determine status: org admin created by super admin -> verified/active by default
     status = "unverified"
     is_email_verified = False
-    if admin_user.is_super_admin and (body.is_organisation_admin or any("admin" in roles for roles in body.roles.values())):
+    if admin_user.is_super_admin and (
+        body.is_organisation_admin
+        or any("admin" in roles for roles in body.roles.values())
+    ):
         status = "active"
         is_email_verified = True
 
@@ -745,32 +778,49 @@ def admin_create_user(header: AuthorizationHeader, body: UserCreateInput):
         return _bad_request(str(exc))
 
     from app.schemas.mappers import to_user_output
+
     return to_json_ready(to_user_output(user)), 201
 
 
 @auth_api.get(
     "/admin/users/<user_uuid>",
     tags=[auth_tag],
-    responses={200: UserOutput, 401: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse},
+    responses={
+        200: UserOutput,
+        401: ErrorResponse,
+        403: ErrorResponse,
+        404: ErrorResponse,
+    },
 )
 def admin_get_user(header: AuthorizationHeader, path: AdminUserPath):
     try:
-        payload, admin_user, target_user = _require_admin_for_user(header, path.user_uuid)
+        payload, admin_user, target_user = _require_admin_for_user(
+            header, path.user_uuid
+        )
     except AuthError as exc:
         return _unauthorized(str(exc))
 
     touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
 
     from app.schemas.mappers import to_user_output
+
     return to_json_ready(to_user_output(target_user))
 
 
 @auth_api.patch(
     "/admin/users/<user_uuid>",
     tags=[auth_tag],
-    responses={200: UserOutput, 400: ErrorResponse, 401: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse},
+    responses={
+        200: UserOutput,
+        400: ErrorResponse,
+        401: ErrorResponse,
+        403: ErrorResponse,
+        404: ErrorResponse,
+    },
 )
-def admin_update_user(header: AuthorizationHeader, path: AdminUserPath, body: UserUpdateInput):
+def admin_update_user(
+    header: AuthorizationHeader, path: AdminUserPath, body: UserUpdateInput
+):
     try:
         payload, admin_user = _resolve_and_require_elevated_admin(header)
     except AuthError as exc:
@@ -805,7 +855,10 @@ def admin_update_user(header: AuthorizationHeader, path: AdminUserPath, body: Us
         if body.roles is not None:
             mapped_roles = {}
             for k, v in body.roles.items():
-                org = Organization.objects(uuid=k).first() or Organization.objects(id=k).first()
+                org = (
+                    Organization.objects(uuid=k).first()
+                    or Organization.objects(id=k).first()
+                )
                 if org:
                     mapped_roles[resolve_org_role_key(org)] = v
                 else:
@@ -841,6 +894,7 @@ def admin_update_user(header: AuthorizationHeader, path: AdminUserPath, body: Us
         return _bad_request(str(exc))
 
     from app.schemas.mappers import to_user_output
+
     return to_json_ready(to_user_output(target_user))
 
 
@@ -865,7 +919,9 @@ def admin_bulk_set_must_change_password(
     touch_session(session_uuid=payload["sid"], user_uuid=payload["sub"])
 
     if body.must_change_password is not True:
-        return _bad_request("This bulk route only supports enabling must_change_password")
+        return _bad_request(
+            "This bulk route only supports enabling must_change_password"
+        )
 
     updated_count = 0
     for user_uuid in body.user_uuids:
@@ -890,7 +946,12 @@ def admin_bulk_set_must_change_password(
 @auth_api.delete(
     "/admin/users/<user_uuid>",
     tags=[auth_tag],
-    responses={200: MessageResponse, 401: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse},
+    responses={
+        200: MessageResponse,
+        401: ErrorResponse,
+        403: ErrorResponse,
+        404: ErrorResponse,
+    },
 )
 def admin_delete_user(header: AuthorizationHeader, path: AdminUserPath):
     try:
@@ -918,9 +979,17 @@ def admin_delete_user(header: AuthorizationHeader, path: AdminUserPath):
 @auth_api.post(
     "/admin/users/<user_uuid>/verify",
     tags=[auth_tag],
-    responses={200: UserOutput, 400: ErrorResponse, 401: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse},
+    responses={
+        200: UserOutput,
+        400: ErrorResponse,
+        401: ErrorResponse,
+        403: ErrorResponse,
+        404: ErrorResponse,
+    },
 )
-def admin_verify_user(header: AuthorizationHeader, path: AdminUserPath, body: VerifyUserInput):
+def admin_verify_user(
+    header: AuthorizationHeader, path: AdminUserPath, body: VerifyUserInput
+):
     try:
         payload, admin_user = _resolve_and_require_elevated_admin(header)
     except AuthError as exc:
@@ -938,8 +1007,12 @@ def admin_verify_user(header: AuthorizationHeader, path: AdminUserPath, body: Ve
         return _bad_request("Organization not found")
 
     # Check permission: caller must be superadmin or admin of the target organization
-    if not admin_user.is_super_admin and resolve_org_role_key(org) not in admin_org_ids_for_user(admin_user):
-        return _unauthorized("You are not authorized to verify users for this organization")
+    if not admin_user.is_super_admin and resolve_org_role_key(
+        org
+    ) not in admin_org_ids_for_user(admin_user):
+        return _unauthorized(
+            "You are not authorized to verify users for this organization"
+        )
 
     # Enforce: only superadmins can assign "admin" role
     if "admin" in body.roles and not admin_user.is_super_admin:
@@ -968,4 +1041,5 @@ def admin_verify_user(header: AuthorizationHeader, path: AdminUserPath, body: Ve
     target_user.save()
 
     from app.schemas.mappers import to_user_output
+
     return to_json_ready(to_user_output(target_user))

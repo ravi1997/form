@@ -55,6 +55,7 @@ def _before_resources_request():
         return throttle
 
     from app.api.resources_utils import ENDPOINT_PERMISSION
+
     required = ENDPOINT_PERMISSION.get(request.endpoint, "authenticated")
     if required == "anonymous":
         return None
@@ -64,10 +65,17 @@ def _before_resources_request():
         payload = resolve_access_identity_from_header(raw_authorization)
         user = get_user_by_uuid(payload["sub"])
         if user.status == "unverified":
-            _security_event(event="resources_auth", outcome="forbidden", reason="user_unverified")
-            return _error("User is unverified. Please wait for an administrator to verify your account.", 403)
+            _security_event(
+                event="resources_auth", outcome="forbidden", reason="user_unverified"
+            )
+            return _error(
+                "User is unverified. Please wait for an administrator to verify your account.",
+                403,
+            )
         if user.status in ("inactive", "suspended", "locked", "deleted"):
-            _security_event(event="resources_auth", outcome="forbidden", reason="user_disabled")
+            _security_event(
+                event="resources_auth", outcome="forbidden", reason="user_disabled"
+            )
             return _error("User account is inactive or disabled.", 403)
         g.resources_user_payload = payload
         g.resources_user = user

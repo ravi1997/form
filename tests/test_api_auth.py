@@ -312,12 +312,12 @@ class TestAuthAPILogin:
 
 
 class TestAuthAPIPasswordChange:
-    def test_change_password_clears_must_change_password_flag(
-        self, client, test_user
-    ):
+    def test_change_password_clears_must_change_password_flag(self, client, test_user):
         login_response = client.post(
             "/api/v1/auth/login",
-            data=json.dumps({"email": "test@example.com", "password": "test_password_123"}),
+            data=json.dumps(
+                {"email": "test@example.com", "password": "test_password_123"}
+            ),
             content_type="application/json",
         )
         assert login_response.status_code == 200
@@ -344,7 +344,9 @@ class TestAuthAPIPasswordChange:
 
         relogin = client.post(
             "/api/v1/auth/login",
-            data=json.dumps({"email": "test@example.com", "password": "NewSecurePass123!"}),
+            data=json.dumps(
+                {"email": "test@example.com", "password": "NewSecurePass123!"}
+            ),
             content_type="application/json",
         )
         assert relogin.status_code == 200
@@ -467,9 +469,7 @@ class TestAuthAPILogout:
         )
 
         login_data = json.loads(login_response.data)
-        access_token = login_data.get("access_token") or login_data.get(
-            "accessToken"
-        )
+        access_token = login_data.get("access_token") or login_data.get("accessToken")
         refresh_token = login_data.get("refresh_token") or login_data.get(
             "refreshToken"
         )
@@ -525,9 +525,7 @@ class TestAuthAPILogout:
         )
 
         login_data = json.loads(login_response.data)
-        access_token = login_data.get("access_token") or login_data.get(
-            "accessToken"
-        )
+        access_token = login_data.get("access_token") or login_data.get("accessToken")
         refresh_token = login_data.get("refresh_token") or login_data.get(
             "refreshToken"
         )
@@ -701,7 +699,10 @@ class TestAuthAPISessions:
         assert second_page.status_code == 200
         second_payload = second_page.get_json()
         assert len(second_payload["sessions"]) == 1
-        combined = [item["session_uuid"] for item in first_payload["sessions"] + second_payload["sessions"]]
+        combined = [
+            item["session_uuid"]
+            for item in first_payload["sessions"] + second_payload["sessions"]
+        ]
         assert sorted(combined) == sorted(session_ids)
 
     def test_admin_session_pagination_accepts_legacy_cursor_format(
@@ -739,7 +740,9 @@ class TestAuthAPISessions:
         login_data = json.loads(login_response.data)
         access_token = login_data.get("access_token") or login_data.get("accessToken")
 
-        legacy_cursor = urlsafe_b64encode((base - timedelta(minutes=1)).isoformat().encode("utf-8")).decode("utf-8")
+        legacy_cursor = urlsafe_b64encode(
+            (base - timedelta(minutes=1)).isoformat().encode("utf-8")
+        ).decode("utf-8")
         second_page = client.get(
             f"/api/v1/auth/admin/users/{test_user.uuid}/sessions?page=1&page_size=2&cursor={legacy_cursor}",
             headers={"Authorization": f"Bearer {access_token}"},
@@ -843,7 +846,10 @@ class TestAuthAPISessions:
         assert cursor_page.status_code == 200
         second_payload = cursor_page.get_json()
         assert len(second_payload["items"]) == 1
-        combined = [item["session_uuid"] for item in first_payload["items"] + second_payload["items"]]
+        combined = [
+            item["session_uuid"]
+            for item in first_payload["items"] + second_payload["items"]
+        ]
         assert sorted(combined) == sorted(
             [
                 "session-audit-collision-0",
@@ -885,7 +891,9 @@ class TestAuthAPISessions:
         login_data = json.loads(login_response.data)
         access_token = login_data.get("access_token") or login_data.get("accessToken")
 
-        legacy_cursor = urlsafe_b64encode((base - timedelta(minutes=1)).isoformat().encode("utf-8")).decode("utf-8")
+        legacy_cursor = urlsafe_b64encode(
+            (base - timedelta(minutes=1)).isoformat().encode("utf-8")
+        ).decode("utf-8")
         cursor_page = client.get(
             f"/api/v1/auth/admin/audit-logs?page=1&page_size=2&cursor={legacy_cursor}",
             headers={"Authorization": f"Bearer {access_token}"},

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone, timedelta
-from threading import Event
 from typing import Any, Dict, Optional, Tuple
 
 from celery import current_app as celery_current_app

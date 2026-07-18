@@ -8,7 +8,9 @@ from pydantic import Field, model_validator
 from app.schemas.common import SchemaModel
 
 Role = Literal["admin", "editor", "viewer", "reviewer", "approver", "submitter"]
-UserStatus = Literal["active", "inactive", "deleted", "suspended", "locked", "unverified"]
+UserStatus = Literal[
+    "active", "inactive", "deleted", "suspended", "locked", "unverified"
+]
 AuthProvider = Literal["local", "sso"]
 
 

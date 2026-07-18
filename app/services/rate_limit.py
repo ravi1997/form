@@ -217,7 +217,9 @@ class RateLimitService:
         """Fallback in-memory rate limit tracking (not suitable for distributed systems)."""
         current_time = datetime.now(timezone.utc)
 
-        self._cleanup_memory_cache(current_time=current_time, window_duration=window_duration)
+        self._cleanup_memory_cache(
+            current_time=current_time, window_duration=window_duration
+        )
 
         window_start = self.cache.get(ts_key)
         if window_start and current_time <= window_start + window_duration:
@@ -244,7 +246,9 @@ class RateLimitService:
                 continue
             if current_time > value + window_duration:
                 expired_keys.append(cache_key)
-                expired_keys.append(cache_key.replace("rate_limit_ts:", "rate_limit:", 1))
+                expired_keys.append(
+                    cache_key.replace("rate_limit_ts:", "rate_limit:", 1)
+                )
 
         for cache_key in expired_keys:
             self.cache.pop(cache_key, None)

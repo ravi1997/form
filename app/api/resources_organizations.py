@@ -9,7 +9,11 @@ from urllib.parse import urljoin
 
 from app.models.user import Organization, User, Invitation
 from app.schemas.mappers import to_json_ready, to_organization_output
-from app.schemas.organization import OrganizationCreateInput, OrganizationOutput, OrganizationUpdateInput
+from app.schemas.organization import (
+    OrganizationCreateInput,
+    OrganizationOutput,
+    OrganizationUpdateInput,
+)
 from app.api.resources_schemas import (
     AddAdminInput,
     AdminPath,
@@ -40,7 +44,9 @@ def _invitation_base_url() -> str:
 
 
 def _invitation_link(invitation_uuid: str) -> str:
-    return urljoin(_invitation_base_url() + "/", f"api/v1/invitations/{invitation_uuid}/accept")
+    return urljoin(
+        _invitation_base_url() + "/", f"api/v1/invitations/{invitation_uuid}/accept"
+    )
 
 
 @resources_api.post(
@@ -177,8 +183,9 @@ def get_organization_admins(path: UUIDPath):
     item = Organization.objects(uuid=path.uuid).first()
     if not item:
         return _error("Organization not found", 404)
-    
+
     from app.schemas.mappers import to_user_output
+
     admins_output = [to_user_output(admin) for admin in item.admins or []]
     return to_json_ready(OrganizationAdminsResponse(admins=admins_output))
 
@@ -192,34 +199,35 @@ def add_organization_admin(path: UUIDPath, body: AddAdminInput):
     organization = Organization.objects(uuid=path.uuid).first()
     if not organization:
         return _error("Organization not found", 404)
-    
+
     user = User.objects(uuid=body.user_uuid).first()
     if not user:
         return _error("User not found", 404)
-    
+
     try:
         # Add user to organization admins list
         if user not in organization.admins:
             organization.admins.append(user)
             organization.save()
-        
+
         # Add organization to user organizations list
         if organization not in user.organizations:
             user.organizations.append(organization)
-        
+
         # Add admin role for this organization
         org_id_str = resolve_org_role_key(organization)
         if org_id_str not in user.roles:
             user.roles[org_id_str] = []
         if "admin" not in user.roles[org_id_str]:
             user.roles[org_id_str].append("admin")
-            
+
         user.is_organisation_admin = True
         user.save()
     except (ValidationError, ValueError) as exc:
         return _error(str(exc))
-        
+
     from app.schemas.mappers import to_user_output
+
     admins_output = [to_user_output(admin) for admin in organization.admins or []]
     return to_json_ready(OrganizationAdminsResponse(admins=admins_output))
 
@@ -233,17 +241,17 @@ def remove_organization_admin(path: AdminPath):
     organization = Organization.objects(uuid=path.uuid).first()
     if not organization:
         return _error("Organization not found", 404)
-    
+
     user = User.objects(uuid=path.user_uuid).first()
     if not user:
         return _error("User not found", 404)
-    
+
     try:
         # Remove user from organization admins list
         if user in organization.admins:
             organization.admins.remove(user)
             organization.save()
-        
+
         # Remove admin role for this organization
         org_id_str = resolve_org_role_key(organization)
         if org_id_str in user.roles:
@@ -251,17 +259,20 @@ def remove_organization_admin(path: AdminPath):
                 user.roles[org_id_str].remove("admin")
             if not user.roles[org_id_str]:
                 del user.roles[org_id_str]
-        
+
         # Check if they have any other admin roles in any organization
-        has_other_admin_role = any("admin" in roles for roles in (user.roles or {}).values())
+        has_other_admin_role = any(
+            "admin" in roles for roles in (user.roles or {}).values()
+        )
         if not has_other_admin_role:
             user.is_organisation_admin = False
-            
+
         user.save()
     except (ValidationError, ValueError) as exc:
         return _error(str(exc))
-        
+
     from app.schemas.mappers import to_user_output
+
     admins_output = [to_user_output(admin) for admin in organization.admins or []]
     return to_json_ready(OrganizationAdminsResponse(admins=admins_output))
 
@@ -269,10 +280,16 @@ def remove_organization_admin(path: AdminPath):
 from uuid import uuid4
 from datetime import timedelta
 
+
 @resources_api.post(
     "/organizations/<uuid>/invitations",
     tags=[resources_tag],
-    responses={201: InvitationOutput, 400: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse},
+    responses={
+        201: InvitationOutput,
+        400: ErrorResponse,
+        403: ErrorResponse,
+        404: ErrorResponse,
+    },
 )
 def create_organization_invitation(path: UUIDPath, body: InvitationInput):
     org = Organization.objects(uuid=path.uuid).first()
@@ -296,11 +313,16 @@ def create_organization_invitation(path: UUIDPath, body: InvitationInput):
                 break
 
     if not is_admin:
-        return _error("Forbidden: You must be an administrator of this organization to send invitations", 403)
+        return _error(
+            "Forbidden: You must be an administrator of this organization to send invitations",
+            403,
+        )
 
     # Enforce: only superadmin can invite someone as organization admin
     if body.role == "admin" and not user.is_super_admin:
-        return _error("Forbidden: Only superadmins can invite organization administrators", 403)
+        return _error(
+            "Forbidden: Only superadmins can invite organization administrators", 403
+        )
 
     # Create Invitation
     now = utcnow()
@@ -337,7 +359,12 @@ def create_organization_invitation(path: UUIDPath, body: InvitationInput):
 @resources_api.post(
     "/invitations/<uuid>/accept",
     tags=[resources_tag],
-    responses={200: MessageResponse, 400: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse},
+    responses={
+        200: MessageResponse,
+        400: ErrorResponse,
+        403: ErrorResponse,
+        404: ErrorResponse,
+    },
 )
 def accept_organization_invitation(path: UUIDPath):
     invitation = Invitation.objects(uuid=path.uuid).first()
@@ -364,7 +391,10 @@ def accept_organization_invitation(path: UUIDPath):
         phone_matches = user.phone.strip() == invitation.phone.strip()
 
     if not (email_matches or phone_matches):
-        return _error("Forbidden: Your account does not match the invited email or phone number", 403)
+        return _error(
+            "Forbidden: Your account does not match the invited email or phone number",
+            403,
+        )
 
     # Add user to organization
     org = invitation.organization
@@ -375,7 +405,7 @@ def accept_organization_invitation(path: UUIDPath):
     org_id_str = resolve_org_role_key(org)
     if not user.roles:
         user.roles = {}
-    
+
     current_roles = user.roles.get(org_id_str) or []
     if not current_roles:
         for legacy_key in resolve_org_role_keys(org):

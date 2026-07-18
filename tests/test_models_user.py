@@ -507,12 +507,12 @@ class TestUserPasswordReset:
 
 
 class TestPasswordExpiryPolicy:
-    def test_enforce_password_expiry_sets_flag_for_stale_passwords(
-        self, app_context
-    ):
+    def test_enforce_password_expiry_sets_flag_for_stale_passwords(self, app_context):
         from app.services.password_policy import enforce_password_expiry
 
-        stale_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=200)
+        stale_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+            days=200
+        )
         user = User(
             uuid="01-01-24-0001-01-01-24-0030",
             name="Test User",

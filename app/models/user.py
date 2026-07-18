@@ -8,7 +8,6 @@ Role choices per organisation: admin, editor, viewer, reviewer, approver, submit
 User statuses: active, inactive, deleted, suspended, locked.
 """
 
-from datetime import datetime, timezone
 from mongoengine.errors import ValidationError
 
 from app.extensions import db
@@ -71,6 +70,7 @@ class OrgRoleMap(dict):
             return self[key]
         except KeyError:
             return default
+
 
 class Organization(db.Document):
     uuid = db.StringField(required=True, unique=True)  # DD-MM-YY-XXXX
@@ -154,13 +154,21 @@ class User(db.Document):
 
     meta = {
         "collection": "users",
-        "indexes": ["uuid", "email", "status", "is_super_admin", "must_change_password"],
+        "indexes": [
+            "uuid",
+            "email",
+            "status",
+            "is_super_admin",
+            "must_change_password",
+        ],
     }
 
     def __getattribute__(self, name):
         value = super().__getattribute__(name)
         if name == "roles" and value and not isinstance(value, OrgRoleMap):
-            alias_map = OrgRoleMap(value, organizations=super().__getattribute__("organizations"))
+            alias_map = OrgRoleMap(
+                value, organizations=super().__getattribute__("organizations")
+            )
             self._data["roles"] = alias_map
             self.__dict__["roles"] = alias_map
             return alias_map

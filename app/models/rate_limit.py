@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from mongoengine.errors import ValidationError
 
 from app.extensions import db
@@ -17,6 +16,7 @@ RATE_LIMIT_UNITS = (
     "hour",
     "day",
 )
+
 
 class RateLimitConfig(db.Document):
     """

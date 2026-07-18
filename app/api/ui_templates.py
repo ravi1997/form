@@ -42,7 +42,6 @@ class TemplatePath(SchemaModel):
     template_uuid: str
 
 
-
 def _resolve_user_from_auth() -> User | None:
     auth_header = request.headers.get("Authorization", "")
     if not auth_header:
@@ -120,7 +119,9 @@ def _project_admin_keys(actor: User, project_uuid: str) -> set[str]:
     return set()
 
 
-def _can_manage_template_scope(actor: User, scope_type: str, scope_uuid: str | None) -> bool:
+def _can_manage_template_scope(
+    actor: User, scope_type: str, scope_uuid: str | None
+) -> bool:
     if has_global_admin_privileges(actor):
         return True
 
@@ -131,9 +132,9 @@ def _can_manage_template_scope(actor: User, scope_type: str, scope_uuid: str | N
         return False
 
     if scope_type == "organization":
-        return scope_uuid in admin_org_scope_keys(actor) or scope_uuid in user_org_scope_keys(
+        return scope_uuid in admin_org_scope_keys(
             actor
-        )
+        ) or scope_uuid in user_org_scope_keys(actor)
 
     if scope_type == "project":
         return bool(_project_admin_keys(actor, scope_uuid))
@@ -142,7 +143,9 @@ def _can_manage_template_scope(actor: User, scope_type: str, scope_uuid: str | N
 
 
 def _validate_template_access(body, actor: User) -> None:
-    if not _can_manage_template_scope(actor, body.get("scope_type", "global"), body.get("scope_uuid")):
+    if not _can_manage_template_scope(
+        actor, body.get("scope_type", "global"), body.get("scope_uuid")
+    ):
         raise AuthError("Template creation not permitted for this scope")
 
     if body.get("scope_type", "global") == "global" and not actor.is_super_admin:
@@ -274,19 +277,21 @@ def _list_templates(model, query: ListQuery):
         qs = model.objects()
     else:
         from mongoengine import Q
+
         org_keys = user_org_scope_keys(actor)
         qs = model.objects(
-            Q(visibility="public") |
-            Q(admins=actor) |
-            Q(editors=actor) |
-            Q(viewers=actor) |
-            (Q(scope_type="organization") & Q(scope_uuid__in=list(org_keys)))
+            Q(visibility="public")
+            | Q(admins=actor)
+            | Q(editors=actor)
+            | Q(viewers=actor)
+            | (Q(scope_type="organization") & Q(scope_uuid__in=list(org_keys)))
         )
 
     if query.status:
         qs = qs(status=query.status)
 
     from app.api.resources_utils import paginate_items
+
     try:
         items, page, page_size, total_items, total_pages, next_cursor = paginate_items(
             list(qs), query
@@ -324,9 +329,16 @@ def _get_template(model, template_uuid: str):
         or actor.uuid in {user.uuid for user in template.viewers or []}
     ):
         can_read = True
-    elif template.scope_type == "organization" and template.scope_uuid in user_org_scope_keys(actor):
+    elif (
+        template.scope_type == "organization"
+        and template.scope_uuid in user_org_scope_keys(actor)
+    ):
         can_read = True
-    elif template.scope_type == "project" and template.scope_uuid and bool(_project_admin_keys(actor, template.scope_uuid)):
+    elif (
+        template.scope_type == "project"
+        and template.scope_uuid
+        and bool(_project_admin_keys(actor, template.scope_uuid))
+    ):
         can_read = True
 
     if not can_read:
@@ -423,4 +435,3 @@ def get_layout_template(path: TemplatePath):
     if isinstance(res, tuple):
         return to_json_ready(res[0]), res[1]
     return to_json_ready(res)
-

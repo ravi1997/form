@@ -32,6 +32,7 @@ auth_tag = Tag(name="Auth", description="JWT authentication")
 auth_api = APIBlueprint("auth", __name__, url_prefix="/api/v1/auth")
 logger = get_rotating_logger()
 
+
 @auth_api.before_request
 def _auth_before_request_logging():
     logger.log_app_event(
@@ -66,6 +67,7 @@ def _unauthorized(message: str):
 
 def _bad_request(message: str):
     return to_json_ready(ErrorResponse(message=message)), 400
+
 
 def _is_audit_enabled() -> bool:
     return BaseConfig.get_bool(

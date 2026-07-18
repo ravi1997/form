@@ -631,9 +631,7 @@ class BaseConfig:
                 ),
             )
             merged_settings.setdefault("alias", "default")
-            merged_settings.update(
-                cls._mongodb_settings_from_uri(mongodb_uri)
-            )
+            merged_settings.update(cls._mongodb_settings_from_uri(mongodb_uri))
             app.config["MONGODB_SETTINGS"] = merged_settings
         else:
             mongodb_uri = cls.get_str(app.config, "MONGODB_URI", cls.MONGODB_URI)

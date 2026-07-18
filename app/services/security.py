@@ -23,6 +23,7 @@ from app.utils import utcnow
 
 logger = get_rotating_logger()
 
+
 def check_and_increment_rate_limit(
     *,
     scope: str,

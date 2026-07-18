@@ -29,7 +29,8 @@ class FakeRedisClient:
 def test_rate_limit_uses_redis_backend_when_configured(app_context, monkeypatch):
     shared_client = FakeRedisClient()
     monkeypatch.setattr(
-        "app.services.rate_limit.redis.from_url", lambda *_args, **_kwargs: shared_client
+        "app.services.rate_limit.redis.from_url",
+        lambda *_args, **_kwargs: shared_client,
     )
 
     from app.services.rate_limit import RateLimitService
@@ -177,9 +178,7 @@ def test_rate_limit_decorator_returns_503_when_redis_down(app_context, monkeypat
     assert response.get_json()["error"] == "Rate limiting unavailable"
 
 
-def test_rate_limit_decorator_raises_when_fail_open_disabled(
-    app_context, monkeypatch
-):
+def test_rate_limit_decorator_raises_when_fail_open_disabled(app_context, monkeypatch):
     app = Flask(__name__)
     app.config["RATE_LIMIT_FAIL_OPEN"] = False
 

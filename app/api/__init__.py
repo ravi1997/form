@@ -12,7 +12,6 @@ from app.api.ui_templates import ui_api
 API_BLUEPRINTS = [health_api, auth_api, resources_api, conditions_api, ui_api]
 
 
-
 def register_api_routes(app):
     blueprints = [*API_BLUEPRINTS, create_rate_limit_api(app)]
     for blueprint in blueprints:

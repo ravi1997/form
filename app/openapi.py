@@ -92,13 +92,16 @@ def create_openapi_app(config: Optional[Dict[str, Any]] = None):
             settings.monitoring_stats_retention_days
         )
     except PyMongoError as exc:
-        app.logger.warning(
-            "monitoring_stats_retention_index_setup_failed: %s", exc
-        )
+        app.logger.warning("monitoring_stats_retention_index_setup_failed: %s", exc)
 
     # Seed default backend accounts if configured (skip during testing to prevent conflicts)
     bootstrap_enabled = os.getenv("ENABLE_SUPERADMIN_BOOTSTRAP", "").strip().lower()
-    if not app.config.get("TESTING") and bootstrap_enabled in {"1", "true", "yes", "on"}:
+    if not app.config.get("TESTING") and bootstrap_enabled in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
         try:
             from scripts.seed_backend_accounts import seed_backend_accounts
 

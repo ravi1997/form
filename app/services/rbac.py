@@ -16,7 +16,7 @@ from app.models.user import User
 from app.services.auth import AuthError, decode_token
 from app.services import get_rotating_logger
 from app.services.password_policy import should_force_password_change
-from app.services.org_keys import resolve_org_role_key, resolve_org_role_keys
+from app.services.org_keys import resolve_org_role_keys
 
 logger = get_rotating_logger()
 

@@ -16,7 +16,6 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import dataclass
-from uuid import uuid4
 
 from werkzeug.security import generate_password_hash
 

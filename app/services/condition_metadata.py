@@ -46,7 +46,9 @@ CONDITION_OPERATOR_METADATA: Dict[str, Dict[str, Any]] = {
 
 
 def allowed_operators(condition_type: str) -> Set[str]:
-    return set(CONDITION_OPERATOR_METADATA.get(condition_type, {}).get("operators", set()))
+    return set(
+        CONDITION_OPERATOR_METADATA.get(condition_type, {}).get("operators", set())
+    )
 
 
 def validate_condition_operator(condition_type: str, operator: str | None) -> None:
@@ -58,4 +60,3 @@ def validate_condition_operator(condition_type: str, operator: str | None) -> No
         raise ValueError(
             f"Operator '{operator}' is not valid for conditionType '{condition_type}'"
         )
-

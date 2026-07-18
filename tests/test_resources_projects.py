@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from werkzeug.security import generate_password_hash
 from app.models.user import User, Organization
-from app.models.form import Project
 
 
 def _auth_header(client, email: str, password: str) -> dict[str, str]:
@@ -86,13 +85,13 @@ def test_project_creator_and_role_assignment(client, app_context):
         "forms": [],
         "organizations": [org.uuid],
         "tags": [],
-        "status": "active"
+        "status": "active",
     }
     res = client.post(
         "/api/v1/projects",
         data=json.dumps(proj_payload),
         headers=editor_headers,
-        content_type="application/json"
+        content_type="application/json",
     )
     assert res.status_code == 201
     created_proj = res.get_json()
@@ -110,24 +109,22 @@ def test_project_creator_and_role_assignment(client, app_context):
         "forms": [],
         "organizations": [org.uuid],
         "tags": [],
-        "status": "active"
+        "status": "active",
     }
     res = client.post(
         "/api/v1/projects",
         data=json.dumps(proj_payload2),
         headers=viewer_headers,
-        content_type="application/json"
+        content_type="application/json",
     )
     assert res.status_code == 403
 
     # 3. Editor (now project admin) updates the project users -> 200 (Success)
     res = client.patch(
         "/api/v1/projects/proj-test-0001",
-        data=json.dumps({
-            "members": [org_admin.uuid]
-        }),
+        data=json.dumps({"members": [org_admin.uuid]}),
         headers=editor_headers,
-        content_type="application/json"
+        content_type="application/json",
     )
     assert res.status_code == 200
     updated_proj = res.get_json()
@@ -136,11 +133,9 @@ def test_project_creator_and_role_assignment(client, app_context):
     # 4. Org Admin (who is not in project.admins) manages roles for the project -> 200 (Success)
     res = client.patch(
         "/api/v1/projects/proj-test-0001",
-        data=json.dumps({
-            "viewers": [org_viewer.uuid]
-        }),
+        data=json.dumps({"viewers": [org_viewer.uuid]}),
         headers=admin_headers,
-        content_type="application/json"
+        content_type="application/json",
     )
     assert res.status_code == 200
     updated_proj = res.get_json()
@@ -149,10 +144,8 @@ def test_project_creator_and_role_assignment(client, app_context):
     # 5. Non-admin, non-project-admin tries to update the project -> 403
     res = client.patch(
         "/api/v1/projects/proj-test-0001",
-        data=json.dumps({
-            "name": "Hacked Name"
-        }),
+        data=json.dumps({"name": "Hacked Name"}),
         headers=viewer_headers,
-        content_type="application/json"
+        content_type="application/json",
     )
     assert res.status_code == 403

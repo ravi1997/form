@@ -12,8 +12,6 @@ from app.models.user import User
 from app.api.auth_support import (
     _audit_log,
     _bad_request,
-    _decode_audit_cursor,
-    _encode_audit_cursor,
     _extract_bearer,
     _resolve_access_identity,
     _security_event,
@@ -83,7 +81,9 @@ def _decode_composite_cursor(cursor: str) -> tuple[datetime, str | None]:
         decoded = to_utc_datetime(datetime.fromisoformat(raw))
         return decoded if decoded is not None else datetime.fromisoformat(raw), None
     decoded = to_utc_datetime(datetime.fromisoformat(payload["timestamp"]))
-    return decoded if decoded is not None else datetime.fromisoformat(payload["timestamp"]), payload.get("tie_breaker")
+    return decoded if decoded is not None else datetime.fromisoformat(
+        payload["timestamp"]
+    ), payload.get("tie_breaker")
 
 
 @auth_api.post(
@@ -329,7 +329,10 @@ def logout(body: LogoutRequest):
         access_payload = decode_token(body.access_token, expected_type="access")
         payload = decode_token(body.refresh_token, expected_type="refresh")
         get_user_by_uuid(payload["sub"])
-        if access_payload["sub"] != payload["sub"] or access_payload["sid"] != payload["sid"]:
+        if (
+            access_payload["sub"] != payload["sub"]
+            or access_payload["sid"] != payload["sid"]
+        ):
             raise AuthError("Access token does not match refresh token")
         revoke_access_token(body.access_token, reason="logout")
         revoke_refresh_token(body.refresh_token, reason="logout")
@@ -417,7 +420,9 @@ def sessions(header: AuthorizationHeader, query: SessionListQuery):
         cursor_created_at_raw, cursor_session_uuid = _decode_composite_cursor(
             query.cursor
         )
-        cursor_created_at_raw = to_utc_datetime(cursor_created_at_raw) or cursor_created_at_raw
+        cursor_created_at_raw = (
+            to_utc_datetime(cursor_created_at_raw) or cursor_created_at_raw
+        )
         filtered = [
             s
             for s in all_items
