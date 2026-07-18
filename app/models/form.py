@@ -961,3 +961,25 @@ class ActionExecution(db.Document):
     def save(self, *args, **kwargs):
         self.updated_at = datetime.now(timezone.utc)
         return super().save(*args, **kwargs)
+
+
+class ResponseAuditLog(db.Document):
+    uuid = db.StringField(required=True, unique=True)
+    response_uuid = db.StringField(required=True)
+    actor_user_uuid = db.StringField()
+    action = db.StringField(
+        required=True,
+        choices=("create", "update", "delete", "review", "approve", "reject"),
+    )
+    changes = db.DictField()
+    timestamp = db.DateTimeField(default=lambda: datetime.now(timezone.utc))
+
+    meta = {
+        "collection": "response_audit_logs",
+        "indexes": [
+            "uuid",
+            "response_uuid",
+            "actor_user_uuid",
+            "timestamp",
+        ],
+    }
