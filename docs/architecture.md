@@ -4,7 +4,7 @@
 
 1. Requests enter the application through `app/wsgi.py`.
 2. `app/openapi.py:create_openapi_app()` loads config, runtime settings, request ID middleware, observability, rotating logs, Celery, and route blueprints.
-3. `app/api/__init__.py` registers health, auth, resources, conditions, UI template, and rate-limit blueprints.
+3. `app/api/__init__.py` registers health, auth, resources, conditions, UI template, enterprise, and rate-limit blueprints.
 4. Route handlers perform validation and request shaping, then delegate to `app/services/`.
 5. MongoEngine documents in `app/models/` persist the system of record.
 6. Celery workers consume async jobs via Redis and operate inside the Flask app context.
@@ -15,6 +15,7 @@
 ### HTTP layer
 
 - `app/api/` contains the public request handlers
+- `app/api/enterprise.py` implements the simulators, signed audit verification, collaboration presence, retention purges, and operational analytics
 - `flask-openapi3` provides request body validation, response models, and OpenAPI schema generation
 - Legacy `/api/...` compatibility redirects are handled in `app/api/__init__.py`
 
@@ -34,7 +35,7 @@
 - `app/services/rate_limit.py` resolves and applies general rate-limit rules
 - `app/services/condition_evaluator.py` evaluates condition trees and DSL expressions
 - `app/services/condition_management.py` orchestrates presets, versions, approvals, async execution, and monitoring
-- `app/services/logging/` implements structured logging helpers
+- `app/services/logging/` implements structured logging events
 
 ### Data layer
 
@@ -44,6 +45,7 @@
 - `app/models/condition_management.py` stores condition presets, versions, approval audits, async jobs, and evaluation stats
 - `app/models/rate_limit.py` stores rate-limit rules and logs
 - `app/models/ui_template.py` stores theme and layout templates and revisions
+- `app/models/enterprise.py` stores webhook logs, logic sub-graphs, tenant residency configs, signed audit logs, active presences, retention policies, and webhook config policies
 
 ## Key behaviors
 
@@ -79,6 +81,14 @@
 - Templates contain revisions
 - A revision must be published before a template can be marked published
 - Publishing requires either super-admin or template-admin access
+
+### Enterprise Hardening and SaaS Operations
+
+- **Simulators**: Form conditional rules and Logic Layer calculations are simulated and validated using dry-run endpoints before production deploy.
+- **Tamper-Evident Audits**: System events are logged to `SignedAuditLog` and linked sequentially via SHA-256 cryptographic signatures. Verification endpoints trace the chain to detect database tampering.
+- **Collaboration Locks**: Active presences and editing heartbeats are tracked in `active_session_presences`. Acquisition locks block concurrent editing of form sections to prevent data overwrites.
+- **Lifecycle & Governance**: Data retention policies automate the cleanup or cold-storage archival of expired organizational records.
+- **Residency**: Data localization verification checks target regions against tenant residency configuration rules.
 
 ## Startup responsibilities
 

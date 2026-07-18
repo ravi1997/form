@@ -10,6 +10,7 @@ Form Service API is a Flask/OpenAPI backend for form management, JWT session aut
 - RBAC-enforced resource APIs for projects, forms, sections, questions, choices, and actions
 - Condition testing, versioning, presets, approval transitions, and async evaluation
 - UI template storage for layout/theme configuration and revision publishing
+- Enterprise capabilities including form/logic simulation, cryptographic signed audit logs, offline sync keys, collaboration locks, retention governance, webhook policies, and platform analytics
 - Health, readiness, metrics, and schema echo routes for operators
 - Structured request/response logs, request IDs, and security event logging
 
@@ -64,6 +65,20 @@ The resources API is protected by JWT auth, route-level rate limiting, and RBAC 
 ### UI templates
 
 `app/api/ui_templates.py` stores theme and layout templates, plus revisions that can be published independently.
+
+### Enterprise
+
+`app/api/enterprise.py` exposes production hardening and SaaS administrative systems:
+
+- Interactive Form Preview simulator
+- Logic Layer step-by-step Dry-Run calculation simulator
+- Tamper-Evident Signed Audit Trails and verification chains
+- Dynamic role-based field masking and anonymization
+- Offline key negotiation and validated sync queues
+- Workspace collaboration presence tracking and draft locks
+- Data lifecycle governance configurations and retention purge triggers
+- Webhook policy setup and delivery analytics
+- Platform operations dashboard metrics and security analytics
 
 ## Runtime components
 
