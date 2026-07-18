@@ -5,7 +5,15 @@ import io
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from app.models.form import Form, FormResponse, Question, ResponseAuditLog
+from app.models.form import (
+    Form,
+    FormResponse,
+    Question,
+    ResponseAuditLog,
+    FormWebhookConfig,
+    ResponseComment,
+    ResponseItem,
+)
 from app.models.user import User
 from app.services.condition_evaluator import ConditionEvaluator
 
@@ -183,3 +191,130 @@ def trigger_async_actions(response_id: str, event_type: str) -> None:
     from app.celery.tasks import trigger_response_webhook_task
 
     trigger_response_webhook_task.apply_async(args=[response_id, event_type])
+
+
+def create_form_webhook(
+    form_uuid: str, url: str, events: List[str], headers: Dict[str, str]
+) -> FormWebhookConfig:
+    """Configure a new webhook for form status change events."""
+    webhook = FormWebhookConfig(
+        uuid=str(uuid4()),
+        form_uuid=form_uuid,
+        url=url,
+        events=events,
+        headers=headers,
+    )
+    webhook.save()
+    return webhook
+
+
+def list_form_webhooks(form_uuid: str) -> List[FormWebhookConfig]:
+    """Retrieve all webhooks registered to the form."""
+    return list(FormWebhookConfig.objects(form_uuid=form_uuid))
+
+
+def delete_form_webhook(form_uuid: str, webhook_uuid: str) -> bool:
+    """Delete a form webhook configuration."""
+    webhook = FormWebhookConfig.objects(uuid=webhook_uuid, form_uuid=form_uuid).first()
+    if not webhook:
+        return False
+    webhook.delete()
+    return True
+
+
+def create_response_comment(
+    response_uuid: str, author_user_uuid: str, author_name: Optional[str], note: str
+) -> ResponseComment:
+    """Create a new discussion/review comment on a form response."""
+    comment = ResponseComment(
+        uuid=str(uuid4()),
+        response_uuid=response_uuid,
+        author_user_uuid=author_user_uuid,
+        author_name=author_name,
+        note=note,
+    )
+    comment.save()
+    return comment
+
+
+def list_response_comments(response_uuid: str) -> List[ResponseComment]:
+    """Retrieve all comments on the response in chronological order."""
+    return list(
+        ResponseComment.objects(response_uuid=response_uuid).order_by("created_at")
+    )
+
+
+def delete_response_comment(
+    comment_uuid: str, user_uuid: str, is_super_admin: bool
+) -> bool:
+    """Delete a response comment, ensuring user has permissions."""
+    comment = ResponseComment.objects(uuid=comment_uuid).first()
+    if not comment:
+        return False
+    if comment.author_user_uuid != user_uuid and not is_super_admin:
+        return False
+    comment.delete()
+    return True
+
+
+def save_form_response_draft(
+    project_uuid: str,
+    form_uuid: str,
+    response_uuid: str,
+    body_data: Any,
+    user: Optional[User],
+) -> FormResponse:
+    """Create or update a response entry in 'draft' status."""
+    from datetime import datetime, timezone
+
+    project, _ = (
+        FormResponse._fields["project"]
+        .document_type_obj.objects(uuid=project_uuid)
+        .first(),
+        None,
+    )
+    form = Form.objects(uuid=form_uuid).first()
+
+    response = FormResponse.objects(uuid=response_uuid, form_uuid=form_uuid).first()
+    response_items = [ResponseItem(**item.model_dump()) for item in body_data.responses]
+
+    if not response:
+        response = FormResponse(
+            uuid=response_uuid,
+            form=form,
+            form_uuid=form_uuid,
+            form_version_uuid=form.versions[-1].uuid if form.versions else "v1",
+            project=project,
+            project_uuid=project_uuid,
+            submitted_by=user,
+            submitted_by_uuid=getattr(user, "uuid", None),
+            status="draft",
+            responses=response_items,
+            response_map=body_data.response_map,
+            metadata=body_data.metadata,
+        )
+    else:
+        response.responses = response_items
+        response.response_map = body_data.response_map
+        response.metadata = body_data.metadata
+        response.status = "draft"
+        response.updated_at = datetime.now(timezone.utc)
+
+    response.save()
+    return response
+
+
+def get_form_response_draft(form_uuid: str, user_uuid: str) -> Optional[FormResponse]:
+    """Retrieve the current active draft response for the user on a specific form."""
+    return FormResponse.objects(
+        form_uuid=form_uuid,
+        submitted_by_uuid=user_uuid,
+        status="draft",
+    ).first()
+
+
+def get_form_response_audit_diff(response_uuid: str) -> List[ResponseAuditLog]:
+    """Get chronological list of audit log modifications for a response."""
+    return list(
+        ResponseAuditLog.objects(response_uuid=response_uuid).order_by("timestamp")
+    )
